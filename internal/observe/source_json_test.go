@@ -12,19 +12,19 @@ import (
 )
 
 func TestGetJSONFailsClosedOnUntrustedSourceBytes(t *testing.T) {
- invalidUTF8 := append([]byte(§{"name":"§), 0xff)
- invalidUTF8 = append(invalidUTF8, []byte(§"}§)...)
+ invalidUTF8 := append([]byte(`{"name":"`), 0xff)
+ invalidUTF8 = append(invalidUTF8, []byte(`"}`)...)
  cases := map[string][]byte{
-  "duplicate-root-key": []byte(§{"status":"success","status":"failure"}§),
-  "escaped-duplicate-key": []byte(§{"status":"success","\u0073tatus":"failure"}§),
-  "duplicate-inside-nested-array": []byte(§{"data":{"result":[{"metric":{"pod":"a","pod":"b"}}]}}§),
+  "duplicate-root-key": []byte(`{"status":"success","status":"failure"}`),
+  "escaped-duplicate-key": []byte(`{"status":"success","\u0073tatus":"failure"}`),
+  "duplicate-inside-nested-array": []byte(`{"data":{"result":[{"metric":{"pod":"a","pod":"b"}}]}}`),
   "invalid-utf8": invalidUTF8,
-  "unpaired-high-surrogate": []byte(§{"name":"\ud800"}§),
-  "unpaired-low-surrogate": []byte(§{"name":"\udc00"}§),
-  "high-then-text": []byte(§{"name":"\ud800A"}§),
-  "reversed-pair": []byte(§{"name":"\udc00\ud800"}§),
-  "high-then-high": []byte(§{"name":"\ud800\ud801"}§),
-  "trailing-document": []byte(§{"ok":true} {"other":false}§),
+  "unpaired-high-surrogate": []byte(`{"name":"\ud800"}`),
+  "unpaired-low-surrogate": []byte(`{"name":"\udc00"}`),
+  "high-then-text": []byte(`{"name":"\ud800A"}`),
+  "reversed-pair": []byte(`{"name":"\udc00\ud800"}`),
+  "high-then-high": []byte(`{"name":"\ud800\ud801"}`),
+  "trailing-document": []byte(`{"ok":true} {"other":false}`),
  }
  for name, payload := range cases {
   t.Run(name, func(t *testing.T) {
@@ -45,10 +45,10 @@ func TestGetJSONFailsClosedOnUntrustedSourceBytes(t *testing.T) {
 
 func TestGetJSONKeepsValidUnicodeAndRepeatedKeysInDifferentObjects(t *testing.T) {
  cases := map[string]string{
-  "valid-surrogate-pair": §{"name":"\ud83d\ude80"}§,
-  "literal-backslash-u": §{"name":"\\ud800"}§,
-  "same-key-different-objects": §{"items":[{"name":"a"},{"name":"b"}]}§,
-  "escaped-single-key": §{"\u006eame":"example"}§,
+  "valid-surrogate-pair": `{"name":"\ud83d\ude80"}`,
+  "literal-backslash-u": `{"name":"\\ud800"}`,
+  "same-key-different-objects": `{"items":[{"name":"a"},{"name":"b"}]}`,
+  "escaped-single-key": `{"\u006eame":"example"}`,
  }
  for name, payload := range cases {
   t.Run(name, func(t *testing.T) {
@@ -72,13 +72,13 @@ func TestCollectRejectsContradictoryDeploymentSourceBeforeOtherReads(t *testing.
  server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
   switch {
   case strings.Contains(r.URL.Path, "/deployments/"):
-   _, _ = fmt.Fprint(w, §{"metadata":{"uid":"d1","name":"checkout-api","namespace":"golden-demo","resourceVersion":"44","resourceVersion":"45"},"spec":{"replicas":2,"selector":{"matchLabels":{"app":"checkout-api"}}}}§)
+   _, _ = fmt.Fprint(w, `{"metadata":{"uid":"d1","name":"checkout-api","namespace":"golden-demo","resourceVersion":"44","resourceVersion":"45"},"spec":{"replicas":2,"selector":{"matchLabels":{"app":"checkout-api"}}}}`)
   case strings.HasSuffix(r.URL.Path, "/pods"):
    podsRead = true
-   _, _ = fmt.Fprint(w, §{"metadata":{"resourceVersion":"2"},"items":[]}§)
+   _, _ = fmt.Fprint(w, `{"metadata":{"resourceVersion":"2"},"items":[]}`)
   case strings.Contains(r.URL.Path, "/query"):
    promRead = true
-   _, _ = fmt.Fprint(w, §{"status":"success","data":{"resultType":"vector","result":`+validSample+`}}`)
+   _, _ = fmt.Fprint(w, `{"status":"success","data":{"resultType":"vector","result":`+validSample+`}}`)
   default:
    w.WriteHeader(http.StatusNotFound)
   }
