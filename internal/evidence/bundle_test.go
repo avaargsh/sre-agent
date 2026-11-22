@@ -87,3 +87,24 @@ func TestExistingCheckoutBenchmarkParity(t *testing.T) {
  if got.BundleSHA256 != legacyDigest { t.Fatalf("Go=%s Python=%s", got.BundleSHA256, legacyDigest) }
  if got.EvidenceCount != 2 || got.SupportedHypotheses != 1 { t.Fatalf("unexpected counts: %+v", got) }
 }
+
+
+func TestRejectsDuplicateJSONObjectKeysAtEveryDepth(t *testing.T) {
+ cases:=map[string]string{
+  "top-level":strings.Replace(fixture,`"metadata":{`,`"metadata":{},"metadata":{`,1),
+  "metadata":strings.Replace(fixture,`"schema_version":"aiops.evidence/v1"`,`"schema_version":"aiops.evidence/v1","schema_version":"aiops.evidence/v1"`,1),
+  "evidence":strings.Replace(fixture,`"evidence_id":"e-1"`,`"evidence_id":"e-1","evidence_id":"e-1"`,1),
+  "nested-attributes":strings.Replace(fixture,`"attributes":{}`,`"attributes":{"a":1,"a":1}`,1),
+ }
+ for name,raw:=range cases{
+  t.Run(name,func(t *testing.T){
+   if _,err:=Verify([]byte(raw));err==nil{
+    t.Fatal("duplicate JSON key was silently canonicalized and accepted")
+   }
+  })
+ }
+ scenario:=`{"case_id":"one","bundle":`+fixture+`,"bundle":`+fixture+`}`
+ if _,err:=VerifyScenario([]byte(scenario));err==nil{
+  t.Fatal("duplicate scenario bundle key was silently accepted")
+ }
+}
