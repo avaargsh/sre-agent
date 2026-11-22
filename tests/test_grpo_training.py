@@ -142,3 +142,25 @@ def test_rejects_oversized_candidate_and_prose_wrappers(tmp_path):
     assert score_completion(ep, "x" * 20000) == -1.0
     assert score_completion(ep, '{"root_cause_id":"oom_killed","evidence_ids":[],'
                                 '"stop_reason":"verified","other":null}') == -1.0
+
+
+def test_qwen3_template_disables_thinking_and_detects_truncation(tmp_path):
+    from agentic_aiops.grpo_training import qwen3_chat_rows
+
+    class ToyTokenizer:
+        def apply_chat_template(self, messages, **kwargs):
+            assert kwargs["enable_thinking"] is False
+            assert kwargs["add_generation_prompt"] is True
+            return "[assistant] " + messages[0]["content"]
+
+        def __call__(self, text, **kwargs):
+            return {"input_ids": text.split()}
+
+    ep, = load_episodes(write_jsonl(tmp_path, [episode()]))
+    rows = qwen3_chat_rows(ToyTokenizer(), [ep])
+    assert rows[0]["episode_id"] == "episode-1"
+    assert "oom_killed" not in rows[0]["prompt"]
+    with pytest.raises(ValueError, match="truncated"):
+        qwen3_chat_rows(ToyTokenizer(), [ep], max_prompt_tokens=1)
+    with pytest.raises(ValueError, match="completion budget"):
+        qwen3_chat_rows(ToyTokenizer(), [ep], max_completion_tokens=1)
