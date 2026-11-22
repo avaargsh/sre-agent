@@ -174,3 +174,35 @@ func TestOfflineReviewRejectsCaseAliasEvenWhenBundleDigestValid(t *testing.T){
   t.Fatalf("accepted alias-overridden source with valid original digest: code=%d stdout=%s stderr=%s",code,stdout.String(),stderr.String())
  }
 }
+
+
+func TestOfflineReviewRejectsValidCanonicalKeysWithAmbiguousAliases(t *testing.T) {
+ rawPath,planPath,bundlePath:=linkedAlertEvidenceFixture(t)
+ attacks:=map[string]func(map[string]any){
+  "alias-evidence-source":func(b map[string]any){
+   b["evidence"].([]any)[0].(map[string]any)["Source"]="untrusted-collector"
+  },
+  "alias-incident-identity":func(b map[string]any){
+   b["incident"].(map[string]any)["Incident_ID"]="another-incident"
+  },
+  "alias-prometheus-query":func(b map[string]any){
+   b["evidence"].([]any)[1].(map[string]any)["attributes"].(map[string]any)["Promql"]="unapproved_query"
+  },
+  "alias-observation-status":func(b map[string]any){
+   b["metadata"].(map[string]any)["Observation_Status"]="recovered"
+  },
+  "alias-bundle-field":func(b map[string]any){
+   b["Evidence"]="forged"
+  },
+ }
+ for name,change:=range attacks{
+  t.Run(name,func(t *testing.T){
+   forged:=rehashStructurallyValidBundle(t,bundlePath,change)
+   var stdout,stderr bytes.Buffer
+   if code:=run(reviewArgs(rawPath,planPath,forged),&stdout,&stderr);code!=3||
+    stdout.Len()!=0||!strings.Contains(stderr.String(),"UNKNOWN:"){
+    t.Fatalf("ambiguous exact/case-fold source fields passed structural review: exit=%d stdout=%s stderr=%s",code,stdout.String(),stderr.String())
+   }
+  })
+ }
+}
