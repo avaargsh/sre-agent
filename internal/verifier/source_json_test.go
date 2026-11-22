@@ -14,6 +14,8 @@ func TestSLIOracleFailsClosedOnContradictoryNativeSource(t *testing.T) {
  traffic := rangeResponse([]string{"1","2","3","2","1"}, -1)
  cases := map[string]string{
   "duplicate-status": strings.Replace(good, `"status":"success"`, `"status":"error","status":"success"`, 1),
+  "casefold-status": strings.Replace(good, `"status":"success"`, `"status":"error","Status":"success"`, 1),
+  "casefold-result-type": strings.Replace(good, `"resultType":"matrix"`, `"resultType":"vector","ResultType":"matrix"`, 1),
   "duplicate-result-type": strings.Replace(good, `"resultType":"matrix"`, `"resultType":"vector","resultType":"matrix"`, 1),
   "duplicate-label": strings.Replace(good, `"job":"checkout"`, `"job":"hidden","job":"checkout"`, 1),
   "escaped-status-alias": strings.Replace(good, `"status":"success"`, `"\u0073tatus":"error","status":"success"`, 1),
