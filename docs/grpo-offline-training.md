@@ -864,3 +864,63 @@ CPU-only unit tests include both a fake PEFT forward that changes its
 Logits and a fake active Adapter with matching weights that produces
 identical base/adapter Logits: the second must abort before the sampler.
 There is **no real CUDA/PEFT or SFT/GRPO model-quality evidence yet**.
+
+
+## P0: A-B-A restored LoRA forward consistency (2026-11-23)
+
+**Two forward passes are not a reliable causal test by themselves.**
+The earlier LoRA A/B probe compared Adapter enabled logits against
+disabled logits for one fixed Oracle-free prompt. Nondeterministic
+runtime drift, unexpected PEFT adapter lifecycle changes or a
+broken enable/disable transition could mimic an Adapter effect.
+
+The adapted Qwen3 holdout runner now executes three bounded, last-token
+forward observations on **identical** prompt tokens in eval/inference mode:
+
+1. **A1:** Adapter enabled; record original Logits.
+2. **B:** Adapter disabled via PEFT's context manager; record Base Logits.
+3. **A2:** Adapter re-enabled; record Logits again and recheck PEFT status.
+
+The LAB admission heuristic requires both a normalized A1-vs-B effect
+**greater than 1e-5**, and a normalized A1-vs-A2 restoration drift
+**no greater than 1e-5**. Both use the same denominator
+`max(1.0, max(abs(B_logits)))`. All three Logits vectors must be
+finite, exactly shape-compatible and from a bounded vocabulary. The
+Adapter must remain enabled, unmerged and non-trainable after A2.
+Any failure occurs **before sampling any Holdout Episode** and leaves
+no prediction/manifest artifact. The thresholds are conservative lab
+heuristics, not proven CUDA numerical tolerances: a legitimate but
+subthreshold/small LoRA effect or nondeterministic GPU kernel may
+cause an UNKNOWN rejection.
+
+**Versioned, non-promoting receipts:** successful local A-B-A runs use
+`sre.grpo.local-adapter-effect/v2` inside
+`sre.grpo.holdout-capture/v4`. The v2 receipt includes the original
+A1-vs-B delta plus the A1-vs-A2 restoration delta, the threshold and
+the `forward_reenable_consistent` value. It continues to say
+`model_runtime_independently_verified=false`,
+`model_attribution_verified=false`, and
+`production_eligible=false`. The independent verifier recomputes
+the numerical ratios from these **self-reported** metrics; it cannot
+independently replay or attest the real GPU forward pass.
+
+An auditor can reject all legacy v2/v3 adapter captures by adding:
+
+```bash
+# Along with all five external file SHA256 pins and the two adapter pins:
+python scripts/verify_sre_grpo_holdout.py ... \
+  --checkpoint-role GRPO \
+  --require-reenable-probe
+```
+
+Base v1, Adapter v2 and A/B-only Adapter v3 remain parseable for
+historical replay without this stronger gate; `--require-local-effect-probe`
+still accepts v3 or v4. `--require-reenable-probe` explicitly requires
+v4 and an internally consistent A-B-A receipt.
+
+**CPU-only regression evidence:** A-B-A fixtures test realistic-looking
+A1/B differences followed by an A2 drift, identical A1/A2 restoration,
+nonfinite re-enabled Logits, malformed metrics, false authority claims,
+legacy version compatibility and a fake PEFT inference runner with
+drifting re-enabled Logits. These do **not** establish actual Qwen3
+CUDA/PEFT reproducibility, model provenance or diagnostic advantage.
