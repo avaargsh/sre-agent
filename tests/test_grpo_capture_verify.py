@@ -136,3 +136,37 @@ def test_duplicate_json_keys_in_manifest_fail_closed(tmp_path):
             expected_manifest_sha256=manifest_sha,
             model="Qwen/Qwen3-0.6B", model_revision=REV, group_size=4,
         )
+
+
+def test_capture_verify_cli_replays_real_schema_without_model_import(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    ds, out, meta, sha, receipt, manifest_sha, _ = binding(tmp_path)
+    script = Path(__file__).resolve().parents[1] / "scripts/verify_sre_grpo_capture.py"
+    cmd = [
+        sys.executable, str(script),
+        "--dataset", str(ds),
+        "--rollouts", str(out),
+        "--manifest", str(meta),
+        "--expected-dataset-sha256", sha,
+        "--expected-rollouts-sha256", receipt["rollouts_sha256"],
+        "--expected-manifest-sha256", manifest_sha,
+        "--model", "Qwen/Qwen3-0.6B",
+        "--revision", REV,
+        "--group-size", "4",
+        "--require-signal",
+    ]
+    result = subprocess.run(cmd, text=True, capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert report["capture_binding"]["binding_consistent"] is True
+    assert report["reward_audit"]["nonconstant_reward_groups"] == 1
+    assert report["capture_binding"]["model_runtime_independently_verified"] is False
+    assert report["reward_audit"]["model_runtime_verified"] is False
+
+    cmd[cmd.index("--expected-rollouts-sha256") + 1] = "0" * 64
+    bad = subprocess.run(cmd, text=True, capture_output=True, check=False)
+    assert bad.returncode == 3
+    assert "UNKNOWN" in bad.stderr
