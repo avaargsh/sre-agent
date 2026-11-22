@@ -790,3 +790,77 @@ package release remains **unlocked** in `pyproject.toml`, so a real
 version-pinned CUDA/PEFT smoke run is still required:
 https://huggingface.co/docs/peft/v0.17.0/package_reference/peft_model
 and https://huggingface.co/docs/peft/developer_guides/checkpoint .
+
+
+## P0: local forward-effect smoke probe, capture v3 (2026-11-23)
+
+**Loaded tensors != applied behavior.** After the pinned LoRA bytes, key
+names, dtype and PEFT activation status are verified, SFT/GRPO inference
+now performs one **fixed, Oracle-free** short forward probe before the
+first Holdout completion. This is a deliberately conservative LAB gate.
+
+The runner feeds the exact same non-thinking probe tokens to the same
+evaluation-mode model with PEFT enabled and inside the public PEFT
+`model.disable_adapter()` context. It checks both last-token Logits
+vectors are finite and have matching bounded vocabulary dimensions, then
+measures:
+
+`normalized_logit_delta = max(abs(enabled_logits - disabled_logits))
+/ max(1.0, max(abs(disabled_logits)))`
+
+A nonfinite vector or normalized change **not greater than 1e-5** fails
+closed without publishing any Holdout predictions. The small threshold
+is a LAB heuristic, not an accuracy metric or universally calibrated
+numerical tolerance: an adapted model can produce a meaningful but
+subthreshold effect on this particular probe, so a failure is **UNKNOWN**,
+not proof the Adapter is invalid. The fixed probe is not a substitute for
+randomized inference, holdout cases, quality evaluation or independent
+model attribution.
+
+**PEFT lifecycle:** the public `disable_adapter()` implementation can
+alter `requires_grad` on reenable for some PEFT versions. The runner
+re-reads `get_model_status` after the context and refuses a changed,
+disabled, merged or unexpectedly trainable Adapter before sampling.
+This intentionally fails closed when dependency behavior is unsafe.
+See https://github.com/huggingface/peft/issues/3447 for the reported
+trainability regression; freeze and independently test a known-good
+dependency set on a real CUDA host before using this path operationally.
+
+When an adapted runner passes both the exact loaded-weight check and
+the local forward probe, its create-only capture upgrades from v2 to
+`sre.grpo.holdout-capture/v3` and includes
+`local_effect_probe` with the probe prompt SHA256, finite last-token
+delta measurements and negative provenance/production flags. The
+independent audit can validate this **self-reported** record's bounded,
+internally consistent numbers, negative authority flags and capture
+SHA256 binding. It cannot independently prove the GPU executed those
+forward passes.
+
+An independent reviewer can refuse legacy v2 captures:
+
+```bash
+python scripts/verify_sre_grpo_holdout.py \
+  --dataset /trusted/episodes.jsonl \
+  --prompts /readonly/test-prompts.jsonl \
+  --projection-manifest /exports/test-projection.json \
+  --predictions /artifacts/grpo-predictions.jsonl \
+  --capture-manifest /artifacts/grpo-capture.json \
+  --expected-dataset-sha256 "$PINNED_DATASET_SHA256" \
+  --expected-prompts-sha256 "$PINNED_PROMPTS_SHA256" \
+  --expected-projection-manifest-sha256 "$PINNED_PROJECTION_MANIFEST_SHA256" \
+  --expected-predictions-sha256 "$PINNED_GRPO_PREDICTIONS_SHA256" \
+  --expected-capture-manifest-sha256 "$PINNED_GRPO_CAPTURE_SHA256" \
+  --checkpoint-role GRPO \
+  --expected-adapter-config-sha256 "$PINNED_ADAPTER_CONFIG_SHA256" \
+  --expected-adapter-weights-sha256 "$PINNED_ADAPTER_WEIGHTS_SHA256" \
+  --model Qwen/Qwen3-0.6B \
+  --revision "$PINNED_QWEN3_COMMIT_SHA40" \
+  --require-local-effect-probe
+```
+
+Base capture remains v1; offline synthetic/legacy Adapter capture v2
+remains readable, but `--require-local-effect-probe` rejects it.
+CPU-only unit tests include both a fake PEFT forward that changes its
+Logits and a fake active Adapter with matching weights that produces
+identical base/adapter Logits: the second must abort before the sampler.
+There is **no real CUDA/PEFT or SFT/GRPO model-quality evidence yet**.
