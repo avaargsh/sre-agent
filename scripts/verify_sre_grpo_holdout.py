@@ -28,6 +28,8 @@ def main() -> int:
     parser.add_argument("--checkpoint-role", choices=("Base", "SFT", "GRPO"), default="Base")
     parser.add_argument("--require-local-effect-probe", action="store_true",
                         help="refuse legacy v2 adapted captures without local forward probe")
+    parser.add_argument("--require-reenable-probe", action="store_true",
+                        help="require v4 A-B-A LoRA reenable consistency receipt")
     parser.add_argument("--expected-adapter-config-sha256")
     parser.add_argument("--expected-adapter-weights-sha256")
     parser.add_argument("--model", required=True)
@@ -51,6 +53,7 @@ def main() -> int:
             expected_adapter_config_sha256=args.expected_adapter_config_sha256,
             expected_adapter_weights_sha256=args.expected_adapter_weights_sha256,
             require_local_effect_probe=args.require_local_effect_probe,
+            require_reenable_probe=args.require_reenable_probe,
         )
     except (OSError, ValueError, UnicodeError) as exc:
         print(f"UNKNOWN: independent holdout binding rejected: {exc}", file=sys.stderr)
