@@ -485,3 +485,74 @@ experiment, not arbitrary local paths or mutable branch aliases. The declared
 Consult the installed pinned TRL and Transformers API before relying on
 weight-loading compatibility; passing CPU CI alone does not guarantee a
 live CUDA integration is functional.
+
+
+## P0: three-way paired holdout comparison (Base vs SFT vs GRPO)
+
+The new `scripts/compare_sre_grpo_holdout.py` runs **offline**, imports
+no model or GPU library, and recomputes the independent Oracle-based
+diagnostic score for **the exact same held-out Episode IDs** across
+Base/SFT/GRPO. All four files must be **different paths**, and the dataset
+and each of the three raw prediction files require separately supplied,
+exact lowercase SHA256 pins. A holdout with more than 2048 cases is refused.
+No train/validation contamination, missing cases, duplicate JSON keys,
+unrecognized fields or partial prediction sets are accepted.
+
+Each model predictions JSONL file has exactly one record per chosen holdout
+Episode, with fields `episode_id` and `completion`, containing the **raw
+model text**, not model-owned scores:
+
+```json
+{"episode_id":"test-001","completion":"{\"root_cause_id\":\"unknown\",\"evidence_ids\":[],\"stop_reason\":\"insufficient_evidence\"}"}
+```
+
+Use independent external pins obtained from a separate reviewer or immutable
+artifact store, not a digest copied from the same untrusted model-generated
+manifest:
+
+```bash
+python scripts/compare_sre_grpo_holdout.py \
+  --dataset /trusted/episodes.jsonl \
+  --expected-dataset-sha256 "$EXTERNALLY_PINNED_DATASET_SHA256" \
+  --base /artifacts/base-test.jsonl --base-sha256 "$PINNED_BASE_SHA256" \
+  --sft /artifacts/sft-test.jsonl --sft-sha256 "$PINNED_SFT_SHA256" \
+  --grpo /artifacts/grpo-test.jsonl --grpo-sha256 "$PINNED_GRPO_SHA256" \
+  --split test
+```
+
+The JSON response provides the exact set size, each model's
+`exact_successes`, `exact_success_rate`, `mean_reward`,
+`correct_abstention_rate`, and the paired success transitions
+`GRPO_vs_Base`, `GRPO_vs_SFT`, `SFT_vs_Base`: win/loss,
+both-correct/both-incorrect ties, discordant case count, percentage-point
+success-rate delta, and exact **two-sided sign-test p-value** (descriptive
+only). The scorer uses exactly the frozen Oracle and rejects model-supplied
+scores/tool counts. It intentionally does not disclose raw answers or Oracle
+labels in aggregate stdout.
+
+**Comparison does not establish model identity or causality.** Naming files
+Base/SFT/GRPO does not prove those models generated them. SHA256 checks
+content against provided digests, not a trusted signer, a live model
+execution, an unbiased train/test split or non-duplicated semantic cases.
+An accuracy delta or small-sample p-value alone is **not** authorization to
+claim that GRPO improved real-world diagnosis. Every report explicitly sets
+`model_runtime_verified=false`,
+`model_attribution_verified=false`,
+`data_issuer_authenticated=false`,
+`superiority_claim_authorized=false` and
+`production_eligible=false`. Keep reporting the sample size, confidence
+limitations, negative cases, and any source-selection caveats.
+
+The older `scripts/eval_sre_grpo.py` remains compatible with prior
+synthetic fixtures, but now reads datasets/predictions exactly once and
+supports `--expected-dataset-sha256` and
+`--expected-predictions-sha256`. Pin both to avoid untrusted file
+replacement between hashing and scoring. A missing external pin keeps
+that legacy run self-consistent but **not externally authenticated**.
+
+**Remaining gate:** separate signed runner/model/weight revision receipts
+for Base, SFT and GRPO; actual CUDA inference and GRPO update evidence;
+independent review of experiment design and blind holdout provenance;
+repeat-seed statistical comparisons; and real, independently verified G2i
+fault-injection scenarios. Until then, these are regression-contract tests,
+not performance claims.
