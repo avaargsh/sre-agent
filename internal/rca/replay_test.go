@@ -193,3 +193,35 @@ func TestReplayRejectsWarnedOrPartialSLIEvenWithRecomputedSourceSHA(t *testing.T
   })
  }
 }
+
+
+func TestReplayRejectsDuplicateNestedSourceKeysWithValidDigests(t *testing.T) {
+ for _,tc:=range []struct{name string;source int;old,new string;refIndex int}{
+  {"kubernetes-replicaset-metadata",1,`"resourceVersion":"45"`,`"resourceVersion":"0","resourceVersion":"45"`,0},
+  {"prometheus-matrix-data",3,`"resultType":"matrix"`,`"resultType":"scalar","resultType":"matrix"`,1},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   ch,sli,claims:=replayFixture(t)
+   var raw []byte
+   if tc.source==1{raw,_=base64.StdEncoding.DecodeString(ch.Sources[1].RawResponseBase64)
+   }else{raw,_=base64.StdEncoding.DecodeString(sli.Evidence[0].RawResponseBase64)}
+   replaced:=strings.Replace(string(raw),tc.old,tc.new,1)
+   if replaced==string(raw){t.Fatalf("test fixture did not contain %s",tc.old)}
+   sum:=sha256.Sum256([]byte(replaced))
+   hash:=hex.EncodeToString(sum[:])
+   encoded:=base64.StdEncoding.EncodeToString([]byte(replaced))
+   if tc.source==1{
+    ch.Sources[1].RawResponseBase64=encoded
+    ch.Sources[1].ResponseSHA256=hash
+    claims[0].SupportingRefs[0]="k8s:"+hash
+   }else{
+    sli.Evidence[0].RawResponseBase64=encoded
+    sli.Evidence[0].ResponseSHA256=hash
+    claims[0].SupportingRefs[1]="prom:"+hash
+   }
+   if report,err:=Review(ch,sli,claims);err==nil{
+    t.Fatalf("accepted last-wins duplicate-key raw evidence: %+v",report)
+   }
+  })
+ }
+}
