@@ -556,3 +556,95 @@ independent review of experiment design and blind holdout provenance;
 repeat-seed statistical comparisons; and real, independently verified G2i
 fault-injection scenarios. Until then, these are regression-contract tests,
 not performance claims.
+
+
+## P0: Oracle-free holdout inference, content-chain verification (2026-11-23)
+
+The three-way comparison CLI previously accepted frozen prediction JSONL files,
+but it did not provide an isolated way to *produce* them. This patch adds
+**separate data-owner and inference-process inputs**, plus an independent
+five-artifact content audit. It remains **lab-only**, and no real Qwen3 GPU
+inference was executed in the CPU CI.
+
+**Data owner / verifier side:** pin the full Episode dataset and project only
+the requested test/validation split into a separate, read-only JSONL of
+`episode_id` + `prompt`. The private Oracle stays in the source dataset.
+The projection never copies the `oracle`, `split` or `fault_family`
+fields into a model input record; the sampler does not receive them.
+
+```bash
+python scripts/project_sre_grpo_holdout.py \
+  --dataset /trusted/episodes.jsonl \
+  --expected-dataset-sha256 "$PINNED_DATASET_SHA256" \
+  --split test \
+  --output /exports/test-prompts.jsonl \
+  --manifest /exports/test-projection.json
+```
+
+**Isolated Qwen3 runner:** transfer only `test-prompts.jsonl` and its exact
+externally pinned hash to the GPU machine. **Do not mount the original
+Oracle dataset into the model runner.** Supply an immutable, full 40-hex
+Hugging Face commit for the model and tokenizer. This greedy, non-thinking
+sampler generates **one** raw answer for **every** holdout Episode and keeps
+invalid JSON/empty/incorrect outputs instead of dropping hard cases.
+
+```bash
+python scripts/sample_sre_grpo_holdout.py \
+  --execute --lab-only \
+  --prompts /readonly/test-prompts.jsonl \
+  --expected-prompts-sha256 "$PINNED_PROMPTS_SHA256" \
+  --model Qwen/Qwen3-0.6B \
+  --revision "$PINNED_QWEN3_COMMIT_SHA40" \
+  --output /artifacts/base-predictions.jsonl \
+  --manifest /artifacts/base-capture.json \
+  --split test --seed 42 --max-new-tokens 192
+```
+
+The runner supports an **explicit Qwen/Qwen3-*** repository checkpoint only.
+It currently **does not load local PEFT LoRA adapters**. A real SFT/GRPO
+comparison therefore still requires separately prepared immutable merged
+model checkpoints that satisfy the model whitelist, or a future pinned
+adapter-loading implementation. Do not label the same Base model as SFT/GRPO
+or silently infer which model generated a file from its filename.
+
+**Independent audit:** an auditor with access to the original pinned dataset
+and to all projected and captured files recomputes every prompt using the
+Oracle-independent prompt builder, checks the exact Episode order/coverage,
+validates all five externally pinned SHA256 digests, rejects fabricated
+authority flags, and checks that the capture's model/tokenizer revision,
+prompt hash format, output hash, split, decoding config and counts agree.
+
+```bash
+python scripts/verify_sre_grpo_holdout.py \
+  --dataset /trusted/episodes.jsonl \
+  --prompts /readonly/test-prompts.jsonl \
+  --projection-manifest /exports/test-projection.json \
+  --predictions /artifacts/base-predictions.jsonl \
+  --capture-manifest /artifacts/base-capture.json \
+  --expected-dataset-sha256 "$PINNED_DATASET_SHA256" \
+  --expected-prompts-sha256 "$PINNED_PROMPTS_SHA256" \
+  --expected-projection-manifest-sha256 "$PINNED_PROJECTION_MANIFEST_SHA256" \
+  --expected-predictions-sha256 "$PINNED_BASE_SHA256" \
+  --expected-capture-manifest-sha256 "$PINNED_BASE_CAPTURE_SHA256" \
+  --model Qwen/Qwen3-0.6B \
+  --revision "$PINNED_QWEN3_COMMIT_SHA40" --split test
+```
+
+Repeat capture plus independent verification for **each** model checkpoint,
+then use `scripts/compare_sre_grpo_holdout.py` with all three exact pinned
+prediction JSONL files. The comparison's `model_attribution_verified=false`
+remains correct even when content-chain audit passes: raw hashes and
+self-reported model IDs do not prove the runtime loaded those weights.
+The independent verifier cannot attest host security or control which
+files were mounted during the model process; isolation must be enforced
+and evidenced by an external operator or trusted sandbox.
+
+**Failure boundaries:** all files are bounded, create-only, and published
+using same-directory staged/fsynced writes and no-replace hard links. A
+process termination between two final hard-link publications may leave an
+orphan JSONL without its companion manifest; such incomplete evidence is
+not eligible for a passed chain audit. Directory fsync/power-loss
+durability, signed source-provenance, weight attestation, actual GPU
+sampling, local LoRA checkpoint inference and blinded multi-seed outcomes
+are explicitly **not yet verified**. Passing CPU tests only verifies
+the contracts using injected fake tokenizers and samplers.
