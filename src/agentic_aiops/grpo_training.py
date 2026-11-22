@@ -88,6 +88,13 @@ def _id(value: Any, name: str) -> str:
 def _text(value: Any, name: str, max_chars: int) -> str:
     if type(value) is not str or not value.strip() or len(value) > max_chars:
         raise ValueError(f"invalid {name}")
+    # Escaped lone UTF-16 surrogates are accepted by Python's JSON decoder
+    # but are not Unicode scalar values. Reject at signed dataset admission
+    # instead of letting prompt projection fail later on encode("utf-8").
+    try:
+        value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError as exc:
+        raise ValueError(f"invalid Unicode surrogate in {name}") from exc
     return value
 
 
