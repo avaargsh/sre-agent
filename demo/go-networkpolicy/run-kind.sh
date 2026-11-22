@@ -25,6 +25,7 @@ test -n "$SERVICE_IP"
 SERVICE_HOST=checkout-api.golden-demo.svc.cluster.local
 kubectl -n golden-demo create configmap sre-np-probe-source \
   --from-file=probe.py=demo/go-networkpolicy/probe.py \
+  --from-file=preflight.py=demo/go-networkpolicy/preflight.py \
   --dry-run=client -o yaml | kubectl apply -f -
 
 # Native Kubernetes LIST endpoints retain collection ResourceVersion and
@@ -81,28 +82,70 @@ EOF
   snapshot "$stage"
 }
 
-# A Deployment may be Ready before Calico/Service dataplane is fully
-# converged. Require a truly healthy pre-injection control rather than
-# diagnosing transient cluster startup as the NetworkPolicy fault.
-# Only the BEFORE phase can be retried. Failed original Pod/log snapshots
-# are retained, never silently discarded; the final accepted baseline
-# remains the same strict healthy Oracle input. Do not retry during/after.
-for startup_attempt in 1 2 3 4 5; do
-  make_probe_pod before
-  if python3 demo/go-networkpolicy/check_healthy.py "$ROOT/before-admin.log" "$SERVICE_IP"; then
-    echo "PASS: fully healthy pre-fault baseline confirmed at attempt $startup_attempt"
-    break
+# The first Pod in a newly installed Calico cluster may encounter a
+# transient startup connection refusal even when Deployment readiness is true.
+# Stabilize in a SEPARATE preflight Pod and preserve ALL bounded attempts.
+# The scored before/during/after probes and their strict three-attempt Oracle
+# are unchanged; no sample is skipped or selected to inflate a verdict.
+preflight_dataplane() {
+  cat > /tmp/g2i-preflight-pod.yaml <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: np-preflight
+  namespace: golden-demo
+  labels:
+    app: sre-np-startup-preflight
+spec:
+  automountServiceAccountToken: false
+  dnsPolicy: ClusterFirst
+  restartPolicy: Never
+  containers:
+  - name: probe
+    image: python:3.12-slim
+    command: ["python", "/probe/preflight.py"]
+    env:
+    - name: SERVICE_HOST
+      value: "$SERVICE_HOST"
+    - name: SERVICE_IP
+      value: "$SERVICE_IP"
+    - name: PROBE_PHASE
+      value: preflight
+    resources:
+      requests: {cpu: 20m, memory: 32Mi}
+      limits: {cpu: "1", memory: 128Mi}
+    volumeMounts:
+    - name: probe-source
+      mountPath: /probe
+  volumes:
+  - name: probe-source
+    configMap:
+      name: sre-np-probe-source
+EOF
+  kubectl apply -f /tmp/g2i-preflight-pod.yaml
+  if ! kubectl -n golden-demo wait pod/np-preflight \
+      --for=jsonpath='{.status.phase}'=Succeeded --timeout=180s; then
+    kubectl -n golden-demo logs pod/np-preflight -c probe > "$ROOT/preflight-admin.log" || true
+    kubectl -n golden-demo get pod np-preflight -o json > "$ROOT/preflight-pod.json" || true
+    echo "UNKNOWN: startup dataplane never achieved a bounded stable preflight" >&2
+    return 1
   fi
-  cp "$ROOT/before-admin.log" "$ROOT/baseline-startup-rejected-$startup_attempt.log"
-  cp "$ROOT/before-pod.json" "$ROOT/baseline-startup-rejected-$startup_attempt-pod.json"
-  if [[ "$startup_attempt" -eq 5 ]]; then
-    echo "FAIL CLOSED: no fully healthy baseline after bounded startup convergence attempts" >&2
-    exit 1
-  fi
-  echo "INFO: baseline cluster dataplane not ready yet; preserving raw failed attempt $startup_attempt" >&2
-  kubectl -n golden-demo delete pod np-before --wait=true
-  sleep 4
-done
+  kubectl -n golden-demo get pod np-preflight -o json > "$ROOT/preflight-pod.json"
+  kubectl -n golden-demo logs pod/np-preflight -c probe > "$ROOT/preflight-admin.log"
+  grep -q 'PASS: two consecutive independently logged stable preflight snapshots' "$ROOT/preflight-admin.log"
+}
+preflight_dataplane
+
+# Admin baseline: prove the connection is functioning before any policy
+# is present. The scored Pod MUST still show three real direct HTTP 200s.
+make_probe_pod before
+python3 - "$ROOT/before-admin.log" "$SERVICE_IP" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1]))
+assert d['dns_ok'] is True and sys.argv[2] in d['dns_addresses'],d
+assert d['name_http_status']==200 and d['direct_http_attempts']==[200,200,200],d
+print('PASS: actual healthy DNS and three direct-IP HTTP 200s, before injection')
+PY
 
 # ONLY the CI test admin mutates NetworkPolicy. DNS TCP/UDP port 53 remains
 # allowed; the Service, EndpointSlices and backend are not modified.

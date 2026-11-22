@@ -1,17 +1,18 @@
 # G2j Evidence trust boundary — P0 security hardening
 
-**Scope:** Standalone Draft PR #7 stacked on PR #6 (G2i). No production writes, no autonomous incident repair, no production provenance assertion, and no merge before independent security review.
+**Scope:** Draft PR #7 rebased onto merged G2i `main`. No production writes, autonomous repair, source-authority claim or release-level security sign-off. This is a laboratory v1 signature contract; G2k/G2l remain responsible for workflow run-attempt and authorized signer-policy binding.
 
 ## Two separate controls
 
 ### A. Calico installation YAML: exact content allowlist
 
-`.github/workflows/go-networkpolicy-calico-kind.yml` fetches the upstream Calico tag `v3.33.0` then **requires**:
+`.github/workflows/go-networkpolicy-calico-kind.yml` has a **pre-cluster job** which checks the downloaded upstream Calico `v3.33.0` YAML and rejects tampered or missing files. The actual installer **separately** verifies the digest immediately before `kubectl create`:
 
 ```bash
-bash demo/go-networkpolicy/verify-calico-manifest.sh /tmp/g2i-calico.yaml
+# In calico-manifest-integrity, before creating any kind cluster:
 bash demo/go-networkpolicy/test-pin.sh /tmp/g2i-calico.yaml
-# Only after both succeed may kubectl create the downloaded YAML.
+# In the separate installer, immediately before kubectl create:
+bash demo/go-networkpolicy/verify-calico-manifest.sh /tmp/g2i-calico.yaml
 ```
 
 Expected SHA-256:
@@ -65,9 +66,9 @@ sre-agent verify-evidence \
 
 The `go-networkpolicy-calico-kind` workflow runs the real Calico deny/restore experiment, then the `test-evidence-attestation.sh` demonstration:
 
-1. Build an explicit original-source index covering 3 phase × 7 source types, plus experiment evidence metadata.
+1. Build an explicit original-source index covering 3 scored phases × 7 source types, plus experiment metadata and **both unscored startup witnesses** (`preflight-admin.log` and `preflight-pod.json`). The preflight includes all bounded cold-start successes and failures; it cannot silently be omitted in a favorable-only report.
 2. Generate an **ephemeral self-issued Ed25519 key** outside the artifact directory, sign the manifest, verify it against an explicitly provided public key and exact PR head/run ID.
-3. Attempt altered original source, unrelated public key, mismatched exact HEAD and mismatched Run ID. All must fail closed.
+3. Attempt an altered scored source, **altered preflight log with the scored sources unchanged**, unrelated public key, mismatched exact HEAD and mismatched Run ID. All must fail closed.
 4. Delete all private keys before the job ends. The uploaded public PEM is named `LAB-ONLY-UNTRUSTED-public-key.pem` deliberately: possession of a matching public key inside the same artifact proves **no independent signer identity**.
 
 **This CI test proves the signing/verifying machinery, not authenticated evidence provenance.** It must not be treated as ACP-signature verification or a production release gate. A production process needs an out-of-band authorized public key or KMS identity, scoped to tenant/project/run, plus authenticated CI/run metadata, immutable storage and approval records.
@@ -84,4 +85,4 @@ The `go-networkpolicy-calico-kind` workflow runs the real Calico deny/restore ex
 | Malicious operator falsifies source, metadata and logs | No current independent truth authority | Separate test-admin approval, verifier isolation, attested workload identity |
 | Unauthorized legacy cross-repo references | Historical acceptance remains failing | Explicit governance decision, not a silent rename/substitution |
 
-**Release policy:** keep Draft; never set `production_causality_verified=true`, merge chained PRs or claim production provenance based on lab-generated keys or passing CI alone. Request a reviewer who did not author these security changes and record review evidence before merge.
+**Release policy:** keep the signer-trust/production-release claim fail-closed; never set `production_causality_verified=true` or claim production provenance based on lab-generated keys or passing CI alone. Obtain non-author security review and independently authorized signer/run-attempt policy before any production release. Technical integration into the development branch is not an external production security approval.

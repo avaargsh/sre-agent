@@ -56,7 +56,10 @@ type deployment struct {
  Status struct{ReadyReplicas int `json:"readyReplicas"`; ObservedGeneration int64 `json:"observedGeneration"`} `json:"status"`
 }
 type podList struct {
- Metadata struct{ResourceVersion string `json:"resourceVersion"`} `json:"metadata"`
+ Metadata struct{
+  ResourceVersion string `json:"resourceVersion"`
+  Continue string `json:"continue"`
+ } `json:"metadata"`
  Items []struct{
   Metadata metadata `json:"metadata"`
   Status struct{Phase string `json:"phase"`} `json:"status"`
@@ -145,7 +148,7 @@ func readKubernetes(ctx context.Context,hc *http.Client,u *url.URL,c Config,when
  listPath:="/api/v1/namespaces/"+c.Namespace+"/pods?labelSelector="+url.QueryEscape(strings.Join(selectors,","))
  var pods podList
  if err:=getJSON(ctx,hc,u,listPath,c.KubernetesBearerToken,&pods);err!=nil{return nil,err}
- if pods.Metadata.ResourceVersion==""||len(pods.Items)>maxPods{return nil,unknownf("missing pod-list resourceVersion or too many pods")}
+ if pods.Metadata.ResourceVersion==""||pods.Metadata.Continue!=""||len(pods.Items)>maxPods{return nil,unknownf("missing pod-list resourceVersion or too many pods")}
  projected:=make([]map[string]string,0,len(pods.Items))
  for _,pod:=range pods.Items{
   if pod.Metadata.UID==""||pod.Metadata.Namespace!=c.Namespace||pod.Metadata.Name==""{return nil,unknownf("invalid pod identity")}

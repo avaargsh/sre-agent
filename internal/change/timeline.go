@@ -20,6 +20,7 @@ import (
  "strconv"
  "strings"
  "time"
+ "github.com/avaargsh/sre-agent/internal/evidence"
 )
 
 var ErrUnknown=errors.New("change evidence UNKNOWN")
@@ -111,6 +112,7 @@ func get(ctx context.Context,hc *http.Client,u *url.URL,path,token string,out an
  if response.StatusCode!=200{return Source{},unknown("Kubernetes HTTP status %d",response.StatusCode)}
  raw,err:=io.ReadAll(io.LimitReader(response.Body,maxPayload+1))
  if err!=nil||len(raw)>maxPayload{return Source{},unknown("Kubernetes response too large or unreadable")}
+ if err:=evidence.ValidateUniqueJSONObject(raw);err!=nil{return Source{},unknown("Kubernetes source contains ambiguous JSON keys")}
  dec:=json.NewDecoder(bytes.NewReader(raw))
  if err:=dec.Decode(out);err!=nil{return Source{},unknown("Kubernetes returned invalid JSON")}
  var extra any

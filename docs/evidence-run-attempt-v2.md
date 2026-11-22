@@ -1,6 +1,6 @@
 # G2k — Evidence manifest v2: run-attempt replay fencing and signer identity
 
-**Status:** PR #8 remains Draft, stacked on G2j PR #7. This is verification machinery, not a claim of production-issued signer keys.
+**Status:** PR #8 is Draft directly against `main` after G2j PR #7 merged at `1e3e136`; v2 verifies an isolated LAB signature contract, not a production-issued signer identity.
 
 ## Security failure addressed
 
@@ -60,7 +60,7 @@ sre-agent verify-evidence \
   --expected-signing-key-version <approved-key-version>
 ```
 
-The exact-head CI workflow checks out the PR head, derives the run ID and attempt from the GitHub Actions environment, creates a fresh temporary key **outside the evidence directory**, indexes the original Calico-kind test files, and explicitly tests mismatched attempt, key ID and version. The lab key is intentionally named `LAB-ONLY-UNTRUSTED` when its public counterpart appears in the downloaded evidence. Never automatically trust that bundled key.
+The exact-head CI workflow checks out the PR head, derives the run ID and attempt from the GitHub Actions environment, creates a fresh temporary key **outside the evidence directory**, indexes **all 26 original Calico-kind source files including the unscored startup preflight Pod and complete `preflight-admin.log`**, and explicitly tests changed preflight bytes, mismatched attempt, key ID and version. The lab key is intentionally named `LAB-ONLY-UNTRUSTED` when its public counterpart appears in the downloaded evidence. Never automatically trust that bundled key.
 
 ## Important non-guarantees and release gates
 
@@ -69,4 +69,4 @@ The exact-head CI workflow checks out the PR head, derives the run ID and attemp
 3. The lab private key and GitHub Action environment do not attest to actual Kubernetes origin. Lab key validation **does not** establish production evidence provenance.
 4. The raw local filesystem can be mutated between path `Lstat` and file reads. A real production gate needs immutable, content-addressed evidence storage with delegated identity / workload attestation and signed approval context.
 5. Historical evidence v1 under PR #7 remains inspectable by its original code; **v2 does not accept v1 as production-valid**. Do not alter historical run artifacts or claim they carry v2 attempt identity.
-6. Independent security review, control of signing key lifecycle, branch rules, and G0–G2j stacked PR merge gates remain open. **Keep this PR Draft and do not merge.**
+6. G0–G2j (#1–#7) are merged into development `main`, but **independent non-author security review**, external signer key registry/policy and historical four-repository acceptance remain open. Keep PR #8 Draft until fresh exact-head CI and source proof pass. Any later development merge is **not** authorization to release production evidence.
