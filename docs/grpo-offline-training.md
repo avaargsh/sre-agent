@@ -2,7 +2,7 @@
 
 Status: **contract and CPU-only tests; real Qwen3/TRL/PEFT, GPU training and
 independent A/B are NOT verified**. This feature is separate from the Go
-G1–G2m release/attestation Draft stack and creates no release authorization.
+merged G1–G2m experimental Go attestation stack, and creates no release authorization.
 
 ## Boundaries
 
@@ -176,9 +176,14 @@ episodes out of reported real-model accuracy and external release gates.
 
 ## G2i NetworkPolicy lab evidence intake (candidate only)
 
-The independent Go G2i NetworkPolicy evaluator, source signing and signer-policy
-mechanics are currently in the **separate stacked Draft PR #6–#10**. This
-Python GRPO branch **does not merge, endorse, or replace** those Go changes.
+The Go G2i NetworkPolicy evaluator, Ed25519 evidence-signing contract,
+v2 run-attempt/key identity, external-digest signer-policy checks and the local
+LAB ledger are now merged in `main` (PR #6–#10, through `958631fe`).
+However, this Python GRPO intake remains an **unverified candidate importer**:
+it does not invoke the Go verifier or independently authenticate the signer,
+policy publisher, source cluster or reviewer. Internally consistent SHA256
+fields and a separately pinned candidate-approval file are not enough to
+claim the source is genuine. No automatic training admission is granted.
 
 The opt-in adapter `grpo_lab_intake.py` understands the G2i data contract:
 `episode.json` (15 original admin snapshots across before/during/after),
