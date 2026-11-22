@@ -50,7 +50,8 @@ func setup(t *testing.T)(Episode,[3]dnsoracle.Observation){
    "spec":map[string]any{"automountServiceAccountToken":false,"dnsPolicy":"ClusterFirst",
     "containers":[]any{map[string]any{"name":"probe","env":[]any{
      map[string]any{"name":"SERVICE_HOST","value":"checkout-api.golden-demo.svc.cluster.local"},
-     map[string]any{"name":"SERVICE_IP","value":"10.96.0.55"}},
+     map[string]any{"name":"SERVICE_IP","value":"10.96.0.55"},
+     map[string]any{"name":"PROBE_PHASE","value":label}},
     }},
    }}
   phase[i]=Phase{Pod:frozen(t,pod),Probe:frozen(t,probe),Service:frozen(t,service),
