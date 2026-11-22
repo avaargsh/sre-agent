@@ -16,6 +16,10 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+# Optional; not imported by the default read-only SRE runtime.
+# This is an API compatibility range, not a hash-locked training environment.
+train = ["torch>=2.6,<3", "trl>=0.25,<0.26", "peft>=0.17,<1",
+         "transformers>=4.55,<5", "datasets>=3,<5", "accelerate>=1,<2"]
 temporal = ["cloud-agent-runtime[temporal]>=0.1.0"]
 
 [project.scripts]
