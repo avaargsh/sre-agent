@@ -240,3 +240,46 @@ def test_even_approved_admin_diagnosis_cannot_upgrade_unknown(tmp_path):
     digest = write(approval, payload)
     with pytest.raises(ValueError, match="fields"):
         intake(root, approval, digest, tmp_path / "out.jsonl")
+
+
+def test_rehashed_non_object_native_source_rejected(tmp_path):
+    root, approval, _ = make_fixture(tmp_path)
+    episode = json.loads((root / "episode.json").read_text())
+    episode["during"]["pod"] = snapshot(b'["not", "a", "pod"]')
+    data_sha = write(root / "episode.json", episode)
+    approval_data = json.loads(approval.read_text())
+    approval_data["episode_sha256"] = data_sha
+    approved_sha = write(approval, approval_data)
+    with pytest.raises(ValueError, match="snapshot JSON object"):
+        intake(root, approval, approved_sha, tmp_path / "out.jsonl")
+
+
+def test_rehashed_contradictory_probe_and_original_logs_rejected(tmp_path):
+    root, approval, _ = make_fixture(tmp_path)
+    probe = json.loads((root / "during-observer.log").read_text())
+    probe["name_http_status"] = 200
+    probe["direct_http_status"] = 200
+    probe["direct_http_attempts"] = [200, 200, 200]
+    raw = (json.dumps(probe, sort_keys=True) + "\n").encode()
+    (root / "during-admin.log").write_bytes(raw)
+    (root / "during-observer.log").write_bytes(raw)
+    observation = json.loads((root / "during-observation.json").read_text())
+    observation["observed"] = snapshot(raw)
+    write(root / "during-observation.json", observation)
+    episode = json.loads((root / "episode.json").read_text())
+    episode["during"]["probe"] = snapshot(raw)
+    episode_sha = write(root / "episode.json", episode)
+    approval_data = json.loads(approval.read_text())
+    approval_data["episode_sha256"] = episode_sha
+    approval_data["observer_log_sha256"]["during"] = hashlib.sha256(raw).hexdigest()
+    approved_sha = write(approval, approval_data)
+    with pytest.raises(ValueError, match="probe HTTP phases"):
+        intake(root, approval, approved_sha, tmp_path / "out.jsonl")
+
+
+def test_symlinked_observer_source_is_not_accepted(tmp_path):
+    root, approval, digest = make_fixture(tmp_path)
+    (root / "during-observer.log").unlink()
+    (root / "during-observer.log").symlink_to(root / "during-admin.log")
+    with pytest.raises(ValueError, match="symlink"):
+        intake(root, approval, digest, tmp_path / "out.jsonl")
