@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import uuid
 from pathlib import Path
 from typing import Any, Callable
 
@@ -84,6 +86,30 @@ def prepare_capture(
         model=model, model_revision=model_revision,
         group_size=group_size, seed=seed, max_new_tokens=max_new_tokens,
     )
+
+
+def _stage_bytes(final: Path, payload: bytes) -> Path:
+    """Write and fsync an exclusive, unpublished staging inode."""
+    stage = final.with_name(".sre-grpo-" + uuid.uuid4().hex + ".stage")
+    try:
+        with stage.open("xb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except BaseException:
+        stage.unlink(missing_ok=True)
+        raise
+    return stage
+
+
+def _owned_path(target: Path, stage: Path) -> bool:
+    """Avoid deleting a concurrent replacement on rollback."""
+    try:
+        a = os.lstat(target)
+        b = os.lstat(stage)
+        return (a.st_dev, a.st_ino) == (b.st_dev, b.st_ino)
+    except FileNotFoundError:
+        return False
 
 
 def capture_rollout_groups(
@@ -176,16 +202,28 @@ def capture_rollout_groups(
         receipt, sort_keys=True, ensure_ascii=False, indent=2,
     ) + "\n").encode("utf-8")
 
-    # A complete capture must be present in memory before writing anything.
-    # Both final paths are create-only; if the manifest fails to write, remove
-    # this invocation's previously created raw rollout. A crash between the
-    # writes can leave an orphan, but not a valid paired capture manifest.
-    with Path(output).open("xb") as stream:
-        stream.write(raw)
+    # Stage every payload before making a final pathname visible. An
+    # interrupted stage cannot publish a truncated final rollout or receipt.
+    # Link (not replace) is atomic and refuses competing output names.
+    # A crash between links can leave an orphan rollout without a manifest:
+    # never admit an orphan; a separate verifier requires both pinned files.
+    output_path = Path(output)
+    manifest_path = Path(manifest)
+    stage_out: Path | None = None
+    stage_manifest: Path | None = None
     try:
-        with Path(manifest).open("xb") as stream:
-            stream.write(manifest_bytes)
-    except BaseException:
-        Path(output).unlink()
-        raise
+        stage_out = _stage_bytes(output_path, raw)
+        stage_manifest = _stage_bytes(manifest_path, manifest_bytes)
+        os.link(stage_out, output_path)
+        try:
+            os.link(stage_manifest, manifest_path)
+        except BaseException:
+            if _owned_path(output_path, stage_out):
+                output_path.unlink()
+            raise
+    finally:
+        if stage_out is not None:
+            stage_out.unlink(missing_ok=True)
+        if stage_manifest is not None:
+            stage_manifest.unlink(missing_ok=True)
     return receipt
