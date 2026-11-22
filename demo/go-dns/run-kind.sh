@@ -158,6 +158,9 @@ for x in (g,b):
 for label in ('admin-dns-good.log','admin-dns-bad.log','observer-dns-good.log','observer-dns-bad.log'):
     p=json.loads((d/label).read_text())
     assert p['direct_http_status']==200,label
+    assert 1 <= len(p['direct_http_attempts']) <= 8,label
+    assert p['direct_http_attempts'][-1] == p['direct_http_status'],label
+    assert len(p['direct_http_errors']) == len(p['direct_http_attempts']),label
     if 'bad' in label:
         assert p['dns_ok'] is False and p['name_http_status']==0,label
         assert 'nameserver 127.0.0.1' in p['resolver'],label
