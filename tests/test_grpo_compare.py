@@ -226,3 +226,26 @@ def test_cli_prints_fail_closed_nonpromotion_flags_without_exposing_oracle(tmp_p
     failed = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT)
     assert failed.returncode == 3
     assert "UNKNOWN" in failed.stderr
+
+
+def test_pairwise_sign_test_is_descriptive_and_small_sample_is_not_proof(tmp_path):
+    report = compare(tmp_path)
+    assert report["paired"]["GRPO_vs_Base"]["discordant_cases"] == 3
+    assert report["paired"]["GRPO_vs_Base"]["paired_sign_test_p_value"] == 1.0
+    assert report["models"]["GRPO"]["exact_success_rate"] == 0.75
+    assert report["superiority_claim_authorized"] is False
+
+
+def test_oversized_holdout_case_count_is_bounded_before_loading_predictions(tmp_path):
+    dataset = tmp_path / "many-cases.jsonl"
+    cases = [ep(f"case-{i:04d}", f"fault-{i:04d}", answerable=True)
+             for i in range(2049)]
+    dataset_sha = write(dataset, cases)
+    paths = {name: tmp_path / f"{name}.jsonl" for name in ("Base", "SFT", "GRPO")}
+    shas = {name: write(path, [{"episode_id":"case-0", "completion":"{}"}])
+            for name, path in paths.items()}
+    with pytest.raises(ValueError, match="holdout.*limit"):
+        compare_pinned_holdout(
+            dataset, prediction_files=paths,
+            expected_dataset_sha256=dataset_sha, expected_prediction_sha256=shas,
+        )
