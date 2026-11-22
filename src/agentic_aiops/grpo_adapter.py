@@ -95,8 +95,14 @@ def _validate_config(raw: bytes, *, base_model: str, base_revision: str) -> dict
     return config
 
 
-def _validate_safetensors(raw: bytes) -> tuple[int, tuple[str, ...]]:
-    """Inspect self-describing safetensors header without importing torch."""
+def _validate_safetensors(
+    raw: bytes, *, config: dict[str, Any] | None = None,
+) -> tuple[int, tuple[str, ...]]:
+    """Inspect Safetensors bytes AND optional PEFT rank/target contract.
+
+    Raw SHA256, a parseable header and A/B pair keys do not prove that
+    PEFT could apply this adapter to the declared target modules.
+    """
     if len(raw) < 9:
         raise ValueError("invalid safetensors header")
     header_len = struct.unpack("<Q", raw[:8])[0]
@@ -111,6 +117,9 @@ def _validate_safetensors(raw: bytes) -> tuple[int, tuple[str, ...]]:
     payload_length = len(raw) - 8 - header_len
     ranges = []
     groups: dict[str, set[str]] = {}
+    shapes: dict[str, dict[str, tuple[int, int]]] = {}
+    dtypes: dict[str, dict[str, str]] = {}
+    found_targets: set[str] = set()
     count = 0
     for key, value in header.items():
         if key == "__metadata__":
@@ -123,17 +132,31 @@ def _validate_safetensors(raw: bytes) -> tuple[int, tuple[str, ...]]:
         if matched is None:
             raise ValueError(f"non-LoRA tensor found: {key[:80]}")
         prefix, kind = matched.groups()
+        target = prefix.rsplit(".", 1)[-1]
+        if config is not None and target not in config["target_modules"]:
+            raise ValueError(f"LoRA tensor target_modules mismatch: {target}")
+        found_targets.add(target)
         groups.setdefault(prefix, set()).add(kind)
         if (type(value) is not dict
                 or set(value) != {"dtype", "shape", "data_offsets"}):
             raise ValueError("invalid safetensors tensor header")
         dtype, shape, offsets = value["dtype"], value["shape"], value["data_offsets"]
-        if dtype not in _DTYPE_BYTES:
+        if type(dtype) is not str or dtype not in _DTYPE_BYTES:
             raise ValueError("unsupported safetensors LoRA dtype")
-        if (type(shape) is not list or not shape
+        if (type(shape) is not list or len(shape) != 2
                 or any(type(x) is not int or not 1 <= x <= 65536 for x in shape)
                 or math.prod(shape) > 100_000_000):
-            raise ValueError("invalid safetensors tensor shape")
+            raise ValueError("invalid LoRA matrix shape in safetensors")
+        if config is not None:
+            declared_rank = config["r"]
+            observed_rank = shape[0] if kind == "A" else shape[1]
+            if observed_rank != declared_rank:
+                raise ValueError(
+                    f"LoRA {kind} rank mismatch: declared {declared_rank}, "
+                    f"tensor dimension {observed_rank}"
+                )
+        shapes.setdefault(prefix, {})[kind] = (shape[0], shape[1])
+        dtypes.setdefault(prefix, {})[kind] = dtype
         if (type(offsets) is not list or len(offsets) != 2
                 or any(type(x) is not int for x in offsets)):
             raise ValueError("invalid safetensors data_offsets")
@@ -147,6 +170,12 @@ def _validate_safetensors(raw: bytes) -> tuple[int, tuple[str, ...]]:
             raise ValueError("too many safetensors LoRA tensors")
     if not groups or any(types != {"A", "B"} for types in groups.values()):
         raise ValueError("LoRA A/B parameter pairs required")
+    if any(parts["A"] != parts["B"] for parts in dtypes.values()):
+        raise ValueError("LoRA A/B dtype mismatch")
+    if any(parts["A"][0] != parts["B"][1] for parts in shapes.values()):
+        raise ValueError("LoRA A/B matrix rank mismatch")
+    if config is not None and found_targets != set(config["target_modules"]):
+        raise ValueError("LoRA target_modules missing declared tensor groups")
     cursor = 0
     for start, end in sorted(ranges):
         if start != cursor:
@@ -185,7 +214,7 @@ def load_pinned_adapter(
     config = _validate_config(
         config_raw, base_model=base_model, base_revision=base_revision,
     )
-    tensor_count, modules = _validate_safetensors(weights_raw)
+    tensor_count, modules = _validate_safetensors(weights_raw, config=config)
     receipt = {
         "schema_version": "sre.grpo.pinned-lora-adapter/v1",
         "adapter_config_sha256": config_sha,
