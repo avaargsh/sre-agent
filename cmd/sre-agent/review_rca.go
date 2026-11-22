@@ -67,7 +67,7 @@ func reviewRCA(args []string,stdout,stderr io.Writer)int{
  n,writeErr:=file.Write(serialized)
  if writeErr==nil&&n!=len(serialized){writeErr=io.ErrShortWrite}
  if writeErr==nil{writeErr=file.Sync()}
- closeErr:=file.Close()
+ closeErr=file.Close()
  if writeErr!=nil||closeErr!=nil{_ = os.Remove(*output);fmt.Fprintln(stderr,"cannot finish RCA review");return 1}
  fmt.Fprintln(stdout,*output)
  return 0
