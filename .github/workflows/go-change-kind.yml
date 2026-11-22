@@ -67,9 +67,92 @@ jobs:
               assert hashlib.sha256(raw).hexdigest() == source["response_sha256"]
           print("PASS: source-proof, revision timeline and causal non-assertion")
           PY
+      - name: Exercise same-kind competing RCA hypotheses (correlation only)
+        run: |
+          set -euo pipefail
+          # A disposable CI admin generates traffic; the Agent receives no write credentials.
+          kubectl -n golden-demo scale deploy/load-generator --replicas=1
+          kubectl -n golden-demo rollout status deploy/load-generator --timeout=120s
+          kubectl -n golden-demo port-forward svc/prometheus 19090:9090 >/tmp/go-rca-prometheus-pf.log 2>&1 &
+          PF=$!
+          trap 'kill "$PF" 2>/dev/null || true; rm -f /tmp/sre-change-token' EXIT
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:19090/-/ready >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          sleep 45
+          # Deliberately strict synthetic latency threshold creates an observed
+          # UNHEALTHY signal; it is NOT a production SLO or proof of causality.
+          set +e
+          /tmp/sre-agent verify-sli \
+            --prometheus http://127.0.0.1:19090 \
+            --latency-query 'max(checkout_request_latency_seconds)' \
+            --traffic-query 'sum(rate(checkout_requests_total[20s]))' \
+            --age-query 'max(time() - timestamp(checkout_request_latency_seconds))' \
+            --max-sample-age-seconds 10 \
+            --max-latency-seconds 0.01 --min-traffic-rps 0.001 \
+            --window 20s --step 5s --out /tmp/go-rca-sli.json
+          SLI_EXIT=$?
+          set -e
+          test "$SLI_EXIT" -eq 4
+          # Recollect the rollout after the SLI window; both reports now come
+          # from the SAME disposable cluster and share one incident window.
+          kubectl -n golden-demo create token sre-change-reader --duration=10m > /tmp/sre-change-token
+          chmod 0600 /tmp/sre-change-token
+          API="$(kubectl config view --raw --minify -o jsonpath='{.clusters[0].cluster.server}')"
+          START="$(python -c 'import json; print(json.load(open("/tmp/go-change-timeline.json"))["window_start"])')"
+          END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          /tmp/sre-agent collect-changes \
+            --kube-api "$API" --namespace golden-demo --deployment checkout-api \
+            --kube-token-file /tmp/sre-change-token --ca-file /tmp/sre-change-ca.pem \
+            --start "$START" --end "$END" --out /tmp/go-rca-changes.json
+          python - <<'PY'
+          import json
+          changes=json.load(open('/tmp/go-rca-changes.json',encoding='utf-8'))
+          sli=json.load(open('/tmp/go-rca-sli.json',encoding='utf-8'))
+          assert changes['relationship']=='TIME_OVERLAP_ONLY', changes
+          assert sli['status']=='UNHEALTHY', sli
+          k8s='k8s:'+changes['sources'][1]['response_sha256']
+          prom='prom:'+sli['evidence'][0]['response_sha256']
+          candidates=[
+            {'id':'h-rollout','kind':'DEPLOYMENT_CAUSAL',
+             'statement':'rollout may have caused the latency',
+             'claimed_status':'SUPPORTED',
+             'supporting_refs':[k8s,prom],'contradicting_refs':[]},
+            {'id':'h-database','kind':'OTHER_CAUSAL',
+             'statement':'database saturation may have caused latency',
+             'claimed_status':'SUPPORTED',
+             'supporting_refs':[prom],'contradicting_refs':[]},
+          ]
+          json.dump(candidates,open('/tmp/go-rca-candidates.json','w',encoding='utf-8'))
+          PY
+          /tmp/sre-agent review-rca \
+            --changes /tmp/go-rca-changes.json --sli /tmp/go-rca-sli.json \
+            --candidates /tmp/go-rca-candidates.json \
+            --out /tmp/go-rca-review.json
+          python - <<'PY'
+          import base64, hashlib, json
+          changes=json.load(open('/tmp/go-rca-changes.json',encoding='utf-8'))
+          sli=json.load(open('/tmp/go-rca-sli.json',encoding='utf-8'))
+          review=json.load(open('/tmp/go-rca-review.json',encoding='utf-8'))
+          assert review['status']=='HUMAN_REVIEW_REQUIRED',review
+          assert [c['verdict'] for c in review['candidates']]==[
+              'CORRELATED_NOT_PROVEN','UNVERIFIED'],review
+          assert changes['window_start']<=sli['start']<changes['window_end']
+          for source in [*changes['sources'],*sli['evidence']]:
+              raw=base64.b64decode(source['raw_response_base64'],validate=True)
+              assert hashlib.sha256(raw).hexdigest()==source['response_sha256']
+          print('PASS: same-kind evidence-linked competing RCA stays unverified')
+          PY
       - name: Upload immutable change evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: go-change-kind-proof
-          path: /tmp/go-change-timeline.json
+          path: |
+            /tmp/go-change-timeline.json
+            /tmp/go-rca-changes.json
+            /tmp/go-rca-sli.json
+            /tmp/go-rca-candidates.json
+            /tmp/go-rca-review.json
+            /tmp/go-rca-prometheus-pf.log
