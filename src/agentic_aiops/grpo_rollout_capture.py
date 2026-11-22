@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .grpo_import import _verify_pin
-from .grpo_training import SREEpisode, load_episodes, qwen3_chat_rows
+from .grpo_training import SREEpisode, load_episodes_bytes, qwen3_chat_rows
 
 _REPO = re.compile(r"Qwen/Qwen3-[A-Za-z0-9._-]+\Z")
 _SHA40 = re.compile(r"[0-9a-f]{40}\Z")
@@ -48,7 +48,7 @@ def validate_capture_inputs(
     ds = Path(dataset)
     raw = ds.read_bytes()
     digest = _verify_pin(raw, expected_dataset_sha256, "dataset_sha256")
-    episodes = load_episodes(ds)
+    episodes = load_episodes_bytes(raw)
     selected = tuple(ep for ep in episodes if ep.split == "train")
     if not 1 <= len(selected) <= _MAX_GROUPS:
         raise ValueError("train episode count must be in [1,128]")
