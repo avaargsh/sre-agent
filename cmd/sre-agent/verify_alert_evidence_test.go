@@ -142,3 +142,35 @@ func TestOfflineReviewRejectsChangedOriginalPlanOrUnapprovedQuery(t *testing.T){
   t.Fatalf("stale alert source accepted: exit=%d stdout=%s",code,stdout.String())
  }
 }
+
+
+func TestOfflineReviewRejectsCaseAliasEvenWhenBundleDigestValid(t *testing.T){
+ rawPath,planPath,bundlePath:=linkedAlertEvidenceFixture(t)
+ // The structural verifier walks exact JSON keys and accepts the distinct
+ // "source" / "Source" strings. An encoding/json struct decoder may silently
+ // map both to the source field. Keep the last alias AFTER the canonical key.
+ initial:=rehashStructurallyValidBundle(t,bundlePath,func(b map[string]any){
+  e:=b["evidence"].([]any)[0].(map[string]any)
+  e["source"]="forged-source"
+  e["Source"]="kubernetes"
+ })
+ raw,err:=os.ReadFile(initial)
+ if err!=nil{t.Fatal(err)}
+ // Move the uppercase alias behind the original lower-case key in the wire,
+ // without changing the canonical SHA256 (which is based on sorted map keys).
+ first:=[]byte(`"Source":"kubernetes",`)
+ last:=[]byte(`"source":"forged-source"`)
+ if !bytes.Contains(raw,first)||!bytes.Contains(raw,last){t.Fatal("fixture source keys missing")}
+ raw=bytes.Replace(raw,first,nil,1)
+ raw=bytes.Replace(raw,last,[]byte(`"source":"forged-source","Source":"kubernetes"`),1)
+ if _,err:=evidence.Verify(raw);err!=nil{
+  t.Fatalf("must construct a structural SHA-valid alias attack: %v",err)
+ }
+ forged:=filepath.Join(t.TempDir(),"wire-alias.json")
+ if err:=os.WriteFile(forged,raw,0600);err!=nil{t.Fatal(err)}
+ var stdout,stderr bytes.Buffer
+ if code:=run(reviewArgs(rawPath,planPath,forged),&stdout,&stderr);code!=3||
+  stdout.Len()!=0||!strings.Contains(stderr.String(),"UNKNOWN:"){
+  t.Fatalf("accepted alias-overridden source with valid original digest: code=%d stdout=%s stderr=%s",code,stdout.String(),stderr.String())
+ }
+}
