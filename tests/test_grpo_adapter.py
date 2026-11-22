@@ -219,3 +219,15 @@ def test_valid_rank2_q_projection_receipt_describes_exact_module(tmp_path):
     assert result.receipt["target_modules"] == ["q_proj"]
     assert result.receipt["lora_tensor_count"] == 2
     assert result.receipt["lora_modules"] == [f"{PREFIX}.q_proj"]
+
+
+def test_duplicate_semantic_lora_slot_rejected_despite_unique_safetensors_keys(tmp_path):
+    """Same A tensor may be serialized with two runtime naming variants."""
+    payload = shaped_safetensors([
+        (f"{PREFIX}.q_proj.lora_A.weight", (2, 2), "F16"),
+        (f"{PREFIX}.q_proj.lora_A.default.weight", (2, 2), "F16"),
+        (f"{PREFIX}.q_proj.lora_B.weight", (2, 2), "F16"),
+    ])
+    directory, pins = create_adapter(tmp_path, weights=payload)
+    with pytest.raises(ValueError, match="duplicate LoRA"):
+        load(directory, pins)
