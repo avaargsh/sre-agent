@@ -120,7 +120,7 @@ def test_rehashed_forged_tensor_digest_and_alias_rejected(tmp_path):
     _, _, frozen, _, post, original = setup(tmp_path)
     forged = json.loads(json.dumps(original))
     forged["tensors"][0]["byte_sha256"] = "0"*64
-    with pytest.raises(ValueError, match="tensor bytes|byte digest"):
+    with pytest.raises(ValueError, match="post_snapshot|tensor bytes|byte digest"):
         verify_posttraining_tensor_map(forged, frozen, expected_post_snapshot=post)
     forged = json.loads(json.dumps(original))
     forged["tensors"][0]["save_name"] = forged["tensors"][1]["save_name"]
