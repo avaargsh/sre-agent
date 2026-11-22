@@ -171,7 +171,7 @@ for stage in ('before','during','after'):
         item=episode[stage][name]
         raw=base64.b64decode(item['raw_response_base64'],validate=True)
         assert hashlib.sha256(raw).hexdigest()==item['response_sha256']
-    obs=json.loads((p/(stage+'observation.json')).read_text())['observed']
+    obs=json.loads((p/(stage+'-observation.json')).read_text())['observed']
     raw=base64.b64decode(obs['raw_response_base64'],validate=True)
     assert hashlib.sha256(raw).hexdigest()==obs['response_sha256']
 print('PASS: fifteen original frozen admin sources and three separate observer logs verified')
