@@ -37,6 +37,10 @@ jobs:
             "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_TAG}/manifests/calico.yaml" \
             -o /tmp/g2i-calico.yaml
           test -s /tmp/g2i-calico.yaml
+          # A version tag is not a digest pin: reject any changed upstream
+          # bytes before kubectl parses or creates CRDs and DaemonSets.
+          bash demo/go-networkpolicy/verify-calico-manifest.sh /tmp/g2i-calico.yaml
+          bash demo/go-networkpolicy/test-pin.sh /tmp/g2i-calico.yaml
           sha256sum /tmp/g2i-calico.yaml | tee /tmp/g2i-calico-sha.txt
           # Fresh cluster; create avoids oversize last-applied-configuration
           # annotation on bundled CRDs.
