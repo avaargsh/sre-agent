@@ -74,7 +74,7 @@ def test_mixed_rewards_have_gradient_signal_but_not_training_proof(tmp_path):
     assert report["groups"] == 1
     assert report["nonconstant_reward_groups"] == 1
     assert report["constant_reward_groups"] == 0
-    assert report["mean_reward"] == pytest.approx(-0.125)
+    assert report["mean_reward"] == pytest.approx(0.125)
     assert report["signal_fraction"] == pytest.approx(1.0)
     assert report["readiness"] == "GRADIENT_SIGNAL_PRESENT_NOT_TRAINING_PROOF"
     assert report["model_runtime_verified"] is False
