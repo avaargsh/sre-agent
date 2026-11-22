@@ -145,3 +145,31 @@ func TestPythonCanonicalParityForUnicodeSeparators(t *testing.T) {
   })
  }
 }
+
+
+func TestPythonCanonicalParityNormalizesJSONFloatLexemes(t *testing.T) {
+ // Python json.loads converts exponent/fraction lexemes to a float, and
+ // json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+ // writes canonical decimal/scientific notation; Go json.Number must not
+ // hash the attacker-controlled noncanonical spelling of the same value.
+ cases := []struct{ name, input, pythonSHA string }{
+  {"exp-to-decimal", "1e0", "2559cf3cd59057a7f60974149c0c08bc95507e25a06c017d5b2e02d9fa6eaa74"},
+  {"extra-fraction-zeros", "1.00", "2559cf3cd59057a7f60974149c0c08bc95507e25a06c017d5b2e02d9fa6eaa74"},
+  {"exp-leading-zeroes", "1e+020", "38712b8422e6bef07252d10824e2191c965c2fef2405875d72ed174c66745d9d"},
+  {"small-exponent", "1e-7", "c9b2e64cba96e41ee522ec789d8e4d3cbccc25463ca5f7eeaae83bdb81043780"},
+  {"negative-zero", "-0.000", "31a024fa740a31c75f3c98574aefd43309f44aa778887cd2cfcea07577c62542"},
+  {"decimal-after-exp", "2.500e+03", "b8a82a7f7d825aa021163c2fed5c703546914d51144c381db8d0fd383d8232c9"},
+  {"small-fixed-to-exp", "0.00001", "7d1b1386a7e225d0836d1fd59ef3d8e50c13378e00035ed1681cf7e57466ea0e"},
+  {"large-integer-unchanged", "9007199254740993", "26ff263007a1a602d4b00f8c9d56732955b0ab9dce9208cd95c6e59f1c01aba1"},
+ }
+ for _, tc := range cases {
+  t.Run(tc.name, func(t *testing.T) {
+   raw := strings.Replace(fixture, `"attributes":{}`, `"attributes":{"n":`+tc.input+`}`, 1)
+   got, err := Verify([]byte(raw))
+   if err != nil { t.Fatal(err) }
+   if got.BundleSHA256 != tc.pythonSHA {
+    t.Fatalf("legacy Python canonical SHA mismatch for %q: got %s, expected %s", tc.input, got.BundleSHA256, tc.pythonSHA)
+   }
+  })
+ }
+}
