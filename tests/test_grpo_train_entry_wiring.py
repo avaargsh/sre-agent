@@ -66,7 +66,10 @@ class FakeModel:
 
 
 def install_stubs(monkeypatch, *, change):
-    state = {"saved": False, "model_revision": None, "tokenizer_revision": None}
+    state = {
+        "saved": False, "model_revision": None, "tokenizer_revision": None,
+        "corrupt_saved_tensor": False,
+    }
     fake_model = FakeModel()
 
     torch = types.ModuleType("torch")
@@ -142,7 +145,11 @@ def install_stubs(monkeypatch, *, change):
                 (prefix+".lora_B.weight", fake_model.param_b),
             ):
                 start = len(contents)
-                contents += tensor.content
+                contents += (
+                    b"TAMPERED" if state["corrupt_saved_tensor"]
+                    and name.endswith(".lora_A.weight")
+                    else tensor.content
+                )
                 rows[name] = {
                     "dtype": "BF16", "shape": [2, 2],
                     "data_offsets": [start, len(contents)],
@@ -227,3 +234,18 @@ def test_entry_never_saves_unmodified_adapter_as_trained(
     assert state["saved"] is False
     assert (output / "sre-grpo-run-manifest.json").exists()
     assert not (output / "sre-grpo-local-lora-delta.json").exists()
+
+
+def test_post_save_tensor_mismatch_fails_before_local_training_receipt(
+    monkeypatch, tmp_path,
+):
+    """Even a successful trainer.save_model() return cannot publish bad LoRA."""
+    state = install_stubs(monkeypatch, change=True)
+    state["corrupt_saved_tensor"] = True
+    output = tmp_path / "corrupted-save-run"
+    with pytest.raises(ValueError, match="tensor bytes|post_snapshot"):
+        run_entry(monkeypatch, output)
+    assert state["saved"] is True
+    assert (output/"sre-grpo-run-manifest.json").is_file()
+    assert not (output/"sre-grpo-local-lora-delta.json").exists()
+    assert not (output/"sre-grpo-post-save-tensor-map.json").exists()
