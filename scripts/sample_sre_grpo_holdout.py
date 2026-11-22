@@ -15,6 +15,7 @@ from pathlib import Path
 
 from agentic_aiops.grpo_adapter import (
     load_pinned_adapter, staged_pinned_adapter,
+    verify_loaded_adapter_weights,
 )
 from agentic_aiops.grpo_holdout_capture import (
     capture_holdout_predictions,
@@ -108,7 +109,9 @@ def main() -> int:
         # PEFT can only access a private copy of the two verified files.
         # Never allow it to reopen mutable original adapter paths.
         try:
-            from peft import PeftModel
+            from peft import (
+                PeftModel, get_model_status, get_peft_model_state_dict,
+            )
         except ImportError as exc:
             print(f"UNKNOWN: missing PEFT for pinned adapter: {exc}", file=sys.stderr)
             return 3
@@ -116,7 +119,22 @@ def main() -> int:
             model = PeftModel.from_pretrained(
                 model, str(frozen_dir),
                 is_trainable=False, local_files_only=True,
+                autocast_adapter_dtype=False,
             )
+        # PEFT's public checkpoint export drops the runtime adapter name,
+        # matching the saved Safetensors state_dict keys. Do NOT infer
+        # loading succeeded merely because from_pretrained returned.
+        def exact_tensor_bytes(tensor):
+            return (tensor.detach().cpu().contiguous()
+                    .view(torch.uint8).numpy().tobytes())
+        verify_loaded_adapter_weights(
+            adapter,
+            get_peft_model_state_dict(
+                model, adapter_name="default", save_embedding_layers=False,
+            ),
+            get_model_status(model),
+            tensor_bytes=exact_tensor_bytes,
+        )
     model.eval()
 
     def sample(chat_prompt: str, seed: int) -> str:
