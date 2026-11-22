@@ -16,7 +16,13 @@ KEY=/tmp/g2j-selfissued-private.pem
 PUBLIC=/tmp/g2j-selfissued-public.pem
 COPIED="$(mktemp -d)"
 POLICY_DIR="$(mktemp -d)"
-cleanup() { rm -f "$KEY" "$PUBLIC"; rm -rf "$COPIED" "$POLICY_DIR"; }
+# LAB-only ledgers are intentionally outside the signed original evidence
+# root; never let a failed test leave an untrusted release journal behind.
+LAB_LEDGER="$(mktemp -d)"
+LAB_CORRUPT="$(mktemp -d)"
+LAB_ACKLOSS="$(mktemp -d)"
+chmod 0700 "$LAB_LEDGER" "$LAB_CORRUPT" "$LAB_ACKLOSS"
+cleanup() { rm -f "$KEY" "$PUBLIC"; rm -rf "$COPIED" "$POLICY_DIR" "$LAB_LEDGER" "$LAB_CORRUPT" "$LAB_ACKLOSS"; }
 trap cleanup EXIT
 
 # Explicit allowlist: no secrets, credentials, token files or generated
@@ -229,3 +235,69 @@ done
 cp "$POLICY" "$ROOT/LAB-ONLY-UNTRUSTED-policy.json"
 fail_closed bundled-policy verify_authorized "$ROOT/LAB-ONLY-UNTRUSTED-policy.json" "$POLICY_SHA"
 echo "PASS: independent policy gate mechanics only; signer authority, policy publication and revocation remain UNVERIFIED"
+
+# G2m local single-use release admission only. All inputs are validated AGAIN
+# by verify-evidence-authorized before recording any receipt. No production
+# release/deploy/approval is performed and all policies are CI-self-issued.
+record_release_lab() {
+  local dir="$1"
+  local slot="$2"
+  "$BIN" record-release-lab --lab-only \
+    --ledger-dir "$dir" --tenant demo-tenant --project demo-project --release-id "$slot" \
+    --root "$ROOT" \
+    --attestation "$ROOT/LAB-ONLY-self-issued-attestation.json" \
+    --trusted-public-key "$PUBLIC" \
+    --policy-file "$POLICY" --trusted-policy-sha256 "$POLICY_SHA" \
+    --expected-repo "$GITHUB_REPOSITORY" --expected-head "$SRE_SOURCE_HEAD" \
+    --expected-run-id "$GITHUB_RUN_ID" --expected-run-attempt "$GITHUB_RUN_ATTEMPT" \
+    --expected-episode np-calico-egress-001 \
+    --expected-signing-key-id "$KEY_ID" --expected-signing-key-version "$KEY_VERSION"
+}
+
+record_release_lab "$LAB_LEDGER" "release-001" >"$ROOT/LAB-ONLY-single-use-receipt.json"
+"$BIN" read-release-lab --ledger-dir "$LAB_LEDGER" >"$ROOT/LAB-ONLY-ledger-replayed.json"
+cp "$LAB_LEDGER/ledger.jsonl" "$ROOT/LAB-ONLY-ledger-original.jsonl"
+python3 - "$ROOT/LAB-ONLY-single-use-receipt.json" "$ROOT/LAB-ONLY-ledger-replayed.json" <<'PY'
+import json,sys
+receipt=json.load(open(sys.argv[1]))
+rows=json.load(open(sys.argv[2]))
+assert len(rows)==1 and rows[0]==receipt,(rows,receipt)
+assert receipt["status"]=="LAB_ADMISSION_RECORDED"
+assert receipt["production_release_authorized"] is False
+assert receipt["sequence"]==1
+assert receipt["workflow_run_attempt"]==__import__("os").environ["GITHUB_RUN_ATTEMPT"]
+print("PASS: one source-bound lab-only receipt recorded and strictly replayed")
+PY
+
+fail_closed repeated-same-release record_release_lab "$LAB_LEDGER" "release-001"
+fail_closed replay-same-attestation-new-slot record_release_lab "$LAB_LEDGER" "release-002"
+after="$(wc -l < "$LAB_LEDGER/ledger.jsonl")"
+test "$after" -eq 1
+
+# A crashed writer can leave a lock. A stale gate MUST NOT be stolen; it
+# requires independent operator reconciliation. This only simulates that
+# residual state in a disposable laboratory directory.
+cp -a "$LAB_LEDGER/." "$LAB_CORRUPT/"
+mkdir "$LAB_CORRUPT/.writer"
+fail_closed crash-lock-sticky record_release_lab "$LAB_CORRUPT" "release-003"
+test "$(wc -l < "$LAB_CORRUPT/ledger.jsonl")" -eq 1
+rmdir "$LAB_CORRUPT/.writer"
+
+# Signed evidence replay must NOT bypass a truncated / malformed ledger.
+printf '{"truncated":true}' >> "$LAB_CORRUPT/ledger.jsonl"
+fail_closed corrupted-journal-read "$BIN" read-release-lab --ledger-dir "$LAB_CORRUPT"
+fail_closed corrupted-journal-write record_release_lab "$LAB_CORRUPT" "release-003"
+
+# Indeterminate client ACK: force an output error only AFTER durable commit.
+# Even if the client never sees the receipt, replay cannot emit another one.
+set +e
+record_release_lab "$LAB_ACKLOSS" "ack-loss-001" >/dev/full 2>"$ROOT/rejected-lost-ack.txt"
+rc=$?
+set -e
+if [[ "$rc" -ne 3 ]] || ! grep -q 'UNKNOWN' "$ROOT/rejected-lost-ack.txt"; then
+  echo "FAIL: lost ACK did not produce explicit UNKNOWN" >&2
+  exit 1
+fi
+test "$(wc -l < "$LAB_ACKLOSS/ledger.jsonl")" -eq 1
+fail_closed lost-ack-retry record_release_lab "$LAB_ACKLOSS" "ack-loss-001"
+echo "PASS: local LAB receipt is single-use across replay, corrupted journal, stale lock and lost ACK (NOT production release)"
