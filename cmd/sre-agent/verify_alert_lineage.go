@@ -35,6 +35,19 @@ func verifyReadOnlyEvidenceLineage(item map[string]any,source string,attrs map[s
  var observation string
  switch source {
  case "kubernetes":
+  // These are the exact fields emitted by readKubernetes. An attacker can
+  // rehash both evidence_id and bundle digest, so presence and value checks
+  // must independently fail closed rather than relying on checksum mismatch.
+  for _,key:=range []string{"generation","observed_generation"}{
+   raw:=exactText(attrs,key)
+   number,err:=strconv.ParseInt(raw,10,64)
+   if err!=nil||number<0||strconv.FormatInt(number,10)!=raw {
+    return fmt.Errorf("invalid Kubernetes %s",key)
+   }
+  }
+  if exactText(attrs,"pod_list_resource_version")==""{
+   return fmt.Errorf("missing Kubernetes Pod list resource version")
+  }
   desiredRaw,readyRaw:=exactText(attrs,"desired_replicas"),exactText(attrs,"ready_replicas")
   desired,err:=strconv.Atoi(desiredRaw)
   if err!=nil||desired<0||strconv.Itoa(desired)!=desiredRaw {
