@@ -38,7 +38,13 @@ def load_predictions_bytes(raw: bytes) -> dict[str, str]:
         if key in result:
             raise ValueError(f"duplicate episode_id in predictions: {key}")
         completion = row["completion"]
-        if type(completion) is not str or len(completion.encode("utf-8")) > 8192:
+        if type(completion) is not str:
+            raise ValueError("invalid prediction completion")
+        try:
+            completion_bytes = completion.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise ValueError("invalid prediction completion") from exc
+        if len(completion_bytes) > 8192:
             raise ValueError("invalid prediction completion")
         result[key] = completion
     return result
