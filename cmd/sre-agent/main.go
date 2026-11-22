@@ -14,7 +14,7 @@ import (
 
 func run(args []string, stdout, stderr io.Writer) int {
  if len(args) == 0 {
-  fmt.Fprintln(stderr, "usage: sre-agent verify-bundle|investigate|verify-sli|collect-changes|review-rca|diagnose-service|evaluate-oracle|diagnose-endpoints|evaluate-endpoints|diagnose-dns|evaluate-dns|evaluate-networkpolicy [options]")
+  fmt.Fprintln(stderr, "usage: sre-agent verify-bundle|investigate|verify-sli|collect-changes|review-rca|diagnose-service|evaluate-oracle|diagnose-endpoints|evaluate-endpoints|diagnose-dns|evaluate-dns|evaluate-networkpolicy|index-evidence|sign-evidence|verify-evidence|verify-evidence-authorized|record-release-lab|read-release-lab [options]")
   return 2
  }
  if args[0] == "investigate" { return investigate(args[1:], stdout, stderr) }
@@ -28,7 +28,13 @@ func run(args []string, stdout, stderr io.Writer) int {
  if args[0] == "diagnose-dns" { return diagnoseDNS(args[1:], stdout, stderr) }
  if args[0] == "evaluate-dns" { return evaluateDNS(args[1:], stdout, stderr) }
  if args[0] == "evaluate-networkpolicy" { return evaluateNetworkPolicy(args[1:], stdout, stderr) }
- if args[0] != "verify-bundle" { fmt.Fprintln(stderr, "usage: sre-agent verify-bundle|investigate|verify-sli|collect-changes|review-rca|diagnose-service|evaluate-oracle|diagnose-endpoints|evaluate-endpoints|diagnose-dns|evaluate-dns|evaluate-networkpolicy [options]"); return 2 }
+ if args[0] == "index-evidence" { return indexEvidence(args[1:], stdout, stderr) }
+ if args[0] == "sign-evidence" { return signEvidence(args[1:], stdout, stderr) }
+ if args[0] == "verify-evidence" { return verifyEvidence(args[1:], stdout, stderr) }
+ if args[0] == "verify-evidence-authorized" { return verifyEvidenceAuthorized(args[1:], stdout, stderr) }
+ if args[0] == "record-release-lab" { return recordReleaseLab(args[1:], stdout, stderr) }
+ if args[0] == "read-release-lab" { return readReleaseLab(args[1:], stdout, stderr) }
+ if args[0] != "verify-bundle" { fmt.Fprintln(stderr, "usage: sre-agent verify-bundle|investigate|verify-sli|collect-changes|review-rca|diagnose-service|evaluate-oracle|diagnose-endpoints|evaluate-endpoints|diagnose-dns|evaluate-dns|evaluate-networkpolicy|index-evidence|sign-evidence|verify-evidence|verify-evidence-authorized|record-release-lab|read-release-lab [options]"); return 2 }
  flags := flag.NewFlagSet("verify-bundle", flag.ContinueOnError)
  flags.SetOutput(stderr)
  path := flags.String("file", "", "bundle JSON file (use - for stdin)")
