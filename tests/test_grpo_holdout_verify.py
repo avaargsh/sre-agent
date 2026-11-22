@@ -115,7 +115,7 @@ def test_wrong_model_or_revision_and_missing_episode_fail_closed(tmp_path):
     rows = [json.loads(x) for x in paths["predictions"].read_text().splitlines()]
     paths["predictions"].write_text(json.dumps(rows[0]) + "\n")
     new_sha = hashlib.sha256(paths["predictions"].read_bytes()).hexdigest()
-    with pytest.raises(ValueError, match="predictions_sha256|missing"):
+    with pytest.raises(ValueError, match="predictions_sha256|missing|holdout episode IDs"):
         verify_holdout_chain(
             **paths, **{**pins, "expected_predictions_sha256": new_sha}
         )
@@ -150,3 +150,35 @@ def test_cli_checks_pinned_chain_before_independent_evaluation(tmp_path):
     failed = subprocess.run(args, capture_output=True, text=True, cwd=ROOT)
     assert failed.returncode == 3
     assert "UNKNOWN" in failed.stderr
+
+
+def test_rehashed_mutable_model_alias_does_not_pass_binding(tmp_path):
+    paths, pins = make_chain(tmp_path)
+    capture = json.loads(paths["capture_manifest"].read_text())
+    capture["model_revision"] = "main"
+    capture["tokenizer_revision"] = "main"
+    paths["capture_manifest"].write_text(json.dumps(capture) + "\n")
+    new_sha = hashlib.sha256(paths["capture_manifest"].read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match="model_revision"):
+        verify_holdout_chain(
+            **paths, **{
+                **pins,
+                "expected_capture_manifest_sha256": new_sha,
+                "model_revision": "main",
+            },
+        )
+
+
+def test_rehashed_unapproved_model_id_does_not_pass_binding(tmp_path):
+    paths, pins = make_chain(tmp_path)
+    capture = json.loads(paths["capture_manifest"].read_text())
+    capture["model"] = "other-org/untrusted"
+    paths["capture_manifest"].write_text(json.dumps(capture) + "\n")
+    sha = hashlib.sha256(paths["capture_manifest"].read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match="model"):
+        verify_holdout_chain(
+            **paths, **{
+                **pins, "expected_capture_manifest_sha256": sha,
+                "model": "other-org/untrusted",
+            },
+        )
