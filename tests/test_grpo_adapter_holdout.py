@@ -11,10 +11,11 @@ from agentic_aiops.grpo_adapter import load_pinned_adapter
 from agentic_aiops.grpo_holdout_capture import capture_holdout_predictions
 from agentic_aiops.grpo_holdout_verify import verify_holdout_chain
 from test_grpo_adapter import create_adapter, MODEL, REV
+from test_grpo_adapter_effect import observe
 from test_grpo_holdout_capture import FakeTokenizer, ROOT, projection
 
 
-def prepare(tmp_path, role="GRPO"):
+def prepare(tmp_path, role="GRPO", *, effect=False):
     adapter_dir, adapter_pins = create_adapter(tmp_path)
     frozen = load_pinned_adapter(
         adapter_dir, base_model=MODEL, base_revision=REV, **adapter_pins
@@ -27,6 +28,7 @@ def prepare(tmp_path, role="GRPO"):
         tokenizer=FakeTokenizer(), sampler=lambda prompt, seed: "{}",
         model=MODEL, model_revision=REV,
         checkpoint_role=role, adapter_receipt=frozen.receipt,
+        local_effect_receipt=observe() if effect else None,
     )
     paths = dict(
         dataset=dataset, prompts=prompts, projection_manifest=projection_manifest,
@@ -134,3 +136,37 @@ def test_cli_adapter_preflight_fails_before_cuda_import(tmp_path):
     assert bad.returncode != 0
     assert "adapter_weights_sha256" in bad.stderr
     assert not (tmp_path/"pred.jsonl").exists()
+
+
+def test_v3_functional_effect_receipt_is_bound_and_not_promoted(tmp_path):
+    paths, pins, captured = prepare(tmp_path, effect=True)
+    assert captured["schema_version"] == "sre.grpo.holdout-capture/v3"
+    assert captured["local_effect_probe"]["local_forward_effect_observed"] is True
+    report = verify_holdout_chain(
+        **paths, **pins, require_local_effect_probe=True,
+    )
+    assert report["local_effect_probe_content_consistent"] is True
+    assert report["model_runtime_verified"] is False
+    assert report["model_attribution_verified"] is False
+    assert report["superiority_claim_authorized"] is False
+
+
+def test_v2_legacy_fails_when_independent_auditor_requires_forward_probe(tmp_path):
+    paths, pins, _ = prepare(tmp_path)
+    with pytest.raises(ValueError, match="local effect probe"):
+        verify_holdout_chain(**paths, **pins, require_local_effect_probe=True)
+
+
+def test_rehashed_forged_local_probe_is_rejected(tmp_path):
+    paths, pins, _ = prepare(tmp_path, effect=True)
+    capture_path = paths["capture_manifest"]
+    original = json.loads(capture_path.read_text())
+    original["local_effect_probe"]["normalized_logit_delta"] = 1.0
+    capture_path.write_text(json.dumps(original) + "\n")
+    updated_sha = hashlib.sha256(capture_path.read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match="local effect"):
+        verify_holdout_chain(
+            **paths, **{
+                **pins, "expected_capture_manifest_sha256": updated_sha,
+            }, require_local_effect_probe=True,
+        )
