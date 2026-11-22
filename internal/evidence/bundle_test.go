@@ -110,11 +110,15 @@ func TestRejectsDuplicateJSONObjectKeysAtEveryDepth(t *testing.T) {
 }
 
 
-func TestMissingV1SchemaVersionFailsClosed(t *testing.T) {
+func TestLegacyVersionlessMetadataPreservesPythonParity(t *testing.T) {
+ // Python EvidenceBundle.metadata is deliberately free-form; an explicit
+ // unsupported version must still be rejected (TestRejectsUnknownSchema).
  raw := changed(t, func(root map[string]any) {
   delete(root["metadata"].(map[string]any), "schema_version")
  })
- if _, err := Verify(raw); err == nil {
-  t.Fatal("bundle with no schema_version was accepted as v1")
+ result, err := Verify(raw)
+ if err != nil { t.Fatalf("legacy metadata rejected: %v", err) }
+ if result.BundleSHA256 == "" || result.Status != "STRUCTURALLY_VALID" {
+  t.Fatalf("legacy bundle unreadable: %+v", result)
  }
 }
