@@ -5,7 +5,6 @@ package evidenceauth
 import (
  "crypto/ed25519"
  "encoding/hex"
- "encoding/json"
  "errors"
  "fmt"
  "strings"
