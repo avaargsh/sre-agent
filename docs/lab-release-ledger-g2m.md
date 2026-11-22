@@ -1,6 +1,6 @@
 # G2m — Single-host LAB admission ledger and replay-safe receipt
 
-> **Status: Draft PR #10, stacked on G2l PR #9.**
+> **Status: Draft PR #10 targeting merged `main` after G2l PR #9 (`d4b606a`).**
 > **Experimental local admission only:** no Kubernetes mutations, no deploy, no published release, no multi-node exactly-once guarantee and no production signer authentication.
 
 ## Purpose and security boundary
@@ -45,6 +45,21 @@ sre-agent read-release-lab --ledger-dir /tmp/sre-lab-ledger
 
 On a successful local admission the program outputs one JSON receipt. For any signature failure, unauthorized signer, corrupt journal, stale/concurrent lock, same attestation reuse or same release slot reuse, it prints `UNKNOWN`, returns exit code 3 and outputs **no new success receipt**. If the receipt write succeeded but stdout failed, the first entry remains durable and subsequent attempts are refused (lost-ACK test).
 
+## Preserved source completeness from the merged upstream
+
+The G2i NetworkPolicy lab already uses a bounded **separate** `np-preflight`
+Pod, archiving all startup probe attempts and its Pod identity before any
+scored baseline. G2j–G2l sign and authorize a **26-file** source manifest
+containing `preflight-admin.log` and `preflight-pod.json`, and reject a
+tampered preflight source. The older G2m branch proposed retrying the scored
+`np-before` Pod, alongside an extra `check_healthy.py` helper. That legacy
+retry was **superseded and intentionally not merged**: the current PR keeps
+the independent preflight and exact three-attempt before/during/after Oracle
+unchanged, so early failures cannot be silently replaced or promoted.
+
+The LAB ledger receipts are produced only *after* the existing strict
+Calico and authorized-signature evidence tests, never before them.
+
 ## Required test evidence
 
 Go race tests: exactly one success under 32 concurrent clients; cross-slot replay denial; same slot/new evidence denial; chained record replay; interrupted lock; tampered, truncated or malformed existing journal; invalid labels; symlink/public directory denial. Real Calico CI exercises signature + G2l authorized signer policy, a positive lab admission, duplicate attempt and cross-slot replay rejections, simulated leftover lock, corrupt-journal rejection and a forced `/dev/full` lost-ACK experiment. Evidence output records the original journal and receipt, not any signing private key.
@@ -56,6 +71,6 @@ Go race tests: exactly one success under 32 concurrent clients; cross-slot repla
 3. There is no externally attested trusted signer, monotonic issuer revocation policy, trusted time, authorized tenant/project identity, approver identity, external release receipt authority, or real promotion transition.
 4. A crashed/uncertain writer blocks new admission indefinitely. Manual forensic reconciliation is required; blindly removing `.writer`, deleting the marker or truncating the log is not an approved recovery flow.
 5. This code does not modify a Kubernetes cluster, create a PR, merge any branch or set `production_causality_verified=true`. A local admission is a *lab record*, not an actual production release.
-6. Independent security review, multi-node transactional authority (e.g. PostgreSQL unique constraints and serializable/advisory-lock transaction or equivalent), real authorization/approval receipts, external audit chain, and G0–G2l stacked Draft gates remain open.
+6. Independent security review, multi-node transactional authority (e.g. PostgreSQL unique constraints and serializable/advisory-lock transaction or equivalent), real authorization/approval receipts and external audit chain remain open. PRs #1–#9 are already merged as experimental development baselines, not production security approvals.
 
-**Decision:** keep G2m PR #10 Draft and fail closed until the above gates are resolved.
+**Decision:** keep G2m PR #10 Draft until exact-HEAD Go/race and true Calico receipt CI have passed and the PR is independently reviewed. A development-main merge does not change its single-host LAB-only semantics.
