@@ -924,3 +924,42 @@ nonfinite re-enabled Logits, malformed metrics, false authority claims,
 legacy version compatibility and a fake PEFT inference runner with
 drifting re-enabled Logits. These do **not** establish actual Qwen3
 CUDA/PEFT reproducibility, model provenance or diagnostic advantage.
+
+
+## P0 CPU-only PEFT config ↔ Safetensors matrix admission
+
+A successful raw SHA256 check and structurally valid Safetensors header do
+**not** establish that a LoRA checkpoint is compatible with its PEFT
+configuration. Earlier validation only required LoRA A/B keys to be present.
+A malformed but correctly hashed file could declare `q_proj` and rank 2 while
+containing `k_proj` weights, rank 3 matrices, 3D tensor shapes, incompatible
+A/B dtypes, or duplicate PEFT `.default` variants of the same tensor slot.
+
+`grpo_adapter.load_pinned_adapter` now validates all of the following
+**before loading any Torch/CUDA dependency**:
+
+- Each tensor target suffix belongs to `target_modules`; every declared
+  target module must appear in the single-file Adapter.
+- Each A/B tensor is a 2D matrix. `lora_A` has shape
+  `[r, in_features]`, and `lora_B` has shape
+  `[out_features, r]`. The two rank dimensions must match the
+  checked `adapter_config.json:r` value.
+- A/B pairs for a given module have the same supported data type, and
+  each semantic tensor slot is unique even when the JSON has distinct keys
+  such as `lora_A.weight` and `lora_A.default.weight`.
+- Corrupt header values (including non-string dtypes) produce controlled
+  `ValueError` rejection instead of an uncaught `TypeError`.
+  Existing header offset/coverage, tensor-count, size, unsafe PEFT
+  configuration and source-byte SHA checks continue to apply.
+
+CPU regression fixtures now use *self-consistent* 2×2 LoRA A/B tensors with
+rank 2 and `target_modules=["q_proj"]`. Additional adversarial fixtures
+prove that wrong modules, mismatched rank, malformed matrix shape, A/B dtype
+mismatch and duplicate semantic slots are rejected despite correctly
+recomputed file SHA256 values.
+
+**Scope:** this is a narrow structural admission policy for the supported
+Qwen3 q/v projection PEFT configurations. It deliberately rejects unusual
+yet potentially valid Adapter formats; those need an explicit format
+extension and independent test cases. It does **not** prove weight
+provenance, actual PEFT/CUDA compatibility or SRE diagnostic improvement.
