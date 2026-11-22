@@ -38,15 +38,24 @@ func validateEmbeddedPods(attrs map[string]any)error{
  pods,err:=parseEmbeddedReadOnlyList(exactText(attrs,"pods_json"),"Kubernetes pods_json")
  if err!=nil{return err}
  if len(pods)>100{return fmt.Errorf("too many embedded pods")}
- seen:=make(map[string]bool,len(pods))
+ seenUIDs:=make(map[string]bool,len(pods))
+ seenNames:=make(map[string]bool,len(pods))
  for _,item:=range pods{
   pod:=exactObject(item)
   if err:=requireOnlyFields(pod,"embedded pod","uid","name","phase");err!=nil{return err}
   uid,name:=exactText(pod,"uid"),exactText(pod,"name")
   if uid==""||name==""{return fmt.Errorf("embedded pod missing identity")}
-  if _,ok:=pod["phase"].(string);!ok{return fmt.Errorf("embedded pod phase is not a string")}
-  if seen[uid]{return fmt.Errorf("duplicated embedded pod UID")}
-  seen[uid]=true
+  phase,ok:=pod["phase"].(string)
+  if !ok{return fmt.Errorf("embedded pod phase is not a string")}
+  switch phase{
+  case "Pending","Running","Succeeded","Failed","Unknown":
+  default:
+   return fmt.Errorf("embedded pod has invalid phase")
+  }
+  if seenUIDs[uid]{return fmt.Errorf("duplicated embedded pod UID")}
+  if seenNames[name]{return fmt.Errorf("duplicated embedded pod name")}
+  seenUIDs[uid]=true
+  seenNames[name]=true
  }
  return nil
 }
