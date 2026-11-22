@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import struct
 import sys
 import types
 from pathlib import Path
@@ -19,8 +20,8 @@ MODEL_REV = "a" * 40
 
 
 class FakeTensor:
-    def __init__(self):
-        self.content = b"before"
+    def __init__(self, content: bytes):
+        self.content = content
         self.requires_grad = True
         self.shape = (2, 2)
         self.dtype = "torch.bfloat16"
@@ -49,7 +50,8 @@ class FakeTensor:
 
 class FakeModel:
     def __init__(self):
-        self.param = FakeTensor()
+        self.param = FakeTensor(b"AAAA0000")
+        self.param_b = FakeTensor(b"BBBB0000")
         self.device = None
 
     def to(self, device):
@@ -58,7 +60,8 @@ class FakeModel:
 
     def named_parameters(self):
         return iter([
-            ("model.layers.0.q_proj.lora_A.default.weight", self.param),
+            ("base_model.model.model.layers.0.self_attn.q_proj.lora_A.default.weight", self.param),
+            ("base_model.model.model.layers.0.self_attn.q_proj.lora_B.default.weight", self.param_b),
         ])
 
 
@@ -120,15 +123,43 @@ def install_stubs(monkeypatch, *, change):
             assert callable(reward_funcs)
             assert peft_config["task_type"] == "CAUSAL_LM"
             self.model = model
+            self.saved_output = args["output_dir"]
             self.state = types.SimpleNamespace(global_step=0)
 
         def train(self):
             self.state.global_step = 1
             if change:
-                fake_model.param.content = b"after"
+                fake_model.param.content = b"AAAA1111"
 
         def save_model(self):
             state["saved"] = True
+            dest = Path(self.saved_output)
+            prefix = "base_model.model.model.layers.0.self_attn.q_proj"
+            rows = {}
+            contents = b""
+            for name, tensor in (
+                (prefix+".lora_A.weight", fake_model.param),
+                (prefix+".lora_B.weight", fake_model.param_b),
+            ):
+                start = len(contents)
+                contents += tensor.content
+                rows[name] = {
+                    "dtype": "BF16", "shape": [2, 2],
+                    "data_offsets": [start, len(contents)],
+                }
+            header = json.dumps(rows, sort_keys=True).encode("utf-8")
+            (dest/"adapter_model.safetensors").write_bytes(
+                struct.pack("<Q", len(header)) + header + contents
+            )
+            (dest/"adapter_config.json").write_text(json.dumps({
+                "peft_type": "LORA",
+                "task_type": "CAUSAL_LM",
+                "base_model_name_or_path": "Qwen/Qwen3-0.6B",
+                "revision": MODEL_REV,
+                "target_modules": ["q_proj"], "r": 2,
+                "lora_alpha": 16, "auto_mapping": None,
+                "modules_to_save": None,
+            }, sort_keys=True), encoding="utf-8")
 
     trl.GRPOTrainer = FakeGRPOTrainer
     for name, module in (
@@ -176,6 +207,14 @@ def test_entry_loads_same_pinned_model_and_records_only_local_delta(
     assert evidence["production_eligible"] is False
     assert evidence["local_lora_update"]["local_lora_changed"] is True
     assert evidence["local_lora_update"]["global_step"] == 1
+    frozen = output / "adapter"
+    assert (frozen/"adapter_model.safetensors").is_file()
+    assert (frozen/"adapter_config.json").is_file()
+    mapped = json.loads((output/"sre-grpo-post-save-tensor-map.json").read_text())
+    assert mapped["schema_version"] == "sre.grpo.post-save-tensor-map/v1"
+    assert len(mapped["tensors"]) == 2
+    assert mapped["post_snapshot"] == evidence["local_lora_update"]["after"]
+    assert mapped["training_execution_independently_verified"] is False
 
 
 def test_entry_never_saves_unmodified_adapter_as_trained(
