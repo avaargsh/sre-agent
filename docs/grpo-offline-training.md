@@ -389,3 +389,49 @@ on CPU passing tests.**
 
 Official references: [Qwen3 quickstart](https://github.com/QwenLM/Qwen3/blob/main/docs/source/getting_started/quickstart.md)
 and [TRL GRPO custom reward interface](https://huggingface.co/docs/trl/v0.25.1/grpo_trainer).
+ 
+
+## Exact-byte Oracle and crash-safe capture publication (P0 hardening)
+
+The capture preflight and offline reward audit now read each input dataset
+**once** for its SHA256 check and parse `load_episodes_bytes(raw)` from those
+same verified bytes. The previous two-read path admitted a local TOCTOU
+risk: when a dataset is mutable between reads, one version might be checked
+but another version consumed as trusted Oracle. The regression tests verify
+that the pin-to-parse path never reopens the dataset. This protects against
+that local consistency bug, **not** against a malicious host or a false
+independent source digest.
+
+Raw Rollout and Capture Manifest publication now stages complete bounded
+payloads under distinct random `.sre-grpo-*.stage` paths in the same output
+directories, fsyncs each unpublished file, and creates the two final paths
+with **hard links that fail if a competing writer already created the name**.
+The temporary stage paths are removed after publication. If publication of
+the second final path fails, the first final path is removed only when it
+still points to this invocation's own staged inode. Tests inject an exception
+after a partial stage write and race a competing writer for both destination
+names. No truncated file is published at its final pathname, and competing
+files are not overwritten.
+
+There is **no multi-file atomic transaction** here. SIGKILL/power loss
+between the two hard links can leave an orphan `rollouts.jsonl` without
+a valid corresponding manifest. An orphan must be rejected by the
+independent verifier, rather than silently resumed or declared complete.
+The staging/hard-link method requires filesystem support for hard links,
+and this implementation does not fsync the parent directory: power-loss
+durability and adversarial shared-filesystem race freedom remain
+**unverified**. A production artifact registry would instead need immutable
+content-addressed uploads, signed publication receipts, and independently
+authorized admission.
+
+## P0 remaining acceptance
+
+1. Run the pinned `Qwen3-0.6B` sampler on an actual CUDA device with
+   frozen dependencies and trusted weights. Archive model/tokenizer revision,
+   GPU information and original raw output bytes.
+2. Have a distinct reviewer independently pin dataset, rollout and manifest
+   bytes; audit complete train groups without using self-scored rewards.
+3. Replay a disposable-kind G2i incident with a separately authenticated
+   source/Oracle and approved read-only observer receipts.
+4. Only then test actual GRPO parameter/LoRA updates and blind holdout
+   comparison against matching Base/SFT baselines.
