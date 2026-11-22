@@ -11,7 +11,7 @@ from typing import Any
 
 from .grpo_import import _verify_pin
 from .grpo_rollout_audit import audit_rollout_groups
-from .grpo_rollout_capture import prepare_capture
+from .grpo_rollout_capture import validate_capture_inputs
 from .grpo_training import _fields, _strict_json
 
 _MAX_MANIFEST_BYTES = 32 * 1024
@@ -88,17 +88,15 @@ def verify_capture_binding(
                    for ch in m["prompt_sha256"])):
         raise ValueError("capture prompt_sha256 invalid")
 
-    # Reuse capture's strict numeric/config validator without allowing it
-    # to create or overwrite a file. The temporary paths below are checked
-    # but never opened; they are not trusted as actual capture outputs.
-    selected, dataset_sha = prepare_capture(
+    # Reuse the same pinned input/config validator as capture without
+    # inventing pseudo-output paths: an independent read-only verifier must
+    # not depend on unrelated files in the manifest directory.
+    selected, dataset_sha = validate_capture_inputs(
         dataset,
         expected_dataset_sha256=expected_dataset_sha256,
         model=model, model_revision=model_revision,
         group_size=group_size, seed=m["seed"],
         max_new_tokens=m["max_new_tokens"],
-        output=manifest_path.with_name(manifest_path.name + ".verify-unwritten-output"),
-        manifest=manifest_path.with_name(manifest_path.name + ".verify-unwritten-manifest"),
     )
     raw_rollouts = Path(rollouts).read_bytes()
     rollout_sha = _verify_pin(
