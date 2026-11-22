@@ -125,11 +125,14 @@ def test_missing_or_incomplete_group_does_not_publish_partial_file(tmp_path):
     assert not (tmp_path / "capture-manifest.json").exists()
 
 
-def test_nonstring_oversized_and_linebreak_output_fail_closed(tmp_path):
+def test_invalid_completion_rejected_but_original_newlines_preserved(tmp_path):
     with pytest.raises(ValueError, match="completion"):
-        capture(tmp_path, lambda p, s: "x" * 9000)
-    with pytest.raises(ValueError, match="completion"):
-        capture(tmp_path, lambda p, s: "a\nb")
+        capture(tmp_path, lambda p, seed: "x" * 9000)
+    # The model may output malformed or pretty-printed JSON. Keep the exact
+    # decoded content for independent scoring instead of cherry-picking.
+    capture(tmp_path, lambda p, seed: "{\\n invalid JSON \\n}")
+    row = json.loads((tmp_path / "out.jsonl").read_text())
+    assert row["completions"] == ["{\\n invalid JSON \\n}"] * 4
 
 
 def test_output_and_manifest_are_create_only_and_no_overwrite(tmp_path):
