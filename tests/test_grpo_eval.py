@@ -94,8 +94,8 @@ def test_prediction_parser_rejects_duplicate_json_and_rows(tmp_path):
 
 def test_prediction_parser_rejects_unencodable_completion_as_value_error(tmp_path):
     path = tmp_path / "surrogate-prediction.jsonl"
-    row = {"episode_id": "test-1", "completion": "\\ud800"}
-    path.write_text(json.dumps(row) + "\\n", encoding="utf-8")
+    row = {"episode_id": "test-1", "completion": "\ud800"}
+    path.write_text(json.dumps(row) + "\n", encoding="utf-8")
     with pytest.raises(ValueError, match="invalid prediction completion"):
         load_predictions(path)
 
