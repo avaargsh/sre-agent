@@ -20,6 +20,7 @@ from .grpo_training import load_episodes_bytes, score_completion
 _MODELS = ("Base", "SFT", "GRPO")
 _MAX_DATA = 4 * 1024 * 1024
 _MAX_PREDICTIONS = 4 * 1024 * 1024
+_MAX_HOLDOUT_CASES = 2048
 
 
 def _pinned_file(path: str | Path, expected: str, name: str, limit: int) -> bytes:
@@ -101,6 +102,8 @@ def compare_pinned_holdout(
     selected = {ep.episode_id: ep for ep in episodes if ep.split == split}
     if not selected:
         raise ValueError("empty independent holdout split")
+    if len(selected) > _MAX_HOLDOUT_CASES:
+        raise ValueError("holdout case limit exceeded (2048)")
     predictions: dict[str, dict[str, str]] = {}
     model_results: dict[str, dict[str, Any]] = {}
     prediction_hashes: dict[str, str] = {}
