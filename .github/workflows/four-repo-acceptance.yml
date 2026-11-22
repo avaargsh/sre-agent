@@ -1,5 +1,9 @@
 name: four-repo-acceptance
 # M1 live acceptance verification: 2026-09-30
+# Historical Python multi-repository acceptance; dependency SHAs remain pinned.
+# Go-only read RBAC manifests are checked by go-readonly-kind, not the retired
+# Python 4-repo integration. Changes to golden-stack.yaml still trigger this
+# fail-closed legacy check; manual dispatch remains available for diagnosis.
 
 on:
   workflow_dispatch:
@@ -7,7 +11,7 @@ on:
     paths:
       - "compose.golden.yml"
       - "demo/control-plane/**"
-      - "demo/k8s/**"
+      - "demo/k8s/golden-stack.yaml"
       - "examples/live_golden_incident.py"
       - "scripts/run-acceptance.sh"
       - "src/agentic_aiops/decision_client.py"
