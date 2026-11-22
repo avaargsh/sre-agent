@@ -17,6 +17,7 @@ from .grpo_holdout_capture import _MAX_CASES, _MAX_FILE_BYTES, _MAX_PROMPT_BYTES
 from .grpo_rollout_capture import _REPO, _SHA40
 from .grpo_import import _verify_pin, _sha
 from .grpo_adapter import validate_adapter_receipt
+from .grpo_adapter_effect import validate_local_effect_receipt
 from .grpo_training import (
     _fields, _id, _strict_json, build_prompt, load_episodes_bytes,
 )
@@ -65,6 +66,7 @@ def verify_holdout_chain(
     checkpoint_role: str = "Base",
     expected_adapter_config_sha256: str | None = None,
     expected_adapter_weights_sha256: str | None = None,
+    require_local_effect_probe: bool = False,
 ) -> dict[str, Any]:
     """Prove raw-content bindings from private Oracle source to predictions.
 
@@ -79,6 +81,10 @@ def verify_holdout_chain(
         raise ValueError("model_revision must be pinned lowercase 40-character commit")
     if checkpoint_role not in ("Base", "SFT", "GRPO"):
         raise ValueError("checkpoint_role must be Base, SFT or GRPO")
+    if type(require_local_effect_probe) is not bool:
+        raise ValueError("require_local_effect_probe must be boolean")
+    if checkpoint_role == "Base" and require_local_effect_probe:
+        raise ValueError("Base cannot require local effect probe")
     if checkpoint_role == "Base":
         if expected_adapter_config_sha256 is not None or expected_adapter_weights_sha256 is not None:
             raise ValueError("Base checkpoint_role must not provide adapter SHA256 pins")
@@ -163,13 +169,31 @@ def verify_holdout_chain(
         "superiority_claim_authorized", "training_admission_authorized",
         "production_eligible",
     }
+    local_effect = None
     if checkpoint_role != "Base":
         expected_fields |= {"checkpoint_role", "adapter"}
-    cap = _manifest(
-        capture_raw, expected_fields,
-        "sre.grpo.holdout-capture/v1" if checkpoint_role == "Base"
-        else "sre.grpo.holdout-capture/v2", "capture manifest",
-    )
+    try:
+        candidate = _strict_json(capture_raw.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        raise ValueError("invalid UTF-8 capture manifest") from exc
+    if type(candidate) is not dict:
+        raise ValueError("capture manifest must be a JSON object")
+    has_probe = "local_effect_probe" in candidate
+    if has_probe:
+        if checkpoint_role == "Base":
+            raise ValueError("Base capture cannot claim local effect probe")
+        expected_fields.add("local_effect_probe")
+        version = "sre.grpo.holdout-capture/v3"
+    else:
+        if require_local_effect_probe:
+            raise ValueError("required local effect probe is missing")
+        version = ("sre.grpo.holdout-capture/v1" if checkpoint_role == "Base"
+                   else "sre.grpo.holdout-capture/v2")
+    cap = _fields(candidate, expected_fields, "capture manifest")
+    if cap["schema_version"] != version:
+        raise ValueError("capture manifest schema_version invalid")
+    if has_probe:
+        local_effect = validate_local_effect_receipt(cap["local_effect_probe"])
     adapter = None
     if checkpoint_role != "Base":
         if cap["checkpoint_role"] != checkpoint_role:
@@ -216,6 +240,7 @@ def verify_holdout_chain(
     return {
         "schema_version": "sre.grpo.holdout-chain-audit/v1",
         "checkpoint_role": checkpoint_role,
+        "local_effect_probe_content_consistent": local_effect is not None,
         **({
             "adapter_config_sha256": adapter["adapter_config_sha256"],
             "adapter_weights_sha256": adapter["adapter_weights_sha256"],
