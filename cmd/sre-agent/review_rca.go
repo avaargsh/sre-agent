@@ -20,10 +20,12 @@ func reviewRCA(args []string,stdout,stderr io.Writer)int{
  changes:=flags.String("changes","","frozen Kubernetes change evidence JSON")
  sli:=flags.String("sli","","independently queried SLI assessment JSON")
  candidates:=flags.String("candidates","","agent-proposed candidate hypotheses JSON")
+ policyPath:=flags.String("policy","","operator-owned review policy JSON (not Agent output)")
+ policySHA:=flags.String("policy-sha256","","externally pinned exact SHA-256 of policy JSON")
  output:=flags.String("out","-","new review report path or stdout")
  if err:=flags.Parse(args);err!=nil{return 2}
- if len(flags.Args())!=0||*changes==""||*sli==""||*candidates==""||*output==""{
-  fmt.Fprintln(stderr,"usage: sre-agent review-rca --changes FILE --sli FILE --candidates FILE [--out NEW_FILE|-]")
+ if len(flags.Args())!=0||*changes==""||*sli==""||*candidates==""||*policyPath==""||*policySHA==""||*output==""{
+  fmt.Fprintln(stderr,"usage: sre-agent review-rca --changes FILE --sli FILE --candidates FILE --policy FILE --policy-sha256 EXTERNAL_SHA256 [--out NEW_FILE|-]")
   return 2
  }
  read:=func(path string,target any)error{
@@ -41,7 +43,10 @@ func reviewRCA(args []string,stdout,stderr io.Writer)int{
  if err:=read(*changes,&c);err!=nil{fmt.Fprintln(stderr,"UNKNOWN: invalid change report");return 3}
  if err:=read(*sli,&s);err!=nil{fmt.Fprintln(stderr,"UNKNOWN: invalid SLI report");return 3}
  if err:=read(*candidates,&claims);err!=nil{fmt.Fprintln(stderr,"UNKNOWN: invalid hypotheses");return 3}
- report,err:=rca.Review(c,s,claims)
+ // The operator must supply the SHA pin independently of all evidence files.
+ policyRaw,err:=os.ReadFile(*policyPath)
+ if err!=nil{fmt.Fprintln(stderr,"UNKNOWN: cannot read operator policy");return 3}
+ report,err:=rca.ReviewWithPolicy(c,s,claims,policyRaw,*policySHA)
  if err!=nil{fmt.Fprintln(stderr,"UNKNOWN: claim citation checks failed:",err);return 3}
  serialized,err:=json.MarshalIndent(report,"","  ")
  if err!=nil{fmt.Fprintln(stderr,"could not encode RCA review");return 1}
