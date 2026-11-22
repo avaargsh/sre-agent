@@ -1,0 +1,19 @@
+# Applied ONLY by the disposable-kind test administrator.
+# Selected client Pods can resolve DNS over TCP/UDP 53 but cannot send HTTP
+# to the checkout Service port 8080. The backend itself is NOT selected.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sre-g2i-deny-http
+  namespace: golden-demo
+spec:
+  podSelector:
+    matchLabels:
+      app: sre-np-probe
+  policyTypes: [Egress]
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
