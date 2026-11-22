@@ -139,6 +139,9 @@ func replayChanges(ch change.Report)error{
 
 type replayMatrix struct{
  Status string `json:"status"`
+ Warnings []string `json:"warnings"`
+ IsPartial bool `json:"isPartial"`
+ PartialResponse bool `json:"partialResponse"`
  Data struct {
   ResultType string `json:"resultType"`
   Result []struct{
@@ -172,6 +175,11 @@ func replaySLI(s verifier.Assessment)error{
   queries[src.Query]=true
   var m replayMatrix
   if err:=unmarshalRaw(src.RawResponseBase64,&m);err!=nil{return err}
+  // Independently enforce the same partial-response fail-closed contract
+  // as G2a's live verifier. Raw SHA integrity is not source completeness.
+  if len(m.Warnings)>0||m.IsPartial||m.PartialResponse{
+   return fmt.Errorf("SLI source %d contains warned or partial data",idx)
+  }
   if m.Status!="success"||m.Data.ResultType!="matrix"||len(m.Data.Result)==0||len(m.Data.Result)>16{
    return fmt.Errorf("SLI source %d is not a complete matrix",idx)
   }
