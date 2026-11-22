@@ -12,6 +12,7 @@ import (
  "time"
 
  "github.com/avaargsh/sre-agent/internal/change"
+ "github.com/avaargsh/sre-agent/internal/evidence"
  "github.com/avaargsh/sre-agent/internal/verifier"
 )
 
@@ -57,6 +58,7 @@ type replayReplicaSetList struct {
 func unmarshalRaw(encoded string,out any) error {
  raw,err:=base64.StdEncoding.Strict().DecodeString(encoded)
  if err!=nil||len(raw)==0{return errors.New("invalid source encoding")}
+ if err:=evidence.ValidateUniqueJSONObject(raw);err!=nil{return fmt.Errorf("ambiguous or invalid raw source JSON: %w",err)}
  if err:=json.Unmarshal(raw,out);err!=nil{return errors.New("invalid source JSON")}
  return nil
 }
