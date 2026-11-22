@@ -270,7 +270,12 @@ def capture_holdout_predictions(
         report["checkpoint_role"] = checkpoint_role
         report["adapter"] = adapter_receipt
         if local_effect_receipt is not None:
-            report["schema_version"] = "sre.grpo.holdout-capture/v3"
+            effect_version = local_effect_receipt["schema_version"]
+            report["schema_version"] = (
+                "sre.grpo.holdout-capture/v4"
+                if effect_version == "sre.grpo.local-adapter-effect/v2"
+                else "sre.grpo.holdout-capture/v3"
+            )
             report["local_effect_probe"] = local_effect_receipt
     _publish_pair(Path(output), raw, Path(manifest), report)
     return report
