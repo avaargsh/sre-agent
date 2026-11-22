@@ -56,7 +56,7 @@ jobs:
       # This self-issued CI key proves mechanics only, not signer authority.
       - name: Test lab-only Ed25519 source index and external-trust verifier
         env:
-          SRE_SOURCE_HEAD: ${${ github.event.pull_request.head.sha || github.sha }}
+          SRE_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: bash demo/go-networkpolicy/test-evidence-attestation.sh
       - name: Upload raw Calico + original lab source evidence, including failures
         if: always()
