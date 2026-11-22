@@ -164,3 +164,24 @@ def test_qwen3_template_disables_thinking_and_detects_truncation(tmp_path):
         qwen3_chat_rows(ToyTokenizer(), [ep], max_prompt_tokens=1)
     with pytest.raises(ValueError, match="completion budget"):
         qwen3_chat_rows(ToyTokenizer(), [ep], max_completion_tokens=1)
+
+
+def test_cross_split_exact_evidence_leakage_fails_even_if_family_renamed(tmp_path):
+    left = episode(episode_id="train-1", family="pod-memory", split="train")
+    right = episode(episode_id="test-1", family="renamed-memory", split="test")
+    with pytest.raises(ValueError, match="content leakage"):
+        load_episodes(write_jsonl(tmp_path, [left, right]))
+
+    # Evidence IDs and benign whitespace do not make a repeated case independent.
+    right["observations"][0]["evidence_id"] = "new-evidence-id"
+    right["observations"][0]["text"] = "Last   termination reason  OOMKilled"
+    right["oracle"]["required_evidence_ids"] = ["new-evidence-id", "e2"]
+    with pytest.raises(ValueError, match="content leakage"):
+        load_episodes(write_jsonl(tmp_path, [left, right]))
+
+
+def test_same_content_within_same_split_is_allowed_for_lab_repeats(tmp_path):
+    left = episode(episode_id="train-1", family="pod-memory", split="train")
+    right = episode(episode_id="train-2", family="pod-memory", split="train")
+    loaded = load_episodes(write_jsonl(tmp_path, [left, right]))
+    assert len(loaded) == 2
