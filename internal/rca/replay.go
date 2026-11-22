@@ -12,6 +12,7 @@ import (
  "time"
 
  "github.com/avaargsh/sre-agent/internal/change"
+ "github.com/avaargsh/sre-agent/internal/evidence"
  "github.com/avaargsh/sre-agent/internal/verifier"
 )
 
@@ -57,6 +58,7 @@ type replayReplicaSetList struct {
 func unmarshalRaw(encoded string,out any) error {
  raw,err:=base64.StdEncoding.Strict().DecodeString(encoded)
  if err!=nil||len(raw)==0{return errors.New("invalid source encoding")}
+ if err:=evidence.ValidateUniqueJSONObject(raw);err!=nil{return fmt.Errorf("ambiguous or invalid raw source JSON: %w",err)}
  if err:=json.Unmarshal(raw,out);err!=nil{return errors.New("invalid source JSON")}
  return nil
 }
@@ -139,6 +141,9 @@ func replayChanges(ch change.Report)error{
 
 type replayMatrix struct{
  Status string `json:"status"`
+ Warnings []string `json:"warnings"`
+ IsPartial bool `json:"isPartial"`
+ PartialResponse bool `json:"partialResponse"`
  Data struct {
   ResultType string `json:"resultType"`
   Result []struct{
@@ -172,6 +177,11 @@ func replaySLI(s verifier.Assessment)error{
   queries[src.Query]=true
   var m replayMatrix
   if err:=unmarshalRaw(src.RawResponseBase64,&m);err!=nil{return err}
+  // Independently enforce the same partial-response fail-closed contract
+  // as G2a's live verifier. Raw SHA integrity is not source completeness.
+  if len(m.Warnings)>0||m.IsPartial||m.PartialResponse{
+   return fmt.Errorf("SLI source %d contains warned or partial data",idx)
+  }
   if m.Status!="success"||m.Data.ResultType!="matrix"||len(m.Data.Result)==0||len(m.Data.Result)>16{
    return fmt.Errorf("SLI source %d is not a complete matrix",idx)
   }

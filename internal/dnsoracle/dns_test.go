@@ -6,6 +6,7 @@ import (
  "encoding/hex"
  "encoding/json"
  "testing"
+ "strings"
 
  "github.com/avaargsh/sre-agent/internal/oracle"
 )
@@ -185,4 +186,29 @@ func TestDNSSuccessToWrongAddressCannotProveHealthyService(t *testing.T){
  }
  e.HealthyProbe=frozen(t,p)
  if _,err:=Evaluate(e,obs,bad);err==nil{t.Fatal("accepted wrong resolved address as a genuine healthy control")}
+}
+
+
+func TestDNSEpisodeRejectsAmbiguousNestedJSONWithRecomputedSHA(t *testing.T) {
+ for _,tc:=range []struct{name string;service bool;from,to string}{
+  {"service-cluster-ip",true,`"clusterIP":"10.96.0.88"`,`"clusterIP":"203.0.113.9","clusterIP":"10.96.0.88"`},
+  {"pod-dns-policy",false,`"dnsPolicy":"ClusterFirst"`,`"dnsPolicy":"None","dnsPolicy":"ClusterFirst"`},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   episode,healthy,broken:=fixture(t)
+   src:=episode.HealthyPod
+   if tc.service{src=episode.Service}
+   raw,err:=base64.StdEncoding.DecodeString(src.RawResponseBase64)
+   if err!=nil{t.Fatal(err)}
+   modified:=strings.Replace(string(raw),tc.from,tc.to,1)
+   if modified==string(raw){t.Fatalf("test fixture missing %q",tc.from)}
+   hash:=sha256.Sum256([]byte(modified))
+   src.ResponseSHA256=hex.EncodeToString(hash[:])
+   src.RawResponseBase64=base64.StdEncoding.EncodeToString([]byte(modified))
+   if tc.service{episode.Service=src}else{episode.HealthyPod=src}
+   if result,err:=Evaluate(episode,healthy,broken);err==nil{
+    t.Fatalf("accepted last-wins ambiguous DNS evidence with valid digest: %+v",result)
+   }
+  })
+ }
 }

@@ -6,6 +6,7 @@ import (
  "encoding/hex"
  "encoding/json"
  "testing"
+ "strings"
 
  "github.com/avaargsh/sre-agent/internal/oracle"
 )
@@ -113,4 +114,14 @@ func TestAmbiguousServiceConfigurationAbstainsWithoutCausalClaim(t *testing.T){
  p,err:=Diagnose(service,raw,8080,map[string]string{"app":"checkout-api"})
  if err!=nil{t.Fatal(err)}
  if p.Classification!="UNKNOWN"{t.Fatalf("ambiguous multi-fault must abstain: %+v",p)}
+}
+
+
+func TestEndpointObservationRejectsDuplicateNestedReadinessKey(t *testing.T){
+ _,_,service,endpoint:=fixture(t,2)
+ broken:=strings.Replace(string(endpoint),`"ready":true`,`"ready":false,"ready":true`,1)
+ if broken==string(endpoint){t.Fatal("test setup failed")}
+ if prediction,err:=Diagnose(service,[]byte(broken),8080,map[string]string{"app":"checkout-api"});err==nil{
+  t.Fatalf("accepted EndpointSlice duplicate readiness field: %+v",prediction)
+ }
 }

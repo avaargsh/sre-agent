@@ -95,3 +95,29 @@ test-admin labelled incident; \`production_causality_verified=false\` always.
 - Historic 4-repository Python acceptance, separate security review and
   G0→G1→G2a→G2b stacked merges remain blocked/uncompleted. **Do not merge
   or change Draft/release status based on this narrow result.**
+
+
+### Exact-resourceVersion replay for transient observation drift
+
+A prior CI attempt of the no-fault control failed closed when the observer
+and test-admin independently queried EndpointSlice LIST at differing
+resource versions. This is expected under non-atomic sequential Kubernetes
+reads and must **not** be fixed by ignoring the version mismatch.
+
+The kind harness now runs `demo/go-endpoint/pin_during.py` on the
+**observer's independently collected list** to validate its metadata and
+construct a constrained Kubernetes LIST request with
+`resourceVersion=<observer RV>&resourceVersionMatch=Exact`.
+The test-admin performs its own read using that version and compares the
+decoded complete LIST with the observer's list before running the unchanged
+Go Oracle. Both original source files and their SHA-256 digests are retained.
+Unparseable, duplicated-key, paginated or drifting snapshots return UNKNOWN
+without a success verdict. There is no retry that silently selects a
+favorable sample; a 410/expired resourceVersion fails closed.
+
+This produces a matched **EndpointSlice** version for the two readers; it
+does not make all Service, Pod and HTTP-probe observations one atomic
+transaction, authenticate who queried Kubernetes, or establish arbitrary
+incident causality. Regression tests:
+`tests/test_endpoint_snapshot_pin.py`. The change is scoped to G2g and
+does not resolve the historical four-repository acceptance/approval gates.

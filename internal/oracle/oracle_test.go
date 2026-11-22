@@ -6,6 +6,7 @@ import (
  "encoding/hex"
  "encoding/json"
  "testing"
+ "strings"
 )
 
 func source(t *testing.T, targetPort int)(Snapshot,string){
@@ -104,5 +105,15 @@ func TestMissingAndAmbiguousServicePortMustNotBeDiagnosed(t *testing.T){
   `{"metadata":{"uid":"svc-uid","name":"checkout-api","namespace":"golden-demo"},"spec":{"ports":[{"port":8080,"targetPort":1},{"port":9090,"targetPort":9090}]}}`,
  }{
   if _,err:=Diagnose([]byte(raw),8080);err==nil{t.Fatalf("diagnosed ambiguous port: %s",raw)}
+ }
+}
+
+
+func TestDiagnoseRejectsDuplicateNestedServiceTargetPortKey(t *testing.T) {
+ _,raw:=source(t,8080)
+ broken:=strings.Replace(raw,`"targetPort":8080`,`"targetPort":1,"targetPort":8080`,1)
+ if broken==raw{t.Fatal("test setup failed")}
+ if verdict,err:=Diagnose([]byte(broken),8080);err==nil{
+  t.Fatalf("last-wins duplicate Service port falsely accepted: %+v",verdict)
  }
 }
