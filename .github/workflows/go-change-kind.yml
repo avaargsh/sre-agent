@@ -144,6 +144,46 @@ jobs:
               assert hashlib.sha256(raw).hexdigest()==source['response_sha256']
           print('PASS: same-kind evidence-linked competing RCA stays unverified')
           PY
+      - name: Reject forged summaries with unchanged original response digests
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import pathlib
+          import copy
+          src=pathlib.Path('/tmp')
+          sli=json.loads((src/'go-rca-sli.json').read_text())
+          fake=copy.deepcopy(sli)
+          fake['status']='HEALTHY'
+          (src/'go-rca-forged-sli.json').write_text(json.dumps(fake))
+          changes=json.loads((src/'go-rca-changes.json').read_text())
+          fake=copy.deepcopy(changes)
+          fake['relationship']='NO_REVISION_CREATED_IN_WINDOW'
+          (src/'go-rca-forged-changes.json').write_text(json.dumps(fake))
+          fake=copy.deepcopy(changes)
+          fake['revisions'][0]['revision']='9999'
+          (src/'go-rca-forged-revision.json').write_text(json.dumps(fake))
+          PY
+          for variant in sli changes revision; do
+            CHANGE=/tmp/go-rca-changes.json
+            SLI=/tmp/go-rca-sli.json
+            case "$variant" in
+              sli) SLI=/tmp/go-rca-forged-sli.json ;;
+              changes) CHANGE=/tmp/go-rca-forged-changes.json ;;
+              revision) CHANGE=/tmp/go-rca-forged-revision.json ;;
+            esac
+            set +e
+            /tmp/sre-agent review-rca \
+              --changes "$CHANGE" --sli "$SLI" \
+              --candidates /tmp/go-rca-candidates.json \
+              --out "/tmp/forged-$variant-review.json" >"/tmp/forged-$variant-stdout.txt" 2>&1
+            CODE=$?
+            set -e
+            test "$CODE" -eq 3
+            test ! -f "/tmp/forged-$variant-review.json"
+            grep -q 'UNKNOWN:' "/tmp/forged-$variant-stdout.txt"
+            echo "PASS: forged $variant summary cannot bypass source replay"
+          done
       - name: Upload immutable change evidence
         if: always()
         uses: actions/upload-artifact@v4
