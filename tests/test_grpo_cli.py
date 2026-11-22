@@ -56,3 +56,48 @@ def test_independent_synthetic_holdout_replay():
     assert report["model_runtime_verified"] is False
     assert len(report["dataset_sha256"]) == 64
     assert len(report["predictions_sha256"]) == 64
+
+
+def test_train_execute_never_silently_promotes_to_nonlab(tmp_path):
+    result = invoke(
+        "train_sre_grpo.py", "--execute", "--allow-tiny-lab",
+        "--dataset", DATASET, "--model", "nonexistent/model",
+        "--output-dir", tmp_path,
+    )
+    assert result.returncode != 0
+    assert "--lab-only" in result.stderr
+    assert not (tmp_path / "sre-grpo-run-manifest.json").exists()
+
+
+def test_non_tiny_lab_requires_externally_pinned_baseline(tmp_path):
+    # More than one train row cannot bypass the baseline/preflight audit;
+    # this has to fail before the optional GPU/TRL dependency import.
+    rows = []
+    for i in range(8):
+        rows.append({
+            "schema_version": "sre.grpo.episode/v1",
+            "episode_id": f"train-{i}",
+            "fault_family": f"fault-{i}",
+            "split": "train",
+            "alert": f"alert {i}",
+            "observations": [{
+                "evidence_id": "e1", "tool": "prometheus.query",
+                "text": f"metric anomaly {i}",
+            }],
+            "oracle": {
+                "answerable": True, "root_cause_id": f"cause_{i}",
+                "required_evidence_ids": ["e1"],
+            },
+        })
+    dataset = tmp_path / "eight-episodes.jsonl"
+    dataset.write_text(
+        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8"
+    )
+    result = invoke(
+        "train_sre_grpo.py", "--execute", "--lab-only",
+        "--dataset", dataset, "--model", "nonexistent/model",
+        "--output-dir", tmp_path,
+    )
+    assert result.returncode != 0
+    assert "--baseline-rollouts" in result.stderr
+    assert not (tmp_path / "sre-grpo-run-manifest.json").exists()
