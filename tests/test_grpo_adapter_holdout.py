@@ -211,3 +211,44 @@ def test_rehashed_v4_drift_is_rejected(tmp_path):
             **{**pins, "expected_capture_manifest_sha256": sha},
             require_reenable_probe=True,
         )
+
+
+def test_auditor_cli_requires_v4_restore_evidence_with_external_pins(tmp_path):
+    def audit_command(paths, pins):
+        return [
+            sys.executable, str(ROOT / "scripts/verify_sre_grpo_holdout.py"),
+            "--dataset", str(paths["dataset"]),
+            "--prompts", str(paths["prompts"]),
+            "--projection-manifest", str(paths["projection_manifest"]),
+            "--predictions", str(paths["predictions"]),
+            "--capture-manifest", str(paths["capture_manifest"]),
+            "--expected-dataset-sha256", pins["expected_dataset_sha256"],
+            "--expected-prompts-sha256", pins["expected_prompts_sha256"],
+            "--expected-projection-manifest-sha256",
+            pins["expected_projection_manifest_sha256"],
+            "--expected-predictions-sha256", pins["expected_predictions_sha256"],
+            "--expected-capture-manifest-sha256",
+            pins["expected_capture_manifest_sha256"],
+            "--expected-adapter-config-sha256",
+            pins["expected_adapter_config_sha256"],
+            "--expected-adapter-weights-sha256",
+            pins["expected_adapter_weights_sha256"],
+            "--model", MODEL, "--revision", REV,
+            "--checkpoint-role", "GRPO",
+            "--require-reenable-probe",
+        ]
+
+    v4, pins_v4, _ = prepare(tmp_path, aba=True)
+    result = subprocess.run(audit_command(v4, pins_v4),
+                            cwd=ROOT, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["local_reenable_probe_content_consistent"] is True
+
+    legacy_dir = tmp_path / "legacy"
+    legacy_dir.mkdir()
+    v3, pins_v3, _ = prepare(legacy_dir, effect=True)
+    refused = subprocess.run(audit_command(v3, pins_v3),
+                             cwd=ROOT, capture_output=True, text=True)
+    assert refused.returncode == 3
+    assert "UNKNOWN" in refused.stderr
+    assert "reenable" in refused.stderr
