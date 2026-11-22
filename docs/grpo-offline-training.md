@@ -1207,3 +1207,81 @@ modified or deleted original inputs, corrupted or rehashed published
 bundles, false production claims, unknown/duplicate JSON fields,
 symlink/alias paths, repeated read-only replay, and CLI exit-code
 handling. These use synthetic receipts and are not GPU benchmarks.
+
+
+## P0: CPU-verifiable LoRA post-step ↔ saved tensor bytes (2026-11-23)
+
+**Problem:** the earlier training receipt recorded only an aggregate
+fingerprint of locally trainable LoRA parameters; the saved PEFT Adapter
+was separately SHA256-pinned. Neither alone can show whether the **exact
+post-step LoRA tensor bytes** were what the trainer saved. This is now a
+separate, **content-level** link, not independent proof of optimization.
+
+`grpo_tensor_link.py` defines two phases:
+
+1. **Local capture:** after the reported training step, create
+   `sre.grpo.post-save-tensor-map/v1` from trainable LoRA parameter
+   names with explicit PEFT `.default` runtime adapter mapping to
+   exported `lora_A.weight` / `lora_B.weight` names, exact dtype,
+   shape and per-tensor raw byte SHA256. Reject unsupported naming,
+   duplicate semantic slots, missing A/B pairs, changed source
+   fingerprints, incorrect tensor lengths and unexpected trainable
+   parameters. Snapshot SHA256 is recomputed from the *same* tensor
+   layout/digests as `snapshot_lora_parameters`.
+2. **Independent saved-file recheck:** open the pinned Adapter's
+   `adapter_config.json` + `adapter_model.safetensors`, validate
+   its PEFT structure, rank, module targets and offsets, then
+   compare the **entire** saved tensor set and every tensor
+   dtype, shape and raw byte digest to the map and claimed
+   `local_lora_update.after` fingerprint. The map/receipt and
+   Adapter files each require separately supplied external SHA256
+   pins.
+
+A new standalone CPU-only verifier requires no Torch or CUDA:
+
+```bash
+python scripts/verify_sre_grpo_tensor_link.py \
+  --tensor-map /receipts/sre-grpo-post-save-tensor-map.json \
+  --expected-tensor-map-sha256 "$PINNED_TENSOR_MAP_SHA256" \
+  --train-receipt /receipts/sre-grpo-local-lora-delta.json \
+  --expected-train-receipt-sha256 "$PINNED_TRAIN_RECEIPT_SHA256" \
+  --expected-dataset-sha256 "$PINNED_DATASET_SHA256" \
+  --adapter-dir /reviewer-owned/grpo-adapter \
+  --expected-adapter-config-sha256 "$PINNED_ADAPTER_CONFIG_SHA256" \
+  --expected-adapter-weights-sha256 "$PINNED_ADAPTER_WEIGHTS_SHA256" \
+  --model Qwen/Qwen3-0.6B \
+  --revision "$PINNED_QWEN3_COMMIT_SHA40"
+```
+
+Successful content verification returns
+`sre.grpo.post-save-train-link-audit/v1`, with
+`local_saved_weights_equal_claimed_post_snapshot=true` and
+`training_receipt_content_consistent=true`, **but still** both
+`training_execution_independently_verified=false` and
+`optimizer_step_independently_verified=false`. This simply shows the
+post-step state *reported by the producer* and saved file agree.
+It does not authenticate the producer, train iterations, GPU
+execution, model quality or whether the optimizer really updated
+the weights. Missing, modified or structurally invalid artifacts
+must return `UNKNOWN` and cannot support release.
+
+The CUDA-only training entrypoint is wired to perform this local
+check **after `trainer.save_model()`** and **before the final lab
+training receipt**. Trainer's root directory may contain tokenizer
+and runtime sidecars, which are not valid for strict PEFT loading.
+`stage_training_saved_adapter` copies *only* validated Adapter
+config/safetensors into a new `<output-dir>/adapter/` directory
+with no overwrite; the trainer also creates
+`<output-dir>/sre-grpo-post-save-tensor-map.json`. The saved Adapter
+and map can subsequently be copied into a reviewer-controlled
+read-only artifact store for offline audit.
+
+**No-GPU evidence:** CPU tests construct real structurally valid
+synthetic Safetensors, compare all tensor bytes, inject wrong
+values, missing/duplicate aliases, bad dimensions, forged manifest
+flags, incompatible training receipts, symlinked saved weights,
+corrupt Trainer files, and CLI errors. The trainer's actual
+TRL/PEFT/CUDA save behavior remains **unverified** until a
+pinned GPU experiment is available. These receipts must not
+be used to claim training benefit, authenticated model identity
+or production admission.
