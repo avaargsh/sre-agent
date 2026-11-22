@@ -10,6 +10,8 @@ import (
  "errors"
  "fmt"
  "io"
+ "math"
+ "strconv"
  "strings"
 )
 
@@ -38,6 +40,31 @@ func requiredString(obj map[string]any, field, location string) (string, error) 
  if !ok || strings.TrimSpace(s) == "" { return "", fmt.Errorf("%s.%s must be a nonempty string", location, field) }
  return s, nil
 }
+// pythonJSONNumber matches Python json.loads -> json.dumps float spelling.
+// Input integer tokens retain arbitrary precision, except -0, which Python
+// converts to integer zero. Fractional/exponent tokens are binary64 floats:
+// Python emits fixed notation in [1e-4, 1e16) and 2-digit-pad exponents outside.
+func pythonJSONNumber(n json.Number) (json.Number,error) {
+ raw := n.String()
+ if !strings.ContainsAny(raw, ".eE") {
+  if raw == "-0" { return json.Number("0"),nil }
+  return n,nil
+ }
+ value,err := strconv.ParseFloat(raw,64)
+ if err != nil || math.IsInf(value,0) || math.IsNaN(value) {
+  return "",errors.New("JSON float outside finite Python compatibility range")
+ }
+ magnitude := math.Abs(value)
+ var canonical string
+ if magnitude!=0 && (magnitude<1e-4 || magnitude>=1e16) {
+  canonical = strconv.FormatFloat(value,'e',-1,64)
+ } else {
+  canonical = strconv.FormatFloat(value,'f',-1,64)
+  if !strings.Contains(canonical,".") { canonical += ".0" }
+ }
+ return json.Number(canonical),nil
+}
+
 // decodeUniqueJSONValue walks the original token stream so that duplicate
 // object keys cannot be erased by map decoding before canonical hashing.
 // This includes nested evidence fields and scenario envelopes.
@@ -45,7 +72,10 @@ func decodeUniqueJSONValue(decoder *json.Decoder) (any, error) {
  token, err := decoder.Token()
  if err != nil { return nil, err }
  delimiter, ok := token.(json.Delim)
- if !ok { return token, nil }
+ if !ok {
+  if number, ok := token.(json.Number); ok { return pythonJSONNumber(number) }
+  return token, nil
+ }
  switch delimiter {
  case '{':
   result := make(map[string]any)
