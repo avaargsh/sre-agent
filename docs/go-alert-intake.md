@@ -10,7 +10,7 @@ This mirrors the useful "alert → investigation" user workflow popularized by H
 
 ## Usage
 
-Save the original Alertmanager webhook JSON to a mode-0600 file `alert.json`. The payload must be a **firing** alert group with matching `commonLabels.cluster`, `commonLabels.namespace`, `commonLabels.deployment`, and at least one firing alert. Each alert must have a distinct lowercase hexadecimal fingerprint and matching namespace/deployment labels.
+Save the original Alertmanager webhook JSON to a mode-0600 file `alert.json`. The payload must be a **firing** alert group with matching `commonLabels.cluster`, `commonLabels.namespace`, `commonLabels.deployment`, and at least one firing alert. Each alert must have a distinct lowercase hexadecimal fingerprint and explicitly matching **cluster, namespace and deployment** labels. A group-wide commonLabels.cluster does not substitute for a missing member cluster label; the snapshot is not an authenticated source.
 
 The **operator**, not the alert itself, supplies the allowed cluster and Kubernetes target. A mismatched common label or alert label fails closed:
 
