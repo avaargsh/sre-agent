@@ -49,6 +49,44 @@ class FakeLoadedTensor:
         return self.payload
 
 
+class FakeScalar:
+    def __init__(self, value):
+        self.value = value
+
+    def item(self):
+        return self.value
+
+
+class FakeVector:
+    def __init__(self, values):
+        self.values = values
+        self.shape = (len(values),)
+
+    def detach(self):
+        return self
+
+    def float(self):
+        return self
+
+    def __sub__(self, other):
+        return FakeVector([x-y for x,y in zip(self.values, other.values)])
+
+    def abs(self):
+        return FakeVector([abs(x) for x in self.values])
+
+    def amax(self):
+        return FakeScalar(max(self.values))
+
+
+class FakeLogits:
+    def __init__(self, values):
+        self.values = values
+
+    def __getitem__(self, coords):
+        assert coords == (0, -1, slice(None))
+        return FakeVector(self.values)
+
+
 class FakeModel:
     def __init__(self, state):
         self.state = state
@@ -59,6 +97,22 @@ class FakeModel:
 
     def eval(self):
         return self
+
+    def __call__(self, **kwargs):
+        assert self.state["adapter_loaded"] is True
+        if self.state["disabled"] or self.state["simulate_no_effect"]:
+            values = [2.0, 3.0, 4.0]
+        else:
+            values = [2.0, 3.1, 4.0]
+        return types.SimpleNamespace(logits=FakeLogits(values))
+
+    @contextlib.contextmanager
+    def disable_adapter(self):
+        self.state["disabled"] = True
+        try:
+            yield
+        finally:
+            self.state["disabled"] = False
 
     def generate(self, **kwargs):
         assert kwargs["do_sample"] is False
@@ -73,6 +127,7 @@ def fake_runtime(monkeypatch, pins):
         "model_revision": None, "tokenizer_revision": None,
         "adapter_loaded": False, "sampled": 0, "staging_dir": None,
         "loaded_weights": {}, "simulate_missing_weights": False,
+        "disabled": False, "simulate_no_effect": False,
     }
     torch = types.ModuleType("torch")
     torch.uint8 = "torch.uint8"
@@ -85,6 +140,12 @@ def fake_runtime(monkeypatch, pins):
     )
     torch.manual_seed = lambda seed: None
     torch.inference_mode = contextlib.nullcontext
+    torch.isfinite = lambda vector: types.SimpleNamespace(
+        all=lambda: FakeScalar(all(
+            isinstance(value, (int, float)) and value == value
+            for value in vector.values
+        ))
+    )
 
     class Tokenizer:
         eos_token_id = 1
@@ -245,3 +306,34 @@ def test_cli_refuses_noop_peft_loader_before_publishing_predictions(
     assert state["sampled"] == 0
     assert not prediction.exists()
     assert not manifest.exists()
+
+
+def test_cli_refuses_frozen_adapter_that_has_no_forward_effect(
+    tmp_path, monkeypatch
+):
+    """Matching bytes + active PEFT do NOT prove LoRA changes logits."""
+    adapter_dir, pins = create_adapter(tmp_path)
+    _, prompts, _, projected = projection(tmp_path)
+    state = fake_runtime(monkeypatch, pins)
+    state["simulate_no_effect"] = True
+    script = ROOT / "scripts/sample_sre_grpo_holdout.py"
+    spec = importlib.util.spec_from_file_location("grpo_no_effect_test", script)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    prediction, manifest = tmp_path/"no-effect.jsonl", tmp_path/"no-effect.json"
+    monkeypatch.setattr(sys, "argv", [
+        "sample_sre_grpo_holdout.py", "--execute", "--lab-only",
+        "--checkpoint-role", "GRPO", "--prompts", str(prompts),
+        "--expected-prompts-sha256", projected["prompts_sha256"],
+        "--model", MODEL, "--revision", REV,
+        "--adapter-dir", str(adapter_dir),
+        "--expected-adapter-config-sha256", pins["expected_adapter_config_sha256"],
+        "--expected-adapter-weights-sha256", pins["expected_adapter_weights_sha256"],
+        "--output", str(prediction), "--manifest", str(manifest),
+    ])
+    import pytest
+    with pytest.raises(ValueError, match="no observable adapter effect"):
+        module.main()
+    assert state["sampled"] == 0
+    assert not prediction.exists() and not manifest.exists()
