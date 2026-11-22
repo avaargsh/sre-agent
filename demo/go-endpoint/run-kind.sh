@@ -88,6 +88,58 @@ wait_ready() {
   echo "EndpointSlice readiness never converged to $goal" >&2
   return 1
 }
+# EndpointSlice convergence alone is NOT enough to establish a dataplane outage.
+# Wait for the old checkout Pod objects to disappear and record that evidence.
+wait_zero_pods() {
+  local file="$1" i
+  for i in $(seq 1 75); do
+    kubectl -n golden-demo get pods -l app=checkout-api -o json > "$file"
+    if python3 - "$file" <<'PY'
+import json,sys
+p=json.load(open(sys.argv[1]))
+assert p.get("kind")=="PodList"
+sys.exit(0 if len(p.get("items",[]))==0 else 1)
+PY
+    then
+      echo "PASS: test-admin observed zero checkout Pods"
+      return 0
+    fi
+    sleep 2
+  done
+  echo "FAIL: checkout Pod deletion did not converge" >&2
+  return 1
+}
+# Keep *all* warm-up probes as evidence; begin official fault samples only
+# after three consecutive real client failures (no quiet cherry-picking).
+probe_one() {
+  local status
+  status="$(kubectl -n golden-demo exec deploy/load-generator -c load -- \
+    curl --noproxy '*' -sS --connect-timeout 1 --max-time 3 -o /dev/null \
+      -w '%{http_code}' http://checkout-api:8080/healthz 2>/dev/null || true)"
+  [[ "$status" =~ ^[0-9]{3}$ ]] || { echo "invalid curl status: $status" >&2; return 1; }
+  printf '%d\n' "$((10#$status))"
+}
+wait_http_failure() {
+  local file="$1" i code consecutive=0
+  : > "$file"
+  for i in $(seq 1 45); do
+    code="$(probe_one)"
+    printf '%s\n' "$code" >> "$file"
+    if (( code<200 || code>=300 )); then
+      consecutive=$((consecutive+1))
+    else
+      consecutive=0
+    fi
+    if (( consecutive>=3 )); then
+      echo "PASS: independent client observed three consecutive HTTP failures"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "FAIL: EndpointSlice empty but real HTTP requests remained successful" >&2
+  return 1
+}
+
 snapshot() {
   local dir="$1" phase="$2"
   service admin "$dir/$phase-service.json"
@@ -180,6 +232,8 @@ snapshot "$FAULT" before
 probe "$FAULT" before
 kubectl -n golden-demo scale deploy/checkout-api --replicas=0
 wait_ready zero "$FAULT/preflight-zero.json"
+wait_zero_pods "$FAULT/zero-pods.json"
+wait_http_failure "$FAULT/convergence-probes.txt"
 snapshot "$FAULT" during
 service observer "$FAULT/observed-service.json"
 slices observer "$FAULT/observed-endpointslices.json"
