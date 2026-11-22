@@ -155,3 +155,40 @@ def test_cli_loads_pinned_grpo_adapter_before_any_holdout_inference(tmp_path, mo
     ]
     assert len(prediction_lines) == 2
     assert all(x["completion"] == "{invalid raw model response}" for x in prediction_lines)
+
+
+def test_cli_refuses_noop_peft_loader_before_publishing_predictions(
+    tmp_path, monkeypatch
+):
+    """A mocked PEFT loader that claims success but omits LoRA must fail."""
+    adapter_dir, pins = create_adapter(tmp_path)
+    _, prompts, _, projected = projection(tmp_path)
+    state = fake_runtime(monkeypatch, pins)
+    state["simulate_missing_weights"] = True
+    spec = importlib.util.spec_from_file_location(
+        "grpo_holdout_adapter_noop_test",
+        ROOT / "scripts/sample_sre_grpo_holdout.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    prediction = tmp_path / "no-predictions.jsonl"
+    manifest = tmp_path / "no-manifest.json"
+    monkeypatch.setattr(sys, "argv", [
+        "sample_sre_grpo_holdout.py", "--execute", "--lab-only",
+        "--checkpoint-role", "GRPO",
+        "--prompts", str(prompts),
+        "--expected-prompts-sha256", projected["prompts_sha256"],
+        "--model", MODEL, "--revision", REV,
+        "--adapter-dir", str(adapter_dir),
+        "--expected-adapter-config-sha256", pins["expected_adapter_config_sha256"],
+        "--expected-adapter-weights-sha256", pins["expected_adapter_weights_sha256"],
+        "--output", str(prediction),
+        "--manifest", str(manifest),
+    ])
+    import pytest
+    with pytest.raises(ValueError, match="tensor set"):
+        module.main()
+    assert state["sampled"] == 0
+    assert not prediction.exists()
+    assert not manifest.exists()
