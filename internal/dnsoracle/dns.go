@@ -32,6 +32,8 @@ type Probe struct {
  DNSError string `json:"dns_error"`
  NameHTTPStatus int `json:"name_http_status"`
  DirectHTTPStatus int `json:"direct_http_status"`
+ DirectHTTPAttempts []int `json:"direct_http_attempts,omitempty"`
+ DirectHTTPErrors []string `json:"direct_http_errors,omitempty"`
 }
 type Observation struct {
  SchemaVersion string `json:"schema_version"`
@@ -105,6 +107,20 @@ func parseProbe(raw []byte)(Probe,error){
   p.NameHTTPStatus<0||p.NameHTTPStatus>599||
   p.DirectHTTPStatus<0||p.DirectHTTPStatus>599{
   return Probe{},errors.New("incomplete or out-of-scope DNS probe")
+ }
+ if len(p.DirectHTTPAttempts)>8||len(p.DirectHTTPErrors)>8{
+  return Probe{},errors.New("oversized bounded direct-IP retry history")
+ }
+ if len(p.DirectHTTPAttempts)>0{
+  if p.DirectHTTPAttempts[len(p.DirectHTTPAttempts)-1]!=p.DirectHTTPStatus{
+   return Probe{},errors.New("direct-IP final status differs from actual retry history")
+  }
+  if len(p.DirectHTTPErrors)>0&&len(p.DirectHTTPErrors)!=len(p.DirectHTTPAttempts){
+   return Probe{},errors.New("incomplete direct-IP per-attempt error history")
+  }
+  for _,code:=range p.DirectHTTPAttempts{
+   if code<0||code>599{return Probe{},errors.New("invalid intermediate HTTP status")}
+  }
  }
  for _,addr:=range p.DNSAddresses{
   if net.ParseIP(addr)==nil{return Probe{},errors.New("non-IP DNS result")}
