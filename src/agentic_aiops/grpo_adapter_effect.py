@@ -11,6 +11,8 @@ import math
 import re
 from typing import Any
 
+from .grpo_training import _fields
+
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _MIN_NORMALIZED_DELTA = 1e-5
 _PROBE = (
@@ -60,6 +62,7 @@ def validate_local_effect_observation(
         "prompt_sha256": prompt_sha256,
         "vocab_size": vocab_size,
         "max_abs_logit_delta": float(max_abs_delta),
+        "max_abs_base_logit": float(max_abs_base),
         "normalized_logit_delta": round(normalized, 9),
         "normalized_threshold": _MIN_NORMALIZED_DELTA,
         "local_forward_effect_observed": True,
@@ -120,3 +123,53 @@ def probe_loaded_adapter_effect(
         enabled_finite=good_enabled, disabled_finite=good_disabled,
         status_after=status_after,
     )
+
+
+_LOCAL_EFFECT_FIELDS = {
+    "schema_version", "prompt_sha256", "vocab_size", "max_abs_logit_delta",
+    "max_abs_base_logit", "normalized_logit_delta", "normalized_threshold",
+    "local_forward_effect_observed", "model_runtime_independently_verified",
+    "model_attribution_verified", "superiority_claim_authorized",
+    "production_eligible",
+}
+
+
+def validate_local_effect_receipt(value: Any) -> dict[str, Any]:
+    """Validate a self-reported local effect claim, NOT model attestation.
+
+    Never trust a receipt to establish the model actually ran: it can be
+    forged. Bind the exact receipt into the capture manifest and require
+    independent model execution evidence before authorizing a claim.
+    """
+    try:
+        report = _fields(value, _LOCAL_EFFECT_FIELDS, "local effect probe")
+    except ValueError as exc:
+        raise ValueError(f"invalid local effect probe fields: {exc}") from exc
+    if report["schema_version"] != "sre.grpo.local-adapter-effect/v1":
+        raise ValueError("invalid local effect probe schema_version")
+    if (type(report["prompt_sha256"]) is not str
+            or not _SHA256.fullmatch(report["prompt_sha256"])
+            or type(report["vocab_size"]) is not int
+            or not 1 <= report["vocab_size"] <= 300_000):
+        raise ValueError("invalid local effect probe prompt/vocab")
+    delta, base = report["max_abs_logit_delta"], report["max_abs_base_logit"]
+    if (type(delta) not in (float, int) or type(base) not in (float, int)
+            or not math.isfinite(delta) or not math.isfinite(base)
+            or delta < 0 or base < 0):
+        raise ValueError("invalid local effect probe nonfinite logits")
+    ratio = float(delta) / max(1.0, float(base))
+    if not ratio > _MIN_NORMALIZED_DELTA:
+        raise ValueError("invalid local effect probe no observable adapter effect")
+    if (type(report["normalized_logit_delta"]) not in (float, int)
+            or report["normalized_logit_delta"] != round(ratio, 9)
+            or type(report["normalized_threshold"]) not in (float, int)
+            or report["normalized_threshold"] != _MIN_NORMALIZED_DELTA):
+        raise ValueError("invalid local effect probe normalized metrics")
+    if report["local_forward_effect_observed"] is not True:
+        raise ValueError("invalid local effect probe observed flag")
+    for field in ("model_runtime_independently_verified",
+                  "model_attribution_verified", "superiority_claim_authorized",
+                  "production_eligible"):
+        if report[field] is not False:
+            raise ValueError(f"invalid local effect probe {field} claim")
+    return report
