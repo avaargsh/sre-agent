@@ -1128,3 +1128,77 @@ remove incomplete files, and inject a crash during publication. CI
 success verifies only content consistency and fail-closed behavior.
 **This is not real training, an independent training-run signature,
 a proven GRPO accuracy gain or production release authorization.**
+
+
+## P0: independent **read-only** replay of published experiment evidence
+
+The new `scripts/verify_sre_grpo_evidence.py` enables a reviewer to replay
+a previously published `sre.grpo.experiment-evidence/v1` without GPU,
+Torch, TRL, PEFT, an inference server or an output directory.
+
+The reviewer must independently supply:
+- The already-published bundle path **and an external SHA256 pin**.
+- All the source files and external pins originally needed by
+  `build_sre_grpo_evidence.py`: Episode dataset, immutable training run
+  manifest, local LoRA-delta receipt, physical Adapter directory with its
+  two SHA256 pins, and the four independent Holdout artifacts and pins.
+
+The verifier reads the pinned bundle once as bounded strict JSON (no
+duplicate keys, no unknown fields, no symlinks), **recomputes the complete
+bundle from original pinned source files** by calling the same pure
+cross-stage validation core, and compares the entire dictionary with the
+published one. It never treats the bundle's self-reported success flags as
+proof. All source cross-checks repeat, including explicit `train_rows`,
+model/revision consistency, snapshot-change claims, physical LoRA config
+and weights, exact Holdout episode coverage and mandatory v4 A-B-A
+local-effect receipt content consistency.
+
+```bash
+python scripts/verify_sre_grpo_evidence.py \
+  --evidence-bundle /evidence/existing-grpo-evidence-bundle.json \
+  --expected-evidence-bundle-sha256 "$PINNED_BUNDLE_SHA256" \
+  --dataset /trusted/episodes.jsonl \
+  --expected-dataset-sha256 "$PINNED_DATASET_SHA256" \
+  --run-manifest /receipts/sre-grpo-run-manifest.json \
+  --expected-run-manifest-sha256 "$PINNED_RUN_MANIFEST_SHA256" \
+  --train-receipt /receipts/sre-grpo-local-lora-delta.json \
+  --expected-train-receipt-sha256 "$PINNED_TRAIN_RECEIPT_SHA256" \
+  --adapter-dir /reviewer-owned/grpo-adapter \
+  --expected-adapter-config-sha256 "$PINNED_ADAPTER_CONFIG_SHA256" \
+  --expected-adapter-weights-sha256 "$PINNED_ADAPTER_WEIGHTS_SHA256" \
+  --prompts /readonly/test-prompts.jsonl \
+  --projection-manifest /exports/test-projection.json \
+  --predictions /artifacts/grpo-predictions.jsonl \
+  --capture-manifest /artifacts/grpo-capture.json \
+  --expected-prompts-sha256 "$PINNED_PROMPTS_SHA256" \
+  --expected-projection-manifest-sha256 "$PINNED_PROJECTION_MANIFEST_SHA256" \
+  --expected-predictions-sha256 "$PINNED_GRPO_PREDICTIONS_SHA256" \
+  --expected-capture-manifest-sha256 "$PINNED_GRPO_CAPTURE_SHA256" \
+  --split test
+```
+
+Exit code **0** means the published bytes exactly match the independently
+recomputed **content** relations. Exit **3 / UNKNOWN** means the replay
+could not establish consistency; do not promote or merge on UNKNOWN.
+There is no special success claim for missing source files, interrupted
+publication or stale bundle hashes. Rerunning with unchanged inputs is
+idempotent and leaves source files and published bundle untouched.
+
+The output `sre.grpo.experiment-replay/v1` contains only a small,
+self-descriptive content-replay summary with
+`source_content_reverified=true` and
+`exact_bundle_fields_match_recomputed=true`. Crucially it still says
+`training_execution_independently_verified=false`,
+`saved_weights_equal_posttraining_snapshot_verified=false`,
+`model_runtime_verified=false`, `model_attribution_verified=false`,
+`superiority_claim_authorized=false` and
+`production_eligible=false`. Matching a set of SHA256-pinned files
+does **not** authenticate who supplied their pins, whether the same
+weights executed on a GPU, whether GRPO really trained them, or whether
+the SRE diagnosis improved.
+
+**CPU regression tests:** `test_grpo_evidence_replay.py` reproduces
+modified or deleted original inputs, corrupted or rehashed published
+bundles, false production claims, unknown/duplicate JSON fields,
+symlink/alias paths, repeated read-only replay, and CLI exit-code
+handling. These use synthetic receipts and are not GPU benchmarks.
