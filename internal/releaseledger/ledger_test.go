@@ -137,3 +137,25 @@ func TestTamperedInitializationMarkerFailsClosed(t *testing.T){
  newEvidence.ReleaseID="candidate-003"
  if _,err:=Commit(root,newEvidence);err==nil{t.Fatal("tampered marker permitted a new admission")}
 }
+
+
+func TestOversizedReceiptDoesNotBrickReadback(t *testing.T) {
+ root:=privateDir(t)
+ oversized:=example()
+ // Valid repository syntax, but an unbounded component would make one
+ // persisted JSONL record exceed the reader's 4096-byte record limit.
+ oversized.Repository="owner/"+strings.Repeat("r",5000)
+ if _,err:=Commit(root,oversized);err==nil{
+  t.Fatal("admitted a receipt that the independent reader must reject")
+ }
+ for _,name:=range []string{".initialized","ledger.jsonl",".writer"}{
+  if _,err:=os.Lstat(filepath.Join(root,name));!errors.Is(err,os.ErrNotExist){
+   t.Fatalf("failed admission left %s behind: %v",name,err)
+  }
+ }
+ if _,err:=Commit(root,example());err!=nil{
+  t.Fatalf("valid admission was poisoned by oversized rejected request: %v",err)
+ }
+ rows,err:=Read(root)
+ if err!=nil||len(rows)!=1{t.Fatalf("valid journal cannot replay: %v %+v",err,rows)}
+}
