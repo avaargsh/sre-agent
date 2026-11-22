@@ -10,7 +10,7 @@ kubectl -n golden-demo scale deployment/load-generator --replicas=1
 kubectl -n golden-demo rollout status deployment/load-generator --timeout=180s
 
 ROOT=/tmp/go-oracle-proof
-mkdir -p "$ROOT/control" "$ROOT/misroute"
+mkdir -p "$ROOT/control" "$ROOT/misroute" "$ROOT/selector"
 chmod 0700 "$ROOT"
 go build -o /tmp/sre-agent-oracle ./cmd/sre-agent
 
@@ -32,7 +32,7 @@ test "$(kubectl --kubeconfig="$OBS_CONFIG" auth can-i get secrets -n golden-demo
 test "$(kubectl --kubeconfig="$OBS_CONFIG" auth can-i list pods -n golden-demo)" = no
 
 restore() {
- kubectl -n golden-demo patch svc checkout-api --type=merge -p '{"spec":{"ports":[{"port":8080,"targetPort":8080}]}}' >/dev/null 2>&1 || true
+ kubectl -n golden-demo patch svc checkout-api --type=merge -p '{"spec":{"ports":[{"port":8080,"targetPort":8080}],"selector":{"app":"checkout-api"}}}' >/dev/null 2>&1 || true
  rm -f "$OBS_CONFIG" /tmp/go-oracle-ca.crt
 }
 trap restore EXIT
@@ -67,6 +67,7 @@ evaluate() {
     --out "$dir/episode.json"
  /tmp/sre-agent-oracle diagnose-service \
     --observed-service "$dir/observed.json" --expected-target-port 8080 \
+    --expected-selector app=checkout-api \
     --out "$dir/prediction.json"
  /tmp/sre-agent-oracle evaluate-oracle \
     --episode "$dir/episode.json" --prediction "$dir/prediction.json" \
@@ -117,6 +118,25 @@ admin_snapshot "$FAULT/after.json"
 probe "$FAULT" after
 evaluate "$FAULT" fault-001 SERVICE_TARGETPORT_MISROUTED SERVICE_TARGETPORT_MISROUTED MATCHED_INJECTED_FAULT
 
+# Second independent fault family: healthy app Pod and Service port remain
+# stable; the test ADMIN points Service selector at a nonexistent label. The
+# read-only observer sees only the Service during-fault response.
+SELECTOR="$ROOT/selector"
+admin_snapshot "$SELECTOR/before.json"
+probe "$SELECTOR" before
+kubectl -n golden-demo patch svc checkout-api --type=merge \
+  -p '{"spec":{"selector":{"app":"checkout-no-match"}}}'
+sleep 5 # allow EndpointSlice / kube-proxy update to converge
+admin_snapshot "$SELECTOR/during.json"
+observer_snapshot "$SELECTOR/observed.json"
+probe "$SELECTOR" during
+kubectl -n golden-demo patch svc checkout-api --type=merge \
+  -p '{"spec":{"selector":{"app":"checkout-api"}}}'
+sleep 5
+admin_snapshot "$SELECTOR/after.json"
+probe "$SELECTOR" after
+evaluate "$SELECTOR" selector-001 SERVICE_SELECTOR_MISMATCH SERVICE_SELECTOR_MISMATCH MATCHED_INJECTED_FAULT
+
 # Tamper negative checks: do not accept a forged label, a forged captured
 # during snapshot, or a falsely claimed recovery. No failed evaluation file.
 python3 - <<'PY'
@@ -154,4 +174,5 @@ done
 
 # Explicitly prove the temporary test cluster was restored.
 test "$(kubectl -n golden-demo get svc checkout-api -o jsonpath='{.spec.ports[0].targetPort}')" = 8080
+ test "$(kubectl -n golden-demo get svc checkout-api -o jsonpath='{.spec.selector.app}')" = checkout-api
 echo "PASS: restored original Service targetPort; observer never had writes"
