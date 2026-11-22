@@ -15,7 +15,8 @@ test -x "$BIN"
 KEY=/tmp/g2j-selfissued-private.pem
 PUBLIC=/tmp/g2j-selfissued-public.pem
 COPIED="$(mktemp -d)"
-cleanup() { rm -f "$KEY" "$PUBLIC"; rm -rf "$COPIED"; }
+POLICY_DIR="$(mktemp -d)"
+cleanup() { rm -f "$KEY" "$PUBLIC"; rm -rf "$COPIED" "$POLICY_DIR"; }
 trap cleanup EXIT
 
 # Explicit allowlist: no secrets, credentials, token files or generated
@@ -53,8 +54,7 @@ KEY_VERSION=ci-ephemeral-1
   --signing-key-version "$KEY_VERSION" \
   --out "$ROOT/source-manifest.json"
 
-# Prevent favorable-only publication: every preflight failure and its
-# source Pod identity must be pinned by the Ed25519 source manifest.
+# Signed policy proof must include full readiness history, including failures.
 python3 - "$ROOT/source-manifest.json" <<'PY'
 import json,sys
 m=json.load(open(sys.argv[1],encoding="utf-8"))
@@ -111,9 +111,8 @@ fail_closed() {
 cp -a "$ROOT/." "$COPIED/"
 printf '\n# tampered client log\n' >> "$COPIED/during-admin.log"
 fail_closed modified-source verify "$COPIED" "$PUBLIC" "$SRE_SOURCE_HEAD"
-
-# Even when scored phase evidence is pristine, altered startup observations
-# must independently fail v2 verification.
+# Even where the scored three-phase sources remain unchanged, independently
+# modifying the original startup log must invalidate its v2 signature.
 cp "$ROOT/during-admin.log" "$COPIED/during-admin.log"
 printf '\n# forged preflight readiness\n' >> "$COPIED/preflight-admin.log"
 fail_closed modified-preflight verify "$COPIED" "$PUBLIC" "$SRE_SOURCE_HEAD"
@@ -156,3 +155,77 @@ grep -q UNKNOWN "$ROOT/rejected-wrong-run.txt"
 echo "PASS: signed manifest rejects wrong external run identity"
 
 echo "PASS: run-id + run-attempt + key-id/version bound Ed25519 lab mechanics; provenance NOT authenticated"
+
+
+# G2l: A cryptographically good signature is NOT enough. A different
+# out-of-band source must authorize key ID, version, repository, episode and
+# current validity. This CI-generated policy/digest is an explicit test
+# fixture, never an independently endorsed production authorization.
+POLICY="$POLICY_DIR/lab-signer-policy.json"
+python3 - "$POLICY" "$KEY_ID" "$KEY_VERSION" "$GITHUB_REPOSITORY" <<'PY'
+import json, pathlib, sys
+dest, key_id, key_version, repository = sys.argv[1:]
+policy = {
+    "schema_version": "sre.signer-policy/v1",
+    "revision": "ci-lab-rev-1",
+    "grants": [{
+        "key_id": key_id,
+        "key_version": key_version,
+        "repository": repository,
+        "episode": "np-calico-egress-001",
+        "status": "active",
+        "not_before": "2025-01-01T00:00:00Z",
+        "not_after": "2030-01-01T00:00:00Z",
+    }],
+}
+pathlib.Path(dest).write_text(json.dumps(policy, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+PY
+POLICY_SHA="$(sha256sum "$POLICY" | awk '{print $1}')"
+verify_authorized() {
+  local policy_file="$1"
+  local expected_policy_sha="$2"
+  "$BIN" verify-evidence-authorized \
+    --root "$ROOT" \
+    --attestation "$ROOT/LAB-ONLY-self-issued-attestation.json" \
+    --trusted-public-key "$PUBLIC" \
+    --policy-file "$policy_file" \
+    --trusted-policy-sha256 "$expected_policy_sha" \
+    --expected-repo "$GITHUB_REPOSITORY" \
+    --expected-head "$SRE_SOURCE_HEAD" \
+    --expected-run-id "$GITHUB_RUN_ID" \
+    --expected-run-attempt "$GITHUB_RUN_ATTEMPT" \
+    --expected-episode np-calico-egress-001 \
+    --expected-signing-key-id "$KEY_ID" \
+    --expected-signing-key-version "$KEY_VERSION"
+}
+verify_authorized "$POLICY" "$POLICY_SHA"
+fail_closed invalid-policy-hash verify_authorized "$POLICY" "$(printf '%064d' 0)"
+fail_closed missing-policy-hash verify_authorized "$POLICY" ""
+# Even if the attacker rehashes their new JSON, a revoked or out-of-scope
+# policy cannot authorize the signing key.
+python3 - "$POLICY" "$POLICY_DIR" <<'PY'
+import json, pathlib, sys
+source = json.loads(pathlib.Path(sys.argv[1]).read_text())
+out = pathlib.Path(sys.argv[2])
+variants = {
+    "revoked": ("status", "revoked"),
+    "expired": ("not_after", "2025-01-01T00:00:00Z"),
+    "future": ("not_before", "2030-01-01T00:00:00Z"),
+    "wrong-repo": ("repository", "attacker/sre-agent"),
+    "wrong-episode": ("episode", "forged-episode"),
+    "wrong-version": ("key_version", "ci-ephemeral-999"),
+    "wrong-key-id": ("key_id", "a" * 64),
+}
+for label,(field,value) in variants.items():
+    obj = json.loads(json.dumps(source))
+    obj["grants"][0][field] = value
+    (out / f"{label}.json").write_text(json.dumps(obj, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+PY
+for variant in revoked expired future wrong-repo wrong-episode wrong-version wrong-key-id; do
+  changed="$POLICY_DIR/$variant.json"
+  changed_sha="$(sha256sum "$changed" | awk '{print $1}')"
+  fail_closed "signer-policy-$variant" verify_authorized "$changed" "$changed_sha"
+done
+cp "$POLICY" "$ROOT/LAB-ONLY-UNTRUSTED-policy.json"
+fail_closed bundled-policy verify_authorized "$ROOT/LAB-ONLY-UNTRUSTED-policy.json" "$POLICY_SHA"
+echo "PASS: independent policy gate mechanics only; signer authority, policy publication and revocation remain UNVERIFIED"
