@@ -16,8 +16,8 @@ from typing import Any, Callable
 from .grpo_import import _verify_pin
 from .grpo_training import SREEpisode, load_episodes, qwen3_chat_rows
 
-_REPO = re.compile(r"Qwen/Qwen3-[A-Za-z0-9._-]+\\Z")
-_SHA40 = re.compile(r"[0-9a-f]{40}\\Z")
+_REPO = re.compile(r"Qwen/Qwen3-[A-Za-z0-9._-]+\Z")
+_SHA40 = re.compile(r"[0-9a-f]{40}\Z")
 _MAX_GROUPS = 128
 _MAX_OUTPUT_BYTES = 4 * 1024 * 1024
 _MAX_LINE_BYTES = 128 * 1024
