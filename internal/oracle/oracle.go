@@ -15,6 +15,7 @@ import (
  "regexp"
  "strings"
  "reflect"
+ "github.com/avaargsh/sre-agent/internal/evidence"
 )
 
 type Snapshot struct {
@@ -88,6 +89,7 @@ type parsed struct{
 func parse(raw []byte)(parsed,error){
  var v service
  if len(raw)==0||len(raw)>maxSnapshot{return parsed{},errors.New("Service JSON too large or empty")}
+ if err:=evidence.ValidateUniqueJSONObject(raw);err!=nil{return parsed{},errors.New("ambiguous Service JSON keys")}
  d:=json.NewDecoder(bytes.NewReader(raw))
  if err:=d.Decode(&v);err!=nil{return parsed{},errors.New("invalid Service JSON")}
  var trailing any

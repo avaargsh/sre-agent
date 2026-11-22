@@ -106,3 +106,30 @@ func TestKubernetesTokenIsNotSentToPrometheus(t *testing.T){
  if _,err:=Collect(context.Background(),c);err!=nil{t.Fatal(err)}
  if len(kubeHeaders)!=2||kubeHeaders[0]!="Bearer readonly-test"||kubeHeaders[1]!="Bearer readonly-test"||promHeader!=""{t.Fatal("Kubernetes credential leaked to Prometheus")}
 }
+
+
+func TestRejectsPaginatedKubernetesPodList(t *testing.T) {
+ // A LIST with metadata.continue is a partial source. Reporting a complete
+ // observation from the first page would conceal Pods and violate the G1
+ // provenance/total-count boundary.
+ seenPrometheus := false
+ srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request) {
+  switch r.URL.Path {
+  case "/apis/apps/v1/namespaces/golden-demo/deployments/checkout-api":
+   _,_=fmt.Fprint(w,`{"metadata":{"uid":"d1","name":"checkout-api","namespace":"golden-demo","resourceVersion":"1","generation":1},"spec":{"replicas":2,"selector":{"matchLabels":{"app":"checkout-api"}}},"status":{"readyReplicas":2,"observedGeneration":1}}`)
+  case "/api/v1/namespaces/golden-demo/pods":
+   _,_=fmt.Fprint(w,`{"kind":"PodList","metadata":{"resourceVersion":"2","continue":"next-page-token"},"items":[]}`)
+  case "/api/v1/query":
+   seenPrometheus=true
+   _,_=fmt.Fprint(w,`{"status":"success","data":{"resultType":"vector","result":`+validSample+`}}`)
+  default:
+   w.WriteHeader(http.StatusNotFound)
+  }
+ }))
+ defer srv.Close()
+ raw,err:=Collect(context.Background(),fixture(srv.URL))
+ if !errors.Is(err,ErrUnknown)||raw!=nil{
+  t.Fatalf("accepted partial Kubernetes list as complete: raw=%q err=%v",raw,err)
+ }
+ if seenPrometheus {t.Fatal("continued metric collection after incomplete pod source")}
+}
