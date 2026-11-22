@@ -167,6 +167,7 @@ def load_episodes(path: str | Path) -> tuple[SREEpisode, ...]:
     episodes: list[SREEpisode] = []
     ids: set[str] = set()
     family_splits: dict[str, str] = {}
+    content_splits: dict[tuple[str, tuple[tuple[str, str], ...]], str] = {}
     for line in data.splitlines():
         if not line.strip():
             raise ValueError("blank JSONL record")
@@ -179,6 +180,21 @@ def load_episodes(path: str | Path) -> tuple[SREEpisode, ...]:
         former = family_splits.setdefault(ep.fault_family, ep.split)
         if former != ep.split:
             raise ValueError(f"fault_family split leakage: {ep.fault_family}")
+        # Prevent a renamed family or changed evidence IDs from moving the
+        # same frozen observation text between train and independent holdouts.
+        # This is exact normalized-content checking, not semantic near-duplicate
+        # detection or an externally authenticated source-provenance check.
+        normalize = lambda value: " ".join(value.casefold().split())
+        fingerprint = (
+            normalize(ep.alert),
+            tuple(sorted(
+                (obs.tool, normalize(obs.text))
+                for obs in ep.observations
+            )),
+        )
+        previous_split = content_splits.setdefault(fingerprint, ep.split)
+        if previous_split != ep.split:
+            raise ValueError(f"cross-split content leakage: {ep.episode_id}")
         episodes.append(ep)
     if not episodes:
         raise ValueError("no episodes")
