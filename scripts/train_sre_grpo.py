@@ -20,6 +20,7 @@ from agentic_aiops.grpo_training import (
     qwen3_chat_rows,
     training_rows,
 )
+from agentic_aiops.grpo_rollout_audit import audit_rollout_groups
 
 
 def main() -> None:
@@ -33,7 +34,15 @@ def main() -> None:
     parser.add_argument("--model", help="explicit Qwen3 checkpoint or local path")
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--allow-tiny-lab", action="store_true",
-                        help="allow a toy dataset (<8 train rows), not a benchmark")
+                        help="skip baseline gate only for <8-row synthetic lab smoke")
+    parser.add_argument("--lab-only", action="store_true",
+                        help="explicitly acknowledge unverified experimental dataset")
+    parser.add_argument("--baseline-rollouts", type=Path,
+                        help="complete pinned baseline model rollout groups")
+    parser.add_argument("--expected-dataset-sha256",
+                        help="dataset digest pinned outside untrusted rollout files")
+    parser.add_argument("--expected-rollouts-sha256",
+                        help="rollout digest pinned outside untrusted rollout files")
     parser.add_argument("--num-generations", type=int, default=4)
     parser.add_argument("--max-steps", type=int, default=10)
     args = parser.parse_args()
@@ -60,8 +69,36 @@ def main() -> None:
 
     if not args.model or args.output_dir is None:
         parser.error("--execute requires --model and --output-dir")
+    # Until independent issuer identity, immutable data admission and actual
+    # GPU/holdout verification exist, the entrypoint has NO promoted mode.
+    if not args.lab_only:
+        parser.error("--execute requires --lab-only; trusted training admission is not implemented")
     if not args.allow_tiny_lab and len(rows) < 8:
         parser.error("at least 8 train episodes required without --allow-tiny-lab")
+    baseline_audit = None
+    if not args.allow_tiny_lab:
+        if (args.baseline_rollouts is None
+                or not args.expected_rollouts_sha256
+                or not args.expected_dataset_sha256):
+            parser.error(
+                "non-tiny --execute requires --baseline-rollouts, "
+                "--expected-dataset-sha256 and --expected-rollouts-sha256"
+            )
+        try:
+            baseline_audit = audit_rollout_groups(
+                args.dataset,
+                args.baseline_rollouts,
+                expected_dataset_sha256=args.expected_dataset_sha256,
+                expected_rollouts_sha256=args.expected_rollouts_sha256,
+                group_size=args.num_generations,
+            )
+        except (ValueError, OSError) as exc:
+            parser.error(f"baseline GRPO reward audit rejected: {exc}")
+        if baseline_audit["readiness"] != "GRADIENT_SIGNAL_PRESENT_NOT_TRAINING_PROOF":
+            parser.error("baseline GRPO reward audit found insufficient group variance")
+    elif any((args.baseline_rollouts, args.expected_rollouts_sha256,
+              args.expected_dataset_sha256)):
+        parser.error("--allow-tiny-lab does not accept non-tiny baseline options")
 
     try:
         import torch
@@ -123,6 +160,13 @@ def main() -> None:
         "max_steps": args.max_steps,
         "num_generations": args.num_generations,
         "training_status": "started_not_verified",
+        "training_scope": "LAB_ONLY_UNVERIFIED",
+        "data_issuer_authenticated": False,
+        "training_admission_authorized": False,
+        "eligible_for_production": False,
+        "baseline_reward_audit": baseline_audit,
+        "preflight_model_runtime_verified": False,
+        "preflight_reward_hacking_verified_absent": False,
     }
     # Pre-run manifest is not evidence of successful training.
     (args.output_dir / "sre-grpo-run-manifest.json").write_text(
