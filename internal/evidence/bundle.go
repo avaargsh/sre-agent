@@ -38,12 +38,52 @@ func requiredString(obj map[string]any, field, location string) (string, error) 
  if !ok || strings.TrimSpace(s) == "" { return "", fmt.Errorf("%s.%s must be a nonempty string", location, field) }
  return s, nil
 }
+// decodeUniqueJSONValue walks the original token stream so that duplicate
+// object keys cannot be erased by map decoding before canonical hashing.
+// This includes nested evidence fields and scenario envelopes.
+func decodeUniqueJSONValue(decoder *json.Decoder) (any, error) {
+ token, err := decoder.Token()
+ if err != nil { return nil, err }
+ delimiter, ok := token.(json.Delim)
+ if !ok { return token, nil }
+ switch delimiter {
+ case '{':
+  result := make(map[string]any)
+  for decoder.More() {
+   next, err := decoder.Token()
+   if err != nil { return nil, err }
+   key, ok := next.(string)
+   if !ok { return nil, errors.New("JSON object key is not a string") }
+   if _, exists := result[key]; exists {
+    return nil, fmt.Errorf("duplicate JSON object key %q", key)
+   }
+   value, err := decodeUniqueJSONValue(decoder)
+   if err != nil { return nil, err }
+   result[key] = value
+  }
+  end, err := decoder.Token()
+  if err != nil || end != json.Delim('}') { return nil, errors.New("malformed JSON object") }
+  return result, nil
+ case '[':
+  result := make([]any, 0)
+  for decoder.More() {
+   value, err := decodeUniqueJSONValue(decoder)
+   if err != nil { return nil, err }
+   result = append(result, value)
+  }
+  end, err := decoder.Token()
+  if err != nil || end != json.Delim(']') { return nil, errors.New("malformed JSON array") }
+  return result, nil
+ default:
+  return nil, errors.New("unexpected JSON closing delimiter")
+ }
+}
 func parseJSON(raw []byte) (map[string]any, error) {
  if len(raw) > MaxBundleBytes { return nil, fmt.Errorf("bundle exceeds %d bytes", MaxBundleBytes) }
  decoder := json.NewDecoder(bytes.NewReader(raw))
  decoder.UseNumber()
- var root any
- if err := decoder.Decode(&root); err != nil { return nil, fmt.Errorf("decode bundle: %w", err) }
+ root, err := decodeUniqueJSONValue(decoder)
+ if err != nil { return nil, fmt.Errorf("decode bundle: %w", err) }
  var trailing any
  if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) { return nil, errors.New("bundle contains trailing JSON") }
  return object(root, "bundle")
