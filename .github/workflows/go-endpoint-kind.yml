@@ -1,0 +1,35 @@
+name: go-endpoint-kind
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "internal/endpointoracle/**"
+      - "cmd/sre-agent/endpoint_oracle.go"
+      - "cmd/sre-agent/main.go"
+      - "demo/go-endpoint/**"
+      - ".github/workflows/go-endpoint-kind.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  endpoint-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: helm/kind-action@v1.12.0
+        with:
+          cluster_name: golden-endpoint
+      - name: Run real EndpointSlice no-ready and healthy-control incidents
+        run: bash demo/go-endpoint/run-kind.sh
+      - name: Preserve original fault and recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-endpoint-kind-proof
+          path: /tmp/go-endpoint-proof/
