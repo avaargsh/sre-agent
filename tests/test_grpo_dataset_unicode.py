@@ -33,13 +33,13 @@ def episode():
 
 
 @pytest.mark.parametrize("target", ["alert", "observation"])
-@pytest.mark.parametrize("surrogate", ["\\ud800", "\\udfff"])
+@pytest.mark.parametrize("surrogate", [0xD800, 0xDFFF])
 def test_reject_unpaired_utf16_surrogate_in_oracle_free_prompt_sources(target, surrogate):
     obj = episode()
     if target == "alert":
-        obj["alert"] = "restarts " + surrogate
+        obj["alert"] = "restarts " + chr(surrogate)
     else:
-        obj["observations"][0]["text"] = "events " + surrogate
+        obj["observations"][0]["text"] = "events " + chr(surrogate)
     # JSONL bytes are valid UTF-8. The invalid character only materializes
     # after JSON decoding: raw.decode("utf-8") is not a sufficient guard.
     raw = (json.dumps(obj, ensure_ascii=True) + "\n").encode("utf-8")
