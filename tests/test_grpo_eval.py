@@ -92,6 +92,14 @@ def test_prediction_parser_rejects_duplicate_json_and_rows(tmp_path):
         load_predictions(path)
 
 
+def test_prediction_parser_rejects_unencodable_completion_as_value_error(tmp_path):
+    path = tmp_path / "surrogate-prediction.jsonl"
+    row = {"episode_id": "test-1", "completion": "\\ud800"}
+    path.write_text(json.dumps(row) + "\\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="invalid prediction completion"):
+        load_predictions(path)
+
+
 def test_legacy_holdout_cli_supports_external_byte_pins(tmp_path):
     import hashlib
     import subprocess
