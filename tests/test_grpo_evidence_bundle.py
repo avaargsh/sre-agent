@@ -125,12 +125,9 @@ def test_external_pin_mismatch_cannot_publish_evidence(tmp_path, key, field):
 def test_tampered_training_delta_even_with_rehashed_receipt_rejected(tmp_path):
     args = fixture(tmp_path)
     receipt = json.loads(args["train_receipt"].read_text())
-    receipt["local_lora_update"]["global_step"] = 2
-    args["train_receipt"].write_text(json.dumps(receipt) + "\n")
-    args["expected_train_receipt_sha256"] = sha(args["train_receipt"])
-    # Both fields look locally valid, but run max_steps remains 10; changing
-    # the reported optimizer step is not independently detectable. Instead
-    # poison the internal update's fixed proof claims and require replay.
+    # A claimed step count is producer-controlled and cannot be independently
+    # authenticated from these receipts. A forbidden authority promotion,
+    # however, must be rejected even when the entire receipt is rehashed.
     receipt["local_lora_update"]["production_eligible"] = True
     args["train_receipt"].write_text(json.dumps(receipt) + "\n")
     args["expected_train_receipt_sha256"] = sha(args["train_receipt"])
@@ -157,7 +154,6 @@ def test_cross_model_or_dataset_swap_denied(tmp_path):
     args["expected_train_receipt_sha256"] = sha(args["train_receipt"])
     with pytest.raises(ValueError, match="model_revision"):
         build_grpo_evidence_bundle(**args)
-    args = fixture(tmp_path/"different") if False else args
 
 
 def test_holdout_capture_swap_rejected_even_with_new_digest(tmp_path):
