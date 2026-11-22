@@ -70,7 +70,9 @@ def test_missing_or_extra_lora_key_rejected(tmp_path):
     tensors.pop(next(iter(tensors)))
     with pytest.raises(ValueError, match="tensor set"):
         check(frozen, tensors, status)
-    _, tensors, status = setup(tmp_path)
+    second = tmp_path / "second"
+    second.mkdir()
+    _, tensors, status = setup(second)
     tensors["base_model.model.extra.lora_A.weight"] = FakeTensor(b"extra123")
     with pytest.raises(ValueError, match="tensor set"):
         check(frozen, tensors, status)
@@ -100,7 +102,9 @@ def test_wrong_lora_dtype_or_shape_rejected(tmp_path):
     next(iter(tensors.values())).dtype = "torch.float32"
     with pytest.raises(ValueError, match="dtype"):
         check(frozen, tensors, status)
-    _, tensors, status = setup(tmp_path)
+    second = tmp_path / "second"
+    second.mkdir()
+    _, tensors, status = setup(second)
     next(iter(tensors.values())).shape = (4, 1)
     with pytest.raises(ValueError, match="shape"):
         check(frozen, tensors, status)
