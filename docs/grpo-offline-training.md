@@ -296,3 +296,96 @@ admission still requires independent data issuer authentication, an immutable
 dataset provenance registry, frozen model/tokenizer/TRL versions, actual
 GPU-weight-update evidence and blind holdout A/B. A file hash alone is
 not reviewer authorization.
+
+
+## Qwen3 raw rollout capture and independently replayed receipt (P0)
+
+`scripts/sample_sre_grpo.py` provides the first **opt-in, CUDA-only** Qwen3
+sampling entrypoint, built on the same `sre.grpo.episode/v1` train/holdout
+dataset. The CPU tests inject a fake sampler to exercise the contract; they do
+**not** load model weights or establish that an actual GPU sampled anything.
+
+Capture is deliberately two distinct processes:
+
+1. The **sampler** receives only the non-thinking, rendered user prompt.
+   It does not get Oracle/split labels in its prompt or any live tool credentials.
+   It samples exactly `N` completions per train episode, uses fixed
+   `temperature=0.7`, `top_p=0.8`, `top_k=20`, and records the raw decoded
+   output text *even when the model emits invalid JSON or whitespace*. It does
+   not cherry-pick successful samples. Test/validation episodes are never
+   sampled into the training baseline.
+2. An **independent reviewer** pins the exact dataset/rollouts/manifest SHA256
+   values out of band and runs the separate reward scorer and metadata
+   consistency verifier. The capture manifest by itself is **not** proof that
+   the stated model, GPU, tokenizer or environment actually generated the text.
+
+Before running, resolve `Qwen/Qwen3-0.6B` to a specific **40-character
+lowercase Hugging Face commit SHA** and pin the dataset hash *outside* the
+generated files. A branch name (`main`), eight-character abbreviation or
+mutable model alias is rejected. Train data remains experimental, so
+`--lab-only` is mandatory. The example below is an invocation template, not
+a command that was executed in the project CI.
+
+```bash
+pip install -e ".[train]"
+
+python scripts/sample_sre_grpo.py \
+  --execute --lab-only \
+  --dataset /reviewed/episodes.jsonl \
+  --expected-dataset-sha256 "$EXTERNALLY_PINNED_DATASET_SHA256" \
+  --model Qwen/Qwen3-0.6B \
+  --revision "$PINNED_QWEN3_COMMIT_SHA40" \
+  --num-generations 4 --max-new-tokens 192 --seed 42 \
+  --output /new/capture-rollouts.jsonl \
+  --manifest /new/capture-manifest.json
+```
+
+A one-episode **synthetic smoke** can explicitly add `--allow-tiny-lab`;
+the flag refuses to bypass normal sample-count requirements on datasets of
+eight or more train rows.
+
+The JSONL `capture-rollouts.jsonl` conforms exactly to the existing
+`audit_sre_grpo_rollouts.py` format: one group with
+`{"episode_id":"...", "completions":["...", "..."]}` for every train episode.
+The sibling manifest records model and tokenizer commit, dataset and rollout
+SHA256, prompt content SHA256, group size/count, seeds, max output tokens,
+fixed sampling parameters and explicit negative authority flags.
+Both files are create-only: no appending, replacing, or publishing a partial
+group. A crash between the two file writes can leave an **orphan rollout
+without a valid manifest**; such orphan output must not be admitted.
+
+The independent binding/score verification then requires **three** externally
+recorded digest values:
+
+```bash
+python scripts/verify_sre_grpo_capture.py \
+  --dataset /reviewed/episodes.jsonl \
+  --rollouts /new/capture-rollouts.jsonl \
+  --manifest /new/capture-manifest.json \
+  --expected-dataset-sha256 "$EXTERNALLY_PINNED_DATASET_SHA256" \
+  --expected-rollouts-sha256 "$EXTERNALLY_PINNED_ROLLOUTS_SHA256" \
+  --expected-manifest-sha256 "$EXTERNALLY_PINNED_MANIFEST_SHA256" \
+  --model Qwen/Qwen3-0.6B \
+  --revision "$PINNED_QWEN3_COMMIT_SHA40" \
+  --group-size 4 --require-signal
+```
+
+The verifier independently rehashes both raw inputs and the manifest,
+compares model/tokenizer revisions, group and sample counts, validates
+non-promotion flags, and replays `audit_rollout_groups` on **every** train
+episode. A zero-advantage group can be detected even if all decoded answers
+look structurally different. `--require-signal` returns exit 3 when the
+required fraction of groups has no reward variability.
+
+**Evidence boundary:** manifest consistency is a content-binding check,
+not independent verification of real Qwen3 execution, Hugging Face commit
+origin, exact CUDA kernels, training gradients or model improvement.
+The returned `model_runtime_independently_verified=false` and
+`training_admission_authorized=false` are intentional. A real model/weights
+replay, frozen dependency environment, raw token/latency traces, GPU evidence,
+independent reviewer/issuer authority and true Base/SFT/GRPO blind holdout
+remain separate unresolved requirements. **Do not merge this Draft PR solely
+on CPU passing tests.**
+
+Official references: [Qwen3 quickstart](https://github.com/QwenLM/Qwen3/blob/main/docs/source/getting_started/quickstart.md)
+and [TRL GRPO custom reward interface](https://huggingface.co/docs/trl/v0.25.1/grpo_trainer).
