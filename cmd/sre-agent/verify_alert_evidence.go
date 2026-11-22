@@ -8,6 +8,7 @@ import (
  "fmt"
  "io"
  "strings"
+ "time"
  "unicode/utf8"
 
  "github.com/avaargsh/sre-agent/internal/alertintake"
@@ -75,6 +76,19 @@ func rejectCasefoldAliases(obj map[string]any, location string, canonical ...str
  return nil
 }
 
+// A v1 read-only observation has an exact producer-owned shape. Unknown
+// fields can carry fabricated approval or recovery claims despite valid
+// self-hashes; that ambiguity is prohibited rather than ignored.
+func requireOnlyFields(obj map[string]any,location string,keys ...string)error{
+ if obj==nil{return fmt.Errorf("%s must be an object",location)}
+ allowed:=make(map[string]bool,len(keys))
+ for _,key:=range keys{allowed[key]=true}
+ for actual:=range obj{
+  if !allowed[actual]{return fmt.Errorf("%s includes unsupported field %q",location,actual)}
+ }
+ return nil
+}
+
 // reviewLinkedEvidence verifies a sealed-v1 plan against the original raw
 // alert and expected independently supplied operator scope, then independently
 // verifies the Evidence Bundle's canonical hash and cross-field linkage.
@@ -108,8 +122,21 @@ func reviewLinkedEvidence(rawAlert,frozenPlan,bundle []byte,target alertintake.T
  if err:=rejectCasefoldAliases(incident,"incident",
   "incident_id","summary","severity","scope");err!=nil{return AlertEvidenceReview{},err}
  if err:=rejectCasefoldAliases(meta,"metadata",
-  "schema_version","observation_status","bundle_sha256","tool_count","evidence_count");err!=nil{
+  "schema_version","observation_status","bundle_sha256","tool_count","evidence_count","observed_at");err!=nil{
   return AlertEvidenceReview{},err
+ }
+ if err:=requireOnlyFields(incident,"read-only incident",
+  "incident_id","summary","severity","scope");err!=nil{return AlertEvidenceReview{},err}
+ if err:=requireOnlyFields(meta,"read-only metadata",
+  "schema_version","observation_status","observed_at","tool_count","evidence_count","bundle_sha256");err!=nil{
+  return AlertEvidenceReview{},err
+ }
+ observedAt:=exactText(meta,"observed_at")
+ if observedAt==""{
+  return AlertEvidenceReview{},fmt.Errorf("read-only observation timestamp missing")
+ }
+ if _,err:=time.Parse(time.RFC3339Nano,observedAt);err!=nil{
+  return AlertEvidenceReview{},fmt.Errorf("invalid read-only observation timestamp")
  }
  expectedScope:="namespace="+target.Namespace+",deployment="+target.Deployment
  if exactText(incident,"incident_id")!=plan.IncidentID||
@@ -130,8 +157,15 @@ func reviewLinkedEvidence(rawAlert,frozenPlan,bundle []byte,target alertintake.T
  sources:=map[string]bool{}
  for _,rawItem:=range items{
   item:=exactObject(rawItem)
-  if err:=rejectCasefoldAliases(item,"evidence item","source","attributes");err!=nil{
+  if err:=rejectCasefoldAliases(item,"evidence item","source","attributes","timestamp");err!=nil{
    return AlertEvidenceReview{},err
+  }
+  if err:=requireOnlyFields(item,"read-only evidence item",
+   "evidence_id","source","observation","timestamp","attributes","entity_refs");err!=nil{
+   return AlertEvidenceReview{},err
+  }
+  if exactText(item,"timestamp")!=observedAt {
+   return AlertEvidenceReview{},fmt.Errorf("source evidence timestamp disagrees with observation")
   }
   source:=exactText(item,"source")
   if sources[source]{return AlertEvidenceReview{},fmt.Errorf("duplicate observation source")}
@@ -141,8 +175,17 @@ func reviewLinkedEvidence(rawAlert,frozenPlan,bundle []byte,target alertintake.T
    "namespace","deployment","uid","resource_version","promql","result_type");err!=nil{
    return AlertEvidenceReview{},err
   }
+  if exactText(attrs,"observed_at")!=observedAt {
+   return AlertEvidenceReview{},fmt.Errorf("source attribute timestamp disagrees with observation")
+  }
   switch source{
   case "kubernetes":
+   if err:=requireOnlyFields(attrs,"Kubernetes observation attributes",
+    "namespace","deployment","uid","resource_version","generation",
+    "observed_generation","desired_replicas","ready_replicas","pods_json",
+    "pod_list_resource_version","observed_at");err!=nil{
+    return AlertEvidenceReview{},err
+   }
    if exactText(attrs,"namespace")!=target.Namespace||
      exactText(attrs,"deployment")!=target.Deployment||
      exactText(attrs,"uid")==""||
@@ -150,6 +193,10 @@ func reviewLinkedEvidence(rawAlert,frozenPlan,bundle []byte,target alertintake.T
     return AlertEvidenceReview{},fmt.Errorf("Kubernetes observation target mismatch")
    }
   case "prometheus":
+   if err:=requireOnlyFields(attrs,"Prometheus observation attributes",
+    "promql","samples_json","result_type","series_count","observed_at","max_age_seconds");err!=nil{
+    return AlertEvidenceReview{},err
+   }
    if expectedQuery==""||len(expectedQuery)>512||
      exactText(attrs,"promql")!=expectedQuery||
      exactText(attrs,"result_type")!="vector"{
