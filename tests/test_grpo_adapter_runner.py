@@ -4,6 +4,7 @@ import contextlib
 import hashlib
 import importlib.util
 import json
+import struct
 import sys
 import types
 from pathlib import Path
@@ -20,6 +21,32 @@ class FakeBatch(dict):
 
 class FakeInputIds:
     shape = (1, 2)
+
+
+class FakeLoadedTensor:
+    def __init__(self, payload, dtype, shape):
+        self.payload = payload
+        self.dtype = dtype
+        self.shape = tuple(shape)
+
+    def detach(self):
+        return self
+
+    def cpu(self):
+        return self
+
+    def contiguous(self):
+        return self
+
+    def view(self, dtype):
+        assert dtype == "torch.uint8"
+        return self
+
+    def numpy(self):
+        return self
+
+    def tobytes(self):
+        return self.payload
 
 
 class FakeModel:
@@ -45,8 +72,10 @@ def fake_runtime(monkeypatch, pins):
     state = {
         "model_revision": None, "tokenizer_revision": None,
         "adapter_loaded": False, "sampled": 0, "staging_dir": None,
+        "loaded_weights": {}, "simulate_missing_weights": False,
     }
     torch = types.ModuleType("torch")
+    torch.uint8 = "torch.uint8"
     torch.bfloat16 = "torch.bfloat16"
     torch.float16 = "torch.float16"
     torch.cuda = types.SimpleNamespace(
@@ -90,7 +119,9 @@ def fake_runtime(monkeypatch, pins):
 
     class PeftModel:
         @classmethod
-        def from_pretrained(cls, base, adapter_path, *, is_trainable, local_files_only):
+        def from_pretrained(cls, base, adapter_path, *, is_trainable, local_files_only,
+                            autocast_adapter_dtype):
+            assert autocast_adapter_dtype is False
             assert is_trainable is False
             assert local_files_only is True
             assert isinstance(base, FakeModel)
@@ -105,6 +136,19 @@ def fake_runtime(monkeypatch, pins):
             assert set(p.name for p in stage.iterdir()) == {
                 "adapter_config.json", "adapter_model.safetensors",
             }
+            raw = (stage / "adapter_model.safetensors").read_bytes()
+            header_len = struct.unpack("<Q", raw[:8])[0]
+            header = json.loads(raw[8:8+header_len])
+            payload = raw[8+header_len:]
+            dtypes = {"F16": "torch.float16", "BF16": "torch.bfloat16",
+                      "F32": "torch.float32"}
+            state["loaded_weights"] = {
+                key: FakeLoadedTensor(
+                    payload[value["data_offsets"][0]:value["data_offsets"][1]],
+                    dtypes[value["dtype"]], value["shape"],
+                )
+                for key, value in header.items() if key != "__metadata__"
+            }
             state["adapter_loaded"] = True
             state["staging_dir"] = stage
             return base
@@ -114,6 +158,15 @@ def fake_runtime(monkeypatch, pins):
     transformers.AutoTokenizer = Tokenizer
     peft = types.ModuleType("peft")
     peft.PeftModel = PeftModel
+    peft.get_peft_model_state_dict = (
+        lambda model, *, adapter_name, save_embedding_layers:
+        {} if state["simulate_missing_weights"] else state["loaded_weights"]
+    )
+    peft.get_model_status = lambda model: types.SimpleNamespace(
+        enabled=True, active_adapters=["default"],
+        merged_adapters=[], peft_types={"default": "LORA"},
+        num_adapter_layers=1, trainable_params=0,
+    )
     for name, val in (("torch", torch), ("transformers", transformers), ("peft", peft)):
         monkeypatch.setitem(sys.modules, name, val)
     return state
