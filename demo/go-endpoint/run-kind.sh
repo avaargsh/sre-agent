@@ -97,7 +97,7 @@ wait_zero_pods() {
     if python3 - "$file" <<'PY'
 import json,sys
 p=json.load(open(sys.argv[1]))
-assert p.get("kind")=="PodList"
+assert p.get("kind") in ("List","PodList")
 sys.exit(0 if len(p.get("items",[]))==0 else 1)
 PY
     then
