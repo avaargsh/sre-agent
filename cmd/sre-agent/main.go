@@ -14,10 +14,11 @@ import (
 
 func run(args []string, stdout, stderr io.Writer) int {
  if len(args) == 0 {
-  fmt.Fprintln(stderr, "usage: sre-agent verify-bundle|investigate [options]")
+  fmt.Fprintln(stderr, "usage: sre-agent verify-bundle|investigate|verify-sli [options]")
   return 2
  }
  if args[0] == "investigate" { return investigate(args[1:], stdout, stderr) }
+ if args[0] == "verify-sli" { return verifySLI(args[1:], stdout, stderr) }
  if args[0] != "verify-bundle" { fmt.Fprintln(stderr, "usage: sre-agent verify-bundle|investigate [options]"); return 2 }
  flags := flag.NewFlagSet("verify-bundle", flag.ContinueOnError)
  flags.SetOutput(stderr)
