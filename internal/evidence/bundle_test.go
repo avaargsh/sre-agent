@@ -108,3 +108,13 @@ func TestRejectsDuplicateJSONObjectKeysAtEveryDepth(t *testing.T) {
   t.Fatal("duplicate scenario bundle key was silently accepted")
  }
 }
+
+
+func TestMissingV1SchemaVersionFailsClosed(t *testing.T) {
+ raw := changed(t, func(root map[string]any) {
+  delete(root["metadata"].(map[string]any), "schema_version")
+ })
+ if _, err := Verify(raw); err == nil {
+  t.Fatal("bundle with no schema_version was accepted as v1")
+ }
+}
