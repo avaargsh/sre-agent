@@ -105,10 +105,11 @@ def _validate_run_and_delta(
     for flag in ("model_runtime_independently_verified", "production_eligible"):
         if receipt.get(flag) is not False:
             raise ValueError(f"training {flag} cannot be promoted")
-    if type(run.get("train_rows", train_count)) is not int or run.get(
-        "train_rows", train_count
-    ) != train_count:
-        raise ValueError("run manifest train_rows inconsistent with pinned dataset")
+    # Never infer a missing producer claim from the independently parsed
+    # dataset. The pre-run manifest MUST explicitly report its train count;
+    # otherwise an incomplete/aborted producer record could appear valid.
+    if type(run.get("train_rows")) is not int or run["train_rows"] != train_count:
+        raise ValueError("run manifest train_rows missing or inconsistent with pinned dataset")
     model, revision = run.get("model"), run.get("model_revision")
     if type(model) is not str or not _REPO.fullmatch(model):
         raise ValueError("invalid run model")
