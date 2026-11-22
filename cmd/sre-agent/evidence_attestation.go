@@ -25,8 +25,9 @@ func saveExclusive(path string,payload []byte)error{
  }
  return nil
 }
-func fixedIdentity(repo,commit,run,episode string)evidenceauth.Expected{
- return evidenceauth.Expected{Repository:repo,Commit:commit,WorkflowRun:run,Episode:episode}
+func fixedIdentity(repo,commit,run,attempt,episode,keyID,keyVersion string)evidenceauth.Expected{
+ return evidenceauth.Expected{Repository:repo,Commit:commit,WorkflowRun:run,WorkflowAttempt:attempt,
+  Episode:episode,SigningKeyID:keyID,SigningKeyVersion:keyVersion}
 }
 func indexEvidence(args []string,stdout,stderr io.Writer)int{
  f:=flag.NewFlagSet("index-evidence",flag.ContinueOnError);f.SetOutput(stderr)
@@ -35,11 +36,14 @@ func indexEvidence(args []string,stdout,stderr io.Writer)int{
  repo:=f.String("repo","","operator-expected repository")
  head:=f.String("head","","operator-expected 40-character commit HEAD SHA")
  run:=f.String("run-id","","operator-expected GitHub workflow run ID")
+ attempt:=f.String("run-attempt","","operator-expected GitHub workflow run attempt (starts at 1)")
  episode:=f.String("episode","","operator-expected episode ID")
+ keyID:=f.String("signing-key-id","","SHA256 of authorized signer PKIX SPKI DER")
+ keyVersion:=f.String("signing-key-version","","externally authorized signer key version label")
  out:=f.String("out","","new exact-byte manifest file")
  if err:=f.Parse(args);err!=nil{return 2}
  if len(f.Args())!=0||*root==""||*paths==""||*out==""{fmt.Fprintln(stderr,"missing source root, paths or output");return 2}
- m,err:=evidenceauth.Build(*root,strings.Split(*paths,","),fixedIdentity(*repo,*head,*run,*episode))
+ m,err:=evidenceauth.Build(*root,strings.Split(*paths,","),fixedIdentity(*repo,*head,*run,*attempt,*episode,*keyID,*keyVersion))
  if err!=nil{fmt.Fprintln(stderr,"UNKNOWN: cannot build identity-bound manifest:",err);return 3}
  if err:=saveExclusive(*out,m);err!=nil{fmt.Fprintln(stderr,"cannot save manifest:",err);return 1}
  fmt.Fprintln(stdout,"PASS: bounded original evidence index created")
@@ -111,7 +115,10 @@ func verifyEvidence(args []string,stdout,stderr io.Writer)int{
  repo:=f.String("expected-repo","","expected repository from outside attestation")
  head:=f.String("expected-head","","expected exact commit from outside attestation")
  run:=f.String("expected-run-id","","expected workflow run ID from outside attestation")
+ attempt:=f.String("expected-run-attempt","","expected exact workflow run attempt from outside attestation")
  episode:=f.String("expected-episode","","expected episode ID from outside attestation")
+ keyID:=f.String("expected-signing-key-id","","expected signer public-key SPKI fingerprint from outside attestation")
+ keyVersion:=f.String("expected-signing-key-version","","authorized signing key version from outside attestation")
  if err:=f.Parse(args);err!=nil{return 2}
  if len(f.Args())!=0||*root==""||*envelope==""||*pub==""{fmt.Fprintln(stderr,"missing independent verification arguments");return 2}
  inside,err:=publicKeyInEvidenceRoot(*root,*pub)
@@ -123,7 +130,7 @@ func verifyEvidence(args []string,stdout,stderr io.Writer)int{
  if err!=nil{fmt.Fprintln(stderr,"UNKNOWN: signed envelope unreadable");return 3}
  key,err:=readTrustedPublicKey(*pub)
  if err!=nil{fmt.Fprintln(stderr,"UNKNOWN: no independently pinned trust anchor:",err);return 3}
- result,err:=evidenceauth.Verify(*root,raw,key,fixedIdentity(*repo,*head,*run,*episode))
+ result,err:=evidenceauth.Verify(*root,raw,key,fixedIdentity(*repo,*head,*run,*attempt,*episode,*keyID,*keyVersion))
  if err!=nil{fmt.Fprintln(stderr,"UNKNOWN: evidence signature / identity / source invalid:",err);return 3}
  fmt.Fprintf(stdout,"PASS: signed original evidence verified for %d files (NOT production provenance without authorized trust anchor)\n",len(result.Files))
  return 0
