@@ -98,7 +98,7 @@ func TestReviewRCACLIProducesHumanReviewOnly(t *testing.T){
  dir:=t.TempDir()
  changes,sli,candidates,_:=writeReviewFixture(t,dir)
  policy,pin:=writePinnedReviewPolicy(t,dir,changes,sli)
- out:filepath.Join(dir,"review.json")
+ out:=filepath.Join(dir,"review.json")
  args:=[]string{"review-rca","--changes",changes,"--sli",sli,"--candidates",candidates,"--policy",policy,"--policy-sha256",pin,"--out",out}
  var stdout,stderr bytes.Buffer
  if code:=run(args,&stdout,&stderr);code!=0{t.Fatalf("review exit=%d stderr=%s",code,stderr.String())}
