@@ -149,6 +149,15 @@ func pythonLineSeparators(raw []byte) []byte {
  return out
 }
 
+// ValidateUniqueJSONObject validates arbitrary original JSON source bytes
+// without discarding repeated keys in nested objects. This is only syntax
+// disambiguation, not source authentication, provenance or schema validation.
+// It also rejects trailing JSON and enforces the shared input size budget.
+func ValidateUniqueJSONObject(raw []byte) error {
+ _,err:=parseJSON(raw)
+ return err
+}
+
 // Verify performs fail-closed structural and digest checks over the serialized
 // Python EvidenceBundle.to_dict() shape. A valid SHA-256 does not authenticate
 // the source, imply evidence correctness, or prove the incident recovered.
