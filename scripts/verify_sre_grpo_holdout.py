@@ -25,6 +25,9 @@ def main() -> int:
     parser.add_argument("--expected-projection-manifest-sha256", required=True)
     parser.add_argument("--expected-predictions-sha256", required=True)
     parser.add_argument("--expected-capture-manifest-sha256", required=True)
+    parser.add_argument("--checkpoint-role", choices=("Base", "SFT", "GRPO"), default="Base")
+    parser.add_argument("--expected-adapter-config-sha256")
+    parser.add_argument("--expected-adapter-weights-sha256")
     parser.add_argument("--model", required=True)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--split", choices=("test", "validation"), default="test")
@@ -42,7 +45,9 @@ def main() -> int:
             expected_predictions_sha256=args.expected_predictions_sha256,
             expected_capture_manifest_sha256=args.expected_capture_manifest_sha256,
             model=args.model, model_revision=args.revision,
-            split=args.split,
+            split=args.split, checkpoint_role=args.checkpoint_role,
+            expected_adapter_config_sha256=args.expected_adapter_config_sha256,
+            expected_adapter_weights_sha256=args.expected_adapter_weights_sha256,
         )
     except (OSError, ValueError, UnicodeError) as exc:
         print(f"UNKNOWN: independent holdout binding rejected: {exc}", file=sys.stderr)
