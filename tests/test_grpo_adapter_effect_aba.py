@@ -74,7 +74,7 @@ def test_rehashed_forged_aba_claims_are_rejected():
     report = valid()
     changed = [
         ("max_abs_reenable_delta", 0.1),
-        ("normalized_reenable_delta", 0.0),
+        ("normalized_reenable_delta", 0.25),
         ("reenable_threshold", 1.0),
         ("forward_reenable_consistent", False),
         ("reenabled_finite", False),
