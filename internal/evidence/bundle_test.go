@@ -122,3 +122,26 @@ func TestLegacyVersionlessMetadataPreservesPythonParity(t *testing.T) {
   t.Fatalf("legacy bundle unreadable: %+v", result)
  }
 }
+
+
+func TestPythonCanonicalParityForUnicodeSeparators(t *testing.T) {
+ // Frozen SHA-256 values independently calculated with Python 3:
+ // json.dumps(root, sort_keys=True, separators=(",", ":"), ensure_ascii=False).
+ cases := []struct{ name, note, pythonSHA string }{
+  {"line-separator", "line"+string(rune(0x2028))+"separator", "113a33ee4460e1e4e648e8dcaf1432de11870c85a15e888c748962650d4f9cf4"},
+  {"paragraph-separator", "para"+string(rune(0x2029))+"separator", "8e2d7b33e080d1f359c9ed2af9f97a037e196c4da226f5579d5593ed1ec967e6"},
+  {"literal-backslash-u", "literal"+string(rune(92))+"u2028text", "0a5eba897289b6f481782e55ccb9216e6cc2cd93e9743c8dfa71375893582058"},
+ }
+ for _, tc := range cases {
+  t.Run(tc.name, func(t *testing.T) {
+   raw := changed(t, func(root map[string]any) {
+    root["metadata"].(map[string]any)["note"] = tc.note
+   })
+   got, err := Verify(raw)
+   if err != nil { t.Fatal(err) }
+   if got.BundleSHA256 != tc.pythonSHA {
+    t.Fatalf("cross-language evidence canonical digest mismatch: Go %s != Python %s", got.BundleSHA256, tc.pythonSHA)
+   }
+  })
+ }
+}
