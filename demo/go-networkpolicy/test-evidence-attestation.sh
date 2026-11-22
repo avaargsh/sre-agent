@@ -66,7 +66,6 @@ verify "$ROOT" "$PUBLIC" "$SRE_SOURCE_HEAD"
 
 # Never permit a verifier to use a public key shipped inside the same
 # evidence bundle as its own trust anchor (a tautological self-signature).
-fail_embedded_key_expected=1
 
 fail_closed() {
   local reason="$1"
