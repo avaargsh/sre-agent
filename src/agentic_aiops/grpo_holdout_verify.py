@@ -67,6 +67,7 @@ def verify_holdout_chain(
     expected_adapter_config_sha256: str | None = None,
     expected_adapter_weights_sha256: str | None = None,
     require_local_effect_probe: bool = False,
+    require_reenable_probe: bool = False,
 ) -> dict[str, Any]:
     """Prove raw-content bindings from private Oracle source to predictions.
 
@@ -83,8 +84,10 @@ def verify_holdout_chain(
         raise ValueError("checkpoint_role must be Base, SFT or GRPO")
     if type(require_local_effect_probe) is not bool:
         raise ValueError("require_local_effect_probe must be boolean")
-    if checkpoint_role == "Base" and require_local_effect_probe:
-        raise ValueError("Base cannot require local effect probe")
+    if type(require_reenable_probe) is not bool:
+        raise ValueError("require_reenable_probe must be boolean")
+    if checkpoint_role == "Base" and (require_local_effect_probe or require_reenable_probe):
+        raise ValueError("Base cannot require local effect probe or reenable evidence")
     if checkpoint_role == "Base":
         if expected_adapter_config_sha256 is not None or expected_adapter_weights_sha256 is not None:
             raise ValueError("Base checkpoint_role must not provide adapter SHA256 pins")
@@ -183,17 +186,20 @@ def verify_holdout_chain(
         if checkpoint_role == "Base":
             raise ValueError("Base capture cannot claim local effect probe")
         expected_fields.add("local_effect_probe")
-        version = "sre.grpo.holdout-capture/v3"
+        local_effect = validate_local_effect_receipt(candidate["local_effect_probe"])
+        is_aba = local_effect["schema_version"] == "sre.grpo.local-adapter-effect/v2"
+        version = ("sre.grpo.holdout-capture/v4" if is_aba
+                   else "sre.grpo.holdout-capture/v3")
+        if require_reenable_probe and not is_aba:
+            raise ValueError("required LoRA reenable A-B-A probe is missing")
     else:
-        if require_local_effect_probe:
-            raise ValueError("required local effect probe is missing")
+        if require_local_effect_probe or require_reenable_probe:
+            raise ValueError("required local effect probe / reenable evidence is missing")
         version = ("sre.grpo.holdout-capture/v1" if checkpoint_role == "Base"
                    else "sre.grpo.holdout-capture/v2")
     cap = _fields(candidate, expected_fields, "capture manifest")
     if cap["schema_version"] != version:
         raise ValueError("capture manifest schema_version invalid")
-    if has_probe:
-        local_effect = validate_local_effect_receipt(cap["local_effect_probe"])
     adapter = None
     if checkpoint_role != "Base":
         if cap["checkpoint_role"] != checkpoint_role:
@@ -241,6 +247,10 @@ def verify_holdout_chain(
         "schema_version": "sre.grpo.holdout-chain-audit/v1",
         "checkpoint_role": checkpoint_role,
         "local_effect_probe_content_consistent": local_effect is not None,
+        "local_reenable_probe_content_consistent": bool(
+            local_effect is not None
+            and local_effect["schema_version"] == "sre.grpo.local-adapter-effect/v2"
+        ),
         **({
             "adapter_config_sha256": adapter["adapter_config_sha256"],
             "adapter_weights_sha256": adapter["adapter_weights_sha256"],
