@@ -37,6 +37,7 @@ def fixture(tmp_path: Path):
         "model": model, "model_revision": revision,
         "tokenizer_revision": revision,
         "before_lora_snapshot": before,
+        "train_rows": 1,
         "max_steps": 10, "training_status": "started_not_verified",
         "training_scope": "LAB_ONLY_UNVERIFIED",
         "data_issuer_authenticated": False,
