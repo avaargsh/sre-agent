@@ -39,7 +39,7 @@ func setup(t *testing.T)(Episode,[3]dnsoracle.Observation){
    Host:"checkout-api.golden-demo.svc.cluster.local",ServiceIP:"10.96.0.55",
    Resolver:"nameserver 10.96.0.10\n",DNSOK:true,DNSAddresses:[]string{"10.96.0.55"},
    DNSError:"",NameHTTPStatus:200,DirectHTTPStatus:200,
-   DirectHTTPAttempts:[]int{200},DirectHTTPErrors:[]string{""}}
+   DirectHTTPAttempts:[]int{200,200,200},DirectHTTPErrors:[]string{"","",""}}
   if i==1{probe.NameHTTPStatus=0;probe.DirectHTTPStatus=0;probe.DirectHTTPAttempts=[]int{0,0,0};probe.DirectHTTPErrors=[]string{"timeout","timeout","timeout"}}
   payload,err:=json.Marshal(probe);if err!=nil{t.Fatal(err)}
   o,err:=dnsoracle.Diagnose(payload);if err!=nil{t.Fatal(err)}
