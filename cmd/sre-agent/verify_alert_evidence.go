@@ -179,6 +179,9 @@ func reviewLinkedEvidence(rawAlert,frozenPlan,bundle []byte,target alertintake.T
   if exactText(attrs,"observed_at")!=observedAt {
    return AlertEvidenceReview{},fmt.Errorf("source attribute timestamp disagrees with observation")
   }
+  if err:=verifyReadOnlyEvidenceLineage(item,source,attrs);err!=nil{
+   return AlertEvidenceReview{},err
+  }
   switch source{
   case "kubernetes":
    if err:=requireOnlyFields(attrs,"Kubernetes observation attributes",
