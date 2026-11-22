@@ -58,6 +58,7 @@ pip install -e ".[train]"
 python scripts/train_sre_grpo.py \
   --dataset /path/to/private-versioned-episodes.jsonl \
   --execute --lab-only --model Qwen/Qwen3-0.6B \
+  --model-revision "$PINNED_QWEN3_COMMIT_SHA40" \
   --baseline-rollouts /path/to/complete-baseline-rollouts.jsonl \
   --expected-dataset-sha256 "$PINNED_DATASET_SHA256" \
   --expected-rollouts-sha256 "$PINNED_ROLLOUTS_SHA256" \
@@ -435,3 +436,52 @@ authorized admission.
    source/Oracle and approved read-only observer receipts.
 4. Only then test actual GRPO parameter/LoRA updates and blind holdout
    comparison against matching Base/SFT baselines.
+
+
+## Local LoRA optimizer-delta gate (P0, requires actual CUDA for execution)
+
+The real `scripts/train_sre_grpo.py --execute` path now refuses to use a
+mutable Qwen3 model alias. Model **and** tokenizer are loaded from the exact
+same full lowercase 40-hex commit (`--model-revision`, required), using
+`trust_remote_code=False`. Training runs are **lab-only**, single-process,
+bounded to 1–100 optimizer steps, and require a **new output directory** so
+a prior experiment cannot be overwritten or reused.
+
+`freeze_train_dataset` hashes and parses one immutable in-memory copy of
+the JSONL bytes. In inspection mode `--expected-dataset-sha256` is optional,
+but if supplied it is checked; in non-tiny executable mode the external
+dataset and baseline-rollout SHA256 pins are both mandatory. Tiny synthetic
+smokes may also opt into a supplied pinned digest.
+
+Before optimizer training, `snapshot_lora_parameters` enumerates only
+trainable LoRA adapter parameters and hashes the raw tensor bits (including
+BF16, via `torch.uint8` reinterpretation), parameter names, shapes/dtypes
+and element counts. Any unexpected **non-LoRA trainable tensor** is rejected.
+After `trainer.train()`, the same snapshot is collected, and
+`verify_local_lora_update` requires: a positive, bounded
+`trainer.state.global_step`, identical parameter names/layout, and an
+actual difference in the before/after tensor fingerprints.
+
+An unchanged adapter after a nominally successful trainer return **fails
+closed before `trainer.save_model()`**, rather than recording a successful
+train run. The pre-run `sre-grpo-run-manifest.json` is create-only and
+retains status `started_not_verified`. When a local delta was observed,
+the saved model is accompanied by a distinct create-only
+`sre-grpo-local-lora-delta.json` with the exact dataset/model revisions,
+before/after digest records and the explicitly negative independent-provenance
+flags.
+
+These receipts establish only that local code observed LoRA tensor changes.
+They do **not** prove the training run is independent, that real GPU hardware
+was used, that the loss improved, that the weights are benign, that the
+training dataset was authorized, or that the model improved on blind holdout.
+A fake trainer/parameter is used in CPU CI to verify wiring and the
+unmodified-weight rejection path. A real pinned CUDA run and independent
+weights/optimizer audit remain required.
+
+Only `Qwen/Qwen3-*` repository model IDs are supported by the opt-in
+experiment, not arbitrary local paths or mutable branch aliases. The declared
+`.[train]` dependencies remain version ranges rather than a frozen lockfile.
+Consult the installed pinned TRL and Transformers API before relying on
+weight-loading compatibility; passing CPU CI alone does not guarantee a
+live CUDA integration is functional.
