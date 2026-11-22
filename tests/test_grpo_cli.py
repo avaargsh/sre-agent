@@ -35,7 +35,7 @@ def test_grpo_execute_has_explicit_preflight_gates(tmp_path):
     assert "--model" in no_model.stderr
 
     tiny = invoke(
-        "train_sre_grpo.py", "--execute", "--dataset", DATASET,
+        "train_sre_grpo.py", "--execute", "--lab-only", "--dataset", DATASET,
         "--model", "nonexistent/model", "--output-dir", tmp_path,
     )
     assert tiny.returncode != 0
