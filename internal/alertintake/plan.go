@@ -63,8 +63,7 @@ type envelope struct {
 func unknown(msg string) error { return fmt.Errorf("%w: %s",ErrUnknown,msg) }
 func scopeOK(v string) bool { return len(v)>0 && len(v)<=63 && scopePattern.MatchString(v) }
 func labelMatches(labels map[string]string,t Target) bool {
- if labels["cluster"]!="" && labels["cluster"]!=t.Cluster { return false }
- return labels["namespace"]==t.Namespace && labels["deployment"]==t.Deployment
+ return labels["cluster"]==t.Cluster && labels["namespace"]==t.Namespace && labels["deployment"]==t.Deployment
 }
 
 // checkEscapedSurrogates prevents lossy \uD800 -> U+FFFD transformations by
@@ -120,7 +119,7 @@ func Parse(raw []byte,t Target)(Plan,error) {
   len(input.Alerts)==0||len(input.Alerts)>maxGroupAlerts {
   return Plan{},unknown("missing or nonfiring bounded alert group")
  }
- if !labelMatches(input.CommonLabels,t) || input.CommonLabels["cluster"]!=t.Cluster {
+ if !labelMatches(input.CommonLabels,t) {
   return Plan{},unknown("group labels disagree with operator scope")
  }
  summary:=strings.TrimSpace(input.CommonAnnotations["summary"])
@@ -138,9 +137,6 @@ func Parse(raw []byte,t Target)(Plan,error) {
    fingerprints[item.Fingerprint] ||
    !labelMatches(item.Labels,t) {
    return Plan{},unknown("ambiguous, cross-target or duplicate alert")
-  }
-  if item.Labels["cluster"]!="" && item.Labels["cluster"]!=t.Cluster {
-   return Plan{},unknown("alert cluster disagrees with operator scope")
   }
   fingerprints[item.Fingerprint]=true
   if item.Status=="firing" {firing++}
