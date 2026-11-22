@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .grpo_import import _verify_pin
+from .grpo_adapter import validate_adapter_receipt
 from .grpo_rollout_capture import (
     _REPO, _SHA40, _owned_path, _stage_bytes,
 )
@@ -183,12 +184,24 @@ def capture_holdout_predictions(
     split: str = "test",
     seed: int = 42,
     max_new_tokens: int = 192,
+    checkpoint_role: str = "Base",
+    adapter_receipt: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Generate every holdout candidate once; do not filter invalid diagnoses.
 
     This callback gets only the rendered prompt and integer seed; it receives
     no Episode, Oracle, reward result, or dataset path.
     """
+    if checkpoint_role not in ("Base", "SFT", "GRPO"):
+        raise ValueError("checkpoint_role must be Base, SFT or GRPO")
+    if checkpoint_role == "Base" and adapter_receipt is not None:
+        raise ValueError("Base checkpoint_role forbids an adapter receipt")
+    if checkpoint_role != "Base" and adapter_receipt is None:
+        raise ValueError("SFT/GRPO checkpoint_role requires a pinned adapter receipt")
+    if adapter_receipt is not None:
+        validate_adapter_receipt(
+            adapter_receipt, base_model=model, base_revision=model_revision,
+        )
     rows, prompts_sha = validate_holdout_prompts(
         prompts, expected_prompts_sha256=expected_prompts_sha256,
         model=model, model_revision=model_revision, seed=seed,
@@ -246,5 +259,9 @@ def capture_holdout_predictions(
         "training_admission_authorized": False,
         "production_eligible": False,
     }
+    if checkpoint_role != "Base":
+        report["schema_version"] = "sre.grpo.holdout-capture/v2"
+        report["checkpoint_role"] = checkpoint_role
+        report["adapter"] = adapter_receipt
     _publish_pair(Path(output), raw, Path(manifest), report)
     return report
