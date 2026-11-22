@@ -297,3 +297,25 @@ func TestOfflineReviewRejectsRehashedContradictorySourceContents(t *testing.T) {
   })
  }
 }
+
+
+func TestOfflineReviewRejectsImpossibleEmbeddedPodSnapshots(t *testing.T) {
+ rawPath,planPath,bundlePath:=linkedAlertEvidenceFixture(t)
+ attacks:=map[string]string{
+  "duplicate-pod-name":`[{"uid":"pod-1","name":"checkout-api-1","phase":"Running"},{"uid":"pod-2","name":"checkout-api-1","phase":"Pending"}]`,
+  "unknown-pod-phase":`[{"uid":"pod-1","name":"checkout-api-1","phase":"Rebooting"}]`,
+ }
+ for name,podsJSON:=range attacks {
+  t.Run(name,func(t *testing.T){
+   forged:=rehashStructurallyValidBundle(t,bundlePath,func(b map[string]any){
+    attrs:=b["evidence"].([]any)[0].(map[string]any)["attributes"].(map[string]any)
+    attrs["pods_json"]=podsJSON
+   })
+   var stdout,stderr bytes.Buffer
+   if code:=run(reviewArgs(rawPath,planPath,forged),&stdout,&stderr);code!=3||
+    stdout.Len()!=0||!strings.Contains(stderr.String(),"UNKNOWN:"){
+    t.Fatalf("accepted impossible Kubernetes pod snapshot: exit=%d stdout=%s stderr=%s",code,stdout.String(),stderr.String())
+   }
+  })
+ }
+}
