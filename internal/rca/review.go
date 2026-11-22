@@ -112,9 +112,11 @@ func windowsOverlap(aStart,aEnd,bStart,bEnd time.Time)bool{
  return aStart.Before(bEnd)&&bStart.Before(aEnd)
 }
 // Review is a deterministic, fail-closed citation/linkage gate.
-// It does not independently re-execute queries or authenticate the source
-// identity or caller-provided SLI policy. It cannot return CONFIRMED/SUPPORTED.
+// It replays the raw source bytes to recompute summaries but does not query
+// live sources or authenticate their identities or the caller-owned policy.
+// It cannot return CONFIRMED/SUPPORTED.
 func Review(ch change.Report,sli verifier.Assessment,claims []Candidate)(Report,error){
+ if err:=Replay(ch,sli);err!=nil{return Report{},err}
  index,err:=sources(ch,sli)
  if err!=nil{return Report{},err}
  if len(claims)==0||len(claims)>maxCandidates{return Report{},errors.New("invalid candidate count")}
