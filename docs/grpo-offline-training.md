@@ -1,6 +1,6 @@
 # SRE GRPO offline training (experimental)
 
-Status: **contract and CPU-only tests; real Qwen3/TR L/PEFT, GPU training and
+Status: **contract and CPU-only tests; real Qwen3/TRL/PEFT, GPU training and
 independent A/B are NOT verified**. This feature is separate from the Go
 G1–G2m release/attestation Draft stack and creates no release authorization.
 
@@ -67,9 +67,7 @@ dependency versions; `trainer_returned` is not an independent quality claim.
 
 The declared `.[train]` ranges target the TRL 0.25 interface but are not a
 hash-locked, independently verified environment. Pin the entire Python/PyTorch
-stack and tokenizer/model revision before reproducible comparisons. Qwen3's
-thinking-mode/chat-template behavior must be explicitly fixed and validated
-before an actual training run; strict JSON-only reward can otherwise collapse.
+stack and tokenizer/model revision before reproducible comparisons. Qwen3 inputs use the explicit \`enable_thinking=False\` chat template. The\npreflight rejects any dataset whose rendered prompt would be truncated or\nwhose Oracle-backed valid JSON answer exceeds the completion budget. Validate\nthe actual tokenizer/model behavior on GPU before claiming a training result.
 
 ## Next acceptance gates
 
