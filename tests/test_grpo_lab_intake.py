@@ -198,3 +198,45 @@ def test_duplicate_json_keys_fail_even_if_rehashed(tmp_path):
     digest = hashlib.sha256(approval.read_bytes()).hexdigest()
     with pytest.raises(ValueError, match="duplicate"):
         intake(root, approval, digest, tmp_path / "out.jsonl")
+
+
+def test_g2i_cli_stages_candidate_without_leaking_admin_verdict(tmp_path):
+    import subprocess
+    import sys
+
+    root, approval, digest = make_fixture(tmp_path)
+    output = tmp_path / "candidate.jsonl"
+    script = Path(__file__).resolve().parents[1] / "scripts/import_g2i_lab_candidate.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--root", str(root),
+         "--approval", str(approval),
+         "--expected-approval-sha256", digest,
+         "--output", str(output)],
+        cwd=script.parents[1], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(result.stdout)
+    assert receipt["training_admission_authorized"] is False
+    assert receipt["lab_claim_authenticated"] is False
+    assert "MATCHED_LAB_NETWORK_POLICY_DENIAL" not in result.stdout
+    assert output.is_file()
+    again = subprocess.run(
+        [sys.executable, str(script), "--root", str(root),
+         "--approval", str(approval),
+         "--expected-approval-sha256", digest,
+         "--output", str(output)],
+        cwd=script.parents[1], capture_output=True, text=True, check=False,
+    )
+    assert again.returncode != 0
+
+
+def test_even_approved_admin_diagnosis_cannot_upgrade_unknown(tmp_path):
+    root, approval, _ = make_fixture(tmp_path)
+    payload = json.loads(approval.read_text())
+    payload["oracle"] = {
+        "answerable": True, "root_cause_id": "network_policy_denied",
+        "required_evidence_ids": ["np-during-observer"]
+    }
+    digest = write(approval, payload)
+    with pytest.raises(ValueError, match="fields"):
+        intake(root, approval, digest, tmp_path / "out.jsonl")
