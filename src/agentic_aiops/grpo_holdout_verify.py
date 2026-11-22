@@ -14,6 +14,7 @@ from typing import Any
 
 from .grpo_eval import load_predictions_bytes
 from .grpo_holdout_capture import _MAX_CASES, _MAX_FILE_BYTES, _MAX_PROMPT_BYTES
+from .grpo_rollout_capture import _REPO, _SHA40
 from .grpo_import import _verify_pin
 from .grpo_training import (
     _fields, _id, _strict_json, build_prompt, load_episodes_bytes,
@@ -68,6 +69,10 @@ def verify_holdout_chain(
     """
     if split not in ("test", "validation"):
         raise ValueError("only independent test/validation splits are auditable")
+    if type(model) is not str or not _REPO.fullmatch(model):
+        raise ValueError("model must be an explicit Qwen/Qwen3-* repository ID")
+    if type(model_revision) is not str or not _SHA40.fullmatch(model_revision):
+        raise ValueError("model_revision must be pinned lowercase 40-character commit")
     sources = [dataset, prompts, projection_manifest, predictions, capture_manifest]
     if len({Path(p).resolve() for p in sources}) != len(sources):
         raise ValueError("five holdout evidence paths must be distinct")
