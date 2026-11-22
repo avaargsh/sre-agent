@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 from .grpo_import import _verify_pin
 from .grpo_adapter import validate_adapter_receipt
+from .grpo_adapter_effect import validate_local_effect_receipt
 from .grpo_rollout_capture import (
     _REPO, _SHA40, _owned_path, _stage_bytes,
 )
@@ -186,6 +187,7 @@ def capture_holdout_predictions(
     max_new_tokens: int = 192,
     checkpoint_role: str = "Base",
     adapter_receipt: dict[str, Any] | None = None,
+    local_effect_receipt: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Generate every holdout candidate once; do not filter invalid diagnoses.
 
@@ -202,6 +204,10 @@ def capture_holdout_predictions(
         validate_adapter_receipt(
             adapter_receipt, base_model=model, base_revision=model_revision,
         )
+    if local_effect_receipt is not None:
+        if checkpoint_role == "Base":
+            raise ValueError("Base cannot have local effect probe")
+        validate_local_effect_receipt(local_effect_receipt)
     rows, prompts_sha = validate_holdout_prompts(
         prompts, expected_prompts_sha256=expected_prompts_sha256,
         model=model, model_revision=model_revision, seed=seed,
@@ -263,5 +269,8 @@ def capture_holdout_predictions(
         report["schema_version"] = "sre.grpo.holdout-capture/v2"
         report["checkpoint_role"] = checkpoint_role
         report["adapter"] = adapter_receipt
+        if local_effect_receipt is not None:
+            report["schema_version"] = "sre.grpo.holdout-capture/v3"
+            report["local_effect_probe"] = local_effect_receipt
     _publish_pair(Path(output), raw, Path(manifest), report)
     return report
