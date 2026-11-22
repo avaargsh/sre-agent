@@ -164,3 +164,51 @@ def test_strict_json_rejects_duplicate_top_level_keys(tmp_path):
     with pytest.raises(ValueError, match="duplicate"):
         audit_rollout_groups(dataset, rollouts, expected_dataset_sha256=dataset_sha,
                              expected_rollouts_sha256=sha)
+
+
+def test_complete_coverage_rejects_cherry_picked_train_group(tmp_path):
+    dataset, rollouts, _, _ = setup(tmp_path)
+    records = [example("train-1"), example(
+        "train-2", fault="network", alert="upstream ingress errors"
+    )]
+    dataset_sha = write_jsonl(dataset, records)
+    row = {"episode_id": "train-1", "completions": [answer()] * 4}
+    rollouts_sha = write_jsonl(rollouts, [row])
+    with pytest.raises(ValueError, match="missing train episode"):
+        audit_rollout_groups(
+            dataset, rollouts, expected_dataset_sha256=dataset_sha,
+            expected_rollouts_sha256=rollouts_sha
+        )
+
+
+def test_cli_signal_gate_returns_nonzero_for_reward_collapse(tmp_path):
+    import subprocess
+    import sys
+
+    dataset, rollouts, dataset_sha, rollouts_sha = setup(
+        tmp_path, [answer()] * 4
+    )
+    script = (
+        __import__("pathlib").Path(__file__).resolve().parents[1]
+        / "scripts/audit_sre_grpo_rollouts.py"
+    )
+    args = [sys.executable, str(script),
+            "--dataset", str(dataset), "--rollouts", str(rollouts),
+            "--expected-dataset-sha256", dataset_sha,
+            "--expected-rollouts-sha256", rollouts_sha, "--require-signal"]
+    result = subprocess.run(args, text=True, capture_output=True, check=False)
+    assert result.returncode == 3
+    assert "NO_GRADIENT_SIGNAL" in result.stdout
+    assert "UNKNOWN" in result.stderr
+
+    rollouts_sha = write_jsonl(rollouts, [{
+        "episode_id": "train-1",
+        "completions": [answer(), answer(root="dns_failure"),
+                        answer(evidence=[]), answer()],
+    }])
+    args[args.index("--expected-rollouts-sha256") + 1] = rollouts_sha
+    result = subprocess.run(args, text=True, capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert report["model_runtime_verified"] is False
+    assert report["nonconstant_reward_groups"] == 1
