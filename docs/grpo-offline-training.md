@@ -600,12 +600,13 @@ python scripts/sample_sre_grpo_holdout.py \
   --split test --seed 42 --max-new-tokens 192
 ```
 
-The runner supports an **explicit Qwen/Qwen3-*** repository checkpoint only.
-It currently **does not load local PEFT LoRA adapters**. A real SFT/GRPO
-comparison therefore still requires separately prepared immutable merged
-model checkpoints that satisfy the model whitelist, or a future pinned
-adapter-loading implementation. Do not label the same Base model as SFT/GRPO
-or silently infer which model generated a file from its filename.
+The runner supports a full 40-character pinned **Qwen/Qwen3-*** base
+checkpoint. It also supports *local* PEFT LoRA adapters as experimental
+SFT/GRPO variants when explicitly requested with `--checkpoint-role` and
+separate externally pinned adapter SHA256 values, as detailed below. Never
+label the same Base checkpoint as SFT/GRPO or infer model identity from
+a filename; role is still a **self-declared experimental label**, not an
+authenticated weight provenance receipt.
 
 **Independent audit:** an auditor with access to the original pinned dataset
 and to all projected and captured files recomputes every prompt using the
@@ -648,3 +649,89 @@ durability, signed source-provenance, weight attestation, actual GPU
 sampling, local LoRA checkpoint inference and blinded multi-seed outcomes
 are explicitly **not yet verified**. Passing CPU tests only verifies
 the contracts using injected fake tokenizers and samplers.
+
+
+## P0: SHA-pinned local LoRA adapter for SFT / GRPO Holdout
+
+A Base run defaults to `--checkpoint-role Base` and **refuses** adapter
+arguments. SFT/GRPO runs must specify `--checkpoint-role SFT` or `GRPO`
+together with an explicit local Adapter directory and **two external SHA256
+pins**. The runner does not fetch adapter weights from a mutable Hub ID.
+It accepts only the narrow single-file, PEFT-compatible structure:
+
+- `adapter_config.json` (bounded JSON; `peft_type=LORA`,
+  `task_type=CAUSAL_LM`, base model ID equal to the pinned Qwen3 model;
+  a non-null config `revision` must equal the pinned base commit).
+- `adapter_model.safetensors` (bounded, self-describing Safetensors header
+  with LoRA A/B pairs and contiguous tensor offsets).
+- Optional `README.md` is ignored. Unexpected executable/module files,
+  pickle `.bin` weights, symlinks, `auto_mapping`, `modules_to_save`,
+  non-LoRA tensor keys and unusual LoRA layer settings are rejected.
+
+The Adapter **configuration bytes and tensor bytes are read only once and
+checked against independently provided SHA256 values before loading Torch,
+Transformers or PEFT**. A private temporary directory containing *only*
+these verified bytes is given to `PeftModel.from_pretrained`, with
+`is_trainable=False` and `local_files_only=True`. This prevents changing
+the original Adapter file after the hash from silently changing what PEFT
+loads. It does **not** authenticate the local host, attest the PEFT runtime
+or guarantee the expected weights were applied by a hostile process.
+
+For a GRPO checkpoint saved by the training script, obtain the digests from
+the independent reviewer (or immutable artifact registry), then invoke:
+
+```bash
+python scripts/sample_sre_grpo_holdout.py \
+  --execute --lab-only --checkpoint-role GRPO \
+  --prompts /readonly/test-prompts.jsonl \
+  --expected-prompts-sha256 "$PINNED_PROMPTS_SHA256" \
+  --model Qwen/Qwen3-0.6B \
+  --revision "$PINNED_QWEN3_COMMIT_SHA40" \
+  --adapter-dir /reviewed/grpo-adapter \
+  --expected-adapter-config-sha256 "$PINNED_ADAPTER_CONFIG_SHA256" \
+  --expected-adapter-weights-sha256 "$PINNED_ADAPTER_WEIGHTS_SHA256" \
+  --output /artifacts/grpo-predictions.jsonl \
+  --manifest /artifacts/grpo-capture.json
+```
+
+Use role `SFT` and a **different pinned adapter and output files** to
+produce the SFT lane. Both adapted runs publish a
+`sre.grpo.holdout-capture/v2` manifest with the same pinned base commit,
+explicit `checkpoint_role`, and an embedded
+`sre.grpo.pinned-lora-adapter/v1` receipt containing config and weight
+SHA256 hashes. The Base lane retains capture schema v1 for compatibility.
+
+```bash
+python scripts/verify_sre_grpo_holdout.py \
+  --dataset /trusted/episodes.jsonl \
+  --prompts /readonly/test-prompts.jsonl \
+  --projection-manifest /exports/test-projection.json \
+  --predictions /artifacts/grpo-predictions.jsonl \
+  --capture-manifest /artifacts/grpo-capture.json \
+  --expected-dataset-sha256 "$PINNED_DATASET_SHA256" \
+  --expected-prompts-sha256 "$PINNED_PROMPTS_SHA256" \
+  --expected-projection-manifest-sha256 "$PINNED_PROJECTION_MANIFEST_SHA256" \
+  --expected-predictions-sha256 "$PINNED_GRPO_PREDICTIONS_SHA256" \
+  --expected-capture-manifest-sha256 "$PINNED_GRPO_CAPTURE_SHA256" \
+  --checkpoint-role GRPO \
+  --expected-adapter-config-sha256 "$PINNED_ADAPTER_CONFIG_SHA256" \
+  --expected-adapter-weights-sha256 "$PINNED_ADAPTER_WEIGHTS_SHA256" \
+  --model Qwen/Qwen3-0.6B \
+  --revision "$PINNED_QWEN3_COMMIT_SHA40"
+```
+
+The verifier binds the v2 capture to the externally pinned Adapter hashes
+and requires negative provenance flags. It does not directly receive or
+reopen Adapter weight files; the independent Artifact owner must establish
+their hash identity. A model-produced manifest cannot promote
+`model_runtime_verified`, `model_attribution_verified`,
+`superiority_claim_authorized` or `production_eligible` to true.
+
+**CI evidence boundary:** unit tests construct tiny synthetic Safetensors,
+and fake Torch/Transformers/PEFT callbacks exercise the real CLI load
+wiring. They are *not* a real GPU runtime compatibility test; version ranges
+in `.[train]` are not hash-locked, and no real-world diagnosis improvement
+or independently authenticated model source is asserted.
+
+Official PEFT references: https://huggingface.co/docs/peft/v0.17.0/en/package_reference/peft_model
+and https://huggingface.co/docs/peft/v0.17.0/en/tutorial/peft_model_config .
