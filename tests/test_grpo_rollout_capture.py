@@ -179,3 +179,75 @@ def test_cli_never_loads_model_without_explicit_lab_flag_or_revision(tmp_path):
     )
     assert missing_revision.returncode != 0
     assert "revision" in missing_revision.stderr.lower()
+
+
+def test_capture_parses_exactly_the_bytes_that_pass_the_external_hash(
+    tmp_path, monkeypatch
+):
+    """Data changes between verification and parsing must not be usable."""
+    from pathlib import Path
+    from agentic_aiops.grpo_rollout_capture import validate_capture_inputs
+
+    dataset, pinned = dataset_file(tmp_path)
+    original_read = Path.read_bytes
+    reads = []
+
+    def spy_read(path):
+        if path == dataset:
+            reads.append(1)
+        return original_read(path)
+
+    monkeypatch.setattr(Path, "read_bytes", spy_read)
+    selected, digest = validate_capture_inputs(
+        dataset, expected_dataset_sha256=pinned,
+        model="Qwen/Qwen3-0.6B", model_revision=REV,
+        group_size=4, seed=42, max_new_tokens=192,
+    )
+    assert len(selected) == 1
+    assert digest == pinned
+    assert len(reads) == 1, "untrusted dataset was re-read after its SHA pin"
+
+
+def test_capture_does_not_publish_a_partial_output_when_write_fails(
+    tmp_path, monkeypatch
+):
+    """Injected filesystem write failure must leave no final output/manifest."""
+    import builtins
+    from agentic_aiops.grpo_rollout_capture import capture_rollout_groups
+
+    data, pinned = dataset_file(tmp_path)
+    output = tmp_path / "out.jsonl"
+    manifest = tmp_path / "capture.json"
+    original_open = Path.open
+
+    class FailingWriter:
+        def __init__(self, wrapped):
+            self.wrapped = wrapped
+
+        def __enter__(self):
+            self.wrapped.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.wrapped.__exit__(*args)
+
+        def write(self, value):
+            self.wrapped.write(value[:3])
+            raise OSError("injected disk full")
+
+    def broken_open(path, mode="r", *args, **kwargs):
+        wrapped = original_open(path, mode, *args, **kwargs)
+        if path == output and mode == "xb":
+            return FailingWriter(wrapped)
+        return wrapped
+
+    monkeypatch.setattr(Path, "open", broken_open)
+    with pytest.raises(OSError, match="disk full"):
+        capture_rollout_groups(
+            data, expected_dataset_sha256=pinned, output=output,
+            manifest=manifest, tokenizer=ToyTokenizer(),
+            sampler=lambda p, s: "not json",
+            model="Qwen/Qwen3-0.6B", model_revision=REV,
+        )
+    assert not output.exists(), "partial rollout was published under final path"
+    assert not manifest.exists()
