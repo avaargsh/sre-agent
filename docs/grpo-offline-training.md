@@ -10,7 +10,7 @@ G1–G2m release/attestation Draft stack and creates no release authorization.
   private Oracle truth; it is not a live Kubernetes command log.
 - The model receives only `alert` and an allowlisted, frozen observation list.
   The `oracle`, `split` and `fault_family` are never included in prompt text.
-- Fault families must not cross train/validation/test. Duplicate JSON keys,
+- Fault families must not cross train/validation/test, and identical\n  normalized alert + observation content cannot cross splits even if family\n  names or evidence IDs are changed. This does not detect semantic near-duplicates.\n  Duplicate JSON keys,
   unknown fields, invalid IDs, unknown tools, duplicate/forged evidence, and
   bad Oracle references fail closed.
 - Reward is **independent** of model-supplied tool-call count, latency,
