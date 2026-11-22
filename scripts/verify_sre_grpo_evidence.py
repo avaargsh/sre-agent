@@ -41,7 +41,9 @@ def main() -> int:
     parser.add_argument("--expected-evidence-bundle-sha256", required=True)
     args = parser.parse_args()
     try:
-        bundle = verify_grpo_evidence_bundle(\n            evidence_bundle=args.evidence_bundle,\n            expected_evidence_bundle_sha256=args.expected_evidence_bundle_sha256,
+        bundle = verify_grpo_evidence_bundle(
+            evidence_bundle=args.evidence_bundle,
+            expected_evidence_bundle_sha256=args.expected_evidence_bundle_sha256,
             dataset=args.dataset,
             expected_dataset_sha256=args.expected_dataset_sha256,
             run_manifest=args.run_manifest,
@@ -62,7 +64,6 @@ def main() -> int:
                 "expected_capture_manifest_sha256": args.expected_capture_manifest_sha256,
                 "split": args.split,
             },
-
         )
     except (OSError, ValueError, UnicodeError) as exc:
         print(f"UNKNOWN: independent SRE GRPO evidence replay rejected: {exc}", file=sys.stderr)
