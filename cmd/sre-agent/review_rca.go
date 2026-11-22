@@ -44,8 +44,15 @@ func reviewRCA(args []string,stdout,stderr io.Writer)int{
  if err:=read(*sli,&s);err!=nil{fmt.Fprintln(stderr,"UNKNOWN: invalid SLI report");return 3}
  if err:=read(*candidates,&claims);err!=nil{fmt.Fprintln(stderr,"UNKNOWN: invalid hypotheses");return 3}
  // The operator must supply the SHA pin independently of all evidence files.
- policyRaw,err:=os.ReadFile(*policyPath)
- if err!=nil{fmt.Fprintln(stderr,"UNKNOWN: cannot read operator policy");return 3}
+ policyFile,err:=os.Open(*policyPath)
+ if err!=nil{fmt.Fprintln(stderr,"UNKNOWN: cannot open operator policy");return 3}
+ // Bounded read before parsing: do not allocate an untrusted policy file.
+ policyRaw,readErr:=io.ReadAll(io.LimitReader(policyFile,8193))
+ closeErr:=policyFile.Close()
+ if readErr!=nil||closeErr!=nil||len(policyRaw)>8192{
+  fmt.Fprintln(stderr,"UNKNOWN: oversized or unreadable operator policy")
+  return 3
+ }
  report,err:=rca.ReviewWithPolicy(c,s,claims,policyRaw,*policySHA)
  if err!=nil{fmt.Fprintln(stderr,"UNKNOWN: claim citation checks failed:",err);return 3}
  serialized,err:=json.MarshalIndent(report,"","  ")
