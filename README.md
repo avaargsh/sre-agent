@@ -1,6 +1,6 @@
-# Agentic AIOps
+# SRE Agent (Go migration of Agentic AIOps)
 
-> **Go migration — G0 (in progress):** This repository is being migrated to a Go-native Kubernetes SRE Agent. The new Go functionality is currently **read-only Evidence Bundle structural/digest verification**, not a working Go incident remediation system. The existing Python Agentic AIOps Golden Incident remains as a frozen migration baseline. See [Go rewrite plan](docs/go-rewrite-plan.md).
+> **Go migration status (2026-11-22):** G0 has merged into `main` and currently implements **read-only Evidence Bundle structural/digest verification**. Go Kubernetes/Prometheus observation (G1), independent fault Oracles (G2) and offline SRE GRPO training are still under Draft PR review; they are **not** merged Go capabilities. The existing Python Agentic AIOps Golden Incident is retained as a frozen reference, not a Go production or ACP integration proof. See [Go rewrite plan](docs/go-rewrite-plan.md) and [evidence-first v0.1 product/acceptance plan](docs/sre-p0-golden-path.md).
 >
 > Try the Go entrypoint: `go run ./cmd/sre-agent verify-bundle --scenario --file benchmarks/scenarios/checkout-latency.json`. The result `STRUCTURALLY_VALID` is **not** evidence authenticity, RCA correctness or verified operational recovery. No Go cluster writes are authorized in G0.
 
@@ -153,6 +153,6 @@ A stack change is therefore an explicit reviewable dependency update. CI fails c
 
 ## Contributing and license
 
-Contributions are welcome through focused issues and pull requests. See `CONTRIBUTING.md`, `SECURITY.md`, and `CODE_OF_CONDUCT.md`.
+Contributions are welcome through focused pull requests (GitHub Issues are currently disabled). See `CONTRIBUTING.md`, `SECURITY.md`, and `CODE_OF_CONDUCT.md`.
 
 Licensed under Apache License 2.0. See `LICENSE`.
