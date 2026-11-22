@@ -46,3 +46,12 @@ The `go-readonly-kind` CI job additionally proves the actual ServiceAccount cann
 - The standalone command uses a configured instant PromQL, not a sustained post-remediation SLI Oracle.
 - G2 requires independent verifier, source-hash provenance, change-aware corroboration and explicit UNKNOWN handling.
 - G3/G4 requires ACP-issued permit, Temporal durability, generation/UID CAS safety, SIGKILL/UNKNOWN recovery and separate approval for any compensation.
+
+
+## Legacy four-repository CI scope (Go migration)
+
+The historical `four-repo-acceptance.yml` tests a pinned **Python** integration involving `agent-control-plane`, `cloud-agent-runtime` and `agent-decision-lab`. These repositories are no longer fetchable through this GitHub connection as of 2026-11-22. Their exact pinned checks therefore remain **unverified and blocked**, not implicitly green.
+
+The G1 change only adds `demo/k8s/sre-agent-readonly-rbac.yaml`, whose RBAC cannot grant Deployment patch/scale or Secret read. Running the old Python acceptance for this Go-only RBAC file was an overbroad path trigger: the historical workflow now automatically covers the original `demo/k8s/golden-stack.yaml`, while the **actual** new RBAC behavior remains checked in `go-readonly-kind` against a disposable cluster.
+
+The historical workflow still supports manual dispatch and fail-closes when its pinned repositories cannot be fetched. This trigger adjustment **does not** prove the prior Python end-to-end result or replace future ACP/Temporal production integration. G3 requires a new exact-version contract acceptance against the real `agent-control-panel` API.
