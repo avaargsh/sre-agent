@@ -60,6 +60,21 @@ func exactInt(m map[string]any,key string)float64{
  return v
 }
 
+// rejectCasefoldAliases ensures no other consumer of these same original
+// bytes can silently resolve a different value through Go struct field
+// matching. The v1 evidence schema permits additional metadata/attributes,
+// so only routing and release-sensitive canonical names are reserved here.
+func rejectCasefoldAliases(obj map[string]any, location string, canonical ...string)error{
+ for actual:=range obj{
+  for _,key:=range canonical{
+   if actual!=key && strings.EqualFold(actual,key){
+    return fmt.Errorf("%s contains ambiguous alias %q for %q",location,actual,key)
+   }
+  }
+ }
+ return nil
+}
+
 // reviewLinkedEvidence verifies a sealed-v1 plan against the original raw
 // alert and expected independently supplied operator scope, then independently
 // verifies the Evidence Bundle's canonical hash and cross-field linkage.
@@ -83,9 +98,19 @@ func reviewLinkedEvidence(rawAlert,frozenPlan,bundle []byte,target alertintake.T
  if err:=json.Unmarshal(bundle,&doc);err!=nil {
   return AlertEvidenceReview{},fmt.Errorf("unparseable observation bundle: %w",err)
  }
+ if err:=rejectCasefoldAliases(doc,"bundle",
+  "incident","evidence","hypotheses","entities","edges","changes","metadata");err!=nil{
+  return AlertEvidenceReview{},err
+ }
  incident:=exactObject(doc["incident"])
  meta:=exactObject(doc["metadata"])
  items:=exactArray(doc["evidence"])
+ if err:=rejectCasefoldAliases(incident,"incident",
+  "incident_id","summary","severity","scope");err!=nil{return AlertEvidenceReview{},err}
+ if err:=rejectCasefoldAliases(meta,"metadata",
+  "schema_version","observation_status","bundle_sha256","tool_count","evidence_count");err!=nil{
+  return AlertEvidenceReview{},err
+ }
  expectedScope:="namespace="+target.Namespace+",deployment="+target.Deployment
  if exactText(incident,"incident_id")!=plan.IncidentID||
   exactText(incident,"summary")!=plan.Summary||
@@ -105,10 +130,17 @@ func reviewLinkedEvidence(rawAlert,frozenPlan,bundle []byte,target alertintake.T
  sources:=map[string]bool{}
  for _,rawItem:=range items{
   item:=exactObject(rawItem)
+  if err:=rejectCasefoldAliases(item,"evidence item","source","attributes");err!=nil{
+   return AlertEvidenceReview{},err
+  }
   source:=exactText(item,"source")
   if sources[source]{return AlertEvidenceReview{},fmt.Errorf("duplicate observation source")}
   sources[source]=true
   attrs:=exactObject(item["attributes"])
+  if err:=rejectCasefoldAliases(attrs,"source attributes",
+   "namespace","deployment","uid","resource_version","promql","result_type");err!=nil{
+   return AlertEvidenceReview{},err
+  }
   switch source{
   case "kubernetes":
    if exactText(attrs,"namespace")!=target.Namespace||
