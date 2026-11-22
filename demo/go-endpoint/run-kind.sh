@@ -35,12 +35,16 @@ restore() {
 }
 trap restore EXIT
 
+# kubectl resource-printer JSON returns a generic List with empty RV;
+# use the actual discovery.k8s.io LIST API for an auditable collection RV
+# and explicit pagination. Never weaken source replay to accept empty RV.
+EP_PATH='/apis/discovery.k8s.io/v1/namespaces/golden-demo/endpointslices?labelSelector=kubernetes.io%2Fservice-name%3Dcheckout-api&limit=129'
 slices() {
   local auth="$1" dest="$2"
   if [[ "$auth" == "admin" ]]; then
-    kubectl -n golden-demo get endpointslices.discovery.k8s.io -l kubernetes.io/service-name=checkout-api -o json > "$dest"
+    kubectl get --raw "$EP_PATH" > "$dest"
   else
-    kubectl --kubeconfig="$OBS" -n golden-demo get endpointslices.discovery.k8s.io -l kubernetes.io/service-name=checkout-api -o json > "$dest"
+    kubectl --kubeconfig="$OBS" get --raw "$EP_PATH" > "$dest"
   fi
 }
 service() {
