@@ -963,3 +963,72 @@ Qwen3 q/v projection PEFT configurations. It deliberately rejects unusual
 yet potentially valid Adapter formats; those need an explicit format
 extension and independent test cases. It does **not** prove weight
 provenance, actual PEFT/CUDA compatibility or SRE diagnostic improvement.
+
+
+## P0: independent CPU-only adapter **physical artifact** audit (2026-11-23)
+
+The existing five-file Holdout audit previously compared the Capture
+receipt's `adapter_config_sha256` and `adapter_weights_sha256` to
+externally supplied expected digests. It **did not reopen the actual
+Adapter files**. If a malicious or mistaken Capture contained a
+well-formed but fabricated `target_modules`, `lora_modules`, tensor
+count or PEFT rank claim, metadata-only verification could not prove
+that claim matched the files which a runner would attempt to load.
+
+The independent verifier now accepts a **physical adapter directory** for
+SFT/GRPO. In strict mode, it refuses a missing directory. It reads
+`adapter_config.json` and `adapter_model.safetensors` itself (each file
+once), recomputes SHA256 against separately supplied reviewer pins,
+parses the exact verified bytes and rechecks the safe LoRA configuration,
+base Qwen3 model/revision, tensor count, target suffix allowlist, rank,
+A/B matrix shape/dtype/pairs, and Safetensors contiguous offsets. It
+then compares its **own fully reconstructed Adapter receipt** against
+the Capture's untrusted receipt. A digest-consistent yet forged metadata
+field, changed physical file, rehashed but incompatible configuration,
+unexpected sidecar or symlink **fails closed**.
+
+For a GRPO Holdout v4 Capture, keep all five external dataset/manifest/
+prediction digests and add two Adapter digests, physical path and flags:
+
+```bash
+python scripts/verify_sre_grpo_holdout.py \
+  --dataset /trusted/episodes.jsonl \
+  --prompts /readonly/test-prompts.jsonl \
+  --projection-manifest /exports/test-projection.json \
+  --predictions /artifacts/grpo-predictions.jsonl \
+  --capture-manifest /artifacts/grpo-capture.json \
+  --expected-dataset-sha256 "$PINNED_DATASET_SHA256" \
+  --expected-prompts-sha256 "$PINNED_PROMPTS_SHA256" \
+  --expected-projection-manifest-sha256 "$PINNED_PROJECTION_MANIFEST_SHA256" \
+  --expected-predictions-sha256 "$PINNED_GRPO_PREDICTIONS_SHA256" \
+  --expected-capture-manifest-sha256 "$PINNED_GRPO_CAPTURE_SHA256" \
+  --checkpoint-role GRPO \
+  --adapter-dir /reviewer-owned/grpo-adapter \
+  --expected-adapter-config-sha256 "$PINNED_ADAPTER_CONFIG_SHA256" \
+  --expected-adapter-weights-sha256 "$PINNED_ADAPTER_WEIGHTS_SHA256" \
+  --model Qwen/Qwen3-0.6B \
+  --revision "$PINNED_QWEN3_COMMIT_SHA40" \
+  --require-adapter-files \
+  --require-reenable-probe
+```
+
+The report adds `adapter_files_content_verified=true` and
+`adapter_metadata_matches_files=true` only after this physical
+verification. Metadata-only legacy audits return both **false**; when
+`--require-adapter-files` is set, absence of physical files is an error.
+Base captures reject any Adapter directory or strict Adapter requirement.
+
+The auditor runs on CPU with the Python standard library; it does
+**not** import Torch, Transformers, PEFT or access CUDA. Adversarial
+tests include mutated config/weight files, rehashed metadata forgeries,
+rehashed but impossible LoRA rank, symlink substitutions, omitted
+files, Base misuse, and one-read-per-file checks.
+
+**Trust boundary:** SHA256 verifies bytes against an externally
+provided digest; it does not establish who issued that digest or that
+the same bytes executed on the GPU. Reviewer pins must originate from
+outside the potentially untrusted model-producing process, ideally a
+controlled immutable artifact store. `model_runtime_verified`,
+`model_attribution_verified`, `superiority_claim_authorized` and
+`production_eligible` remain **false**. Do not merge the Draft based
+only on this CPU-only consistency result.
