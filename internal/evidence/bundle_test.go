@@ -161,6 +161,11 @@ func TestPythonCanonicalParityNormalizesJSONFloatLexemes(t *testing.T) {
   {"decimal-after-exp", "2.500e+03", "b8a82a7f7d825aa021163c2fed5c703546914d51144c381db8d0fd383d8232c9"},
   {"small-fixed-to-exp", "0.00001", "7d1b1386a7e225d0836d1fd59ef3d8e50c13378e00035ed1681cf7e57466ea0e"},
   {"large-integer-unchanged", "9007199254740993", "26ff263007a1a602d4b00f8c9d56732955b0ab9dce9208cd95c6e59f1c01aba1"},
+  {"negative-integer-zero", "-0", "1634c59d59d0599d57a9269de509a754fbb42186035fa1355e8de58777092f7f"},
+  {"fixed-small-limit", "1e-4", "33466e8e92e171aeb0e72fc57e1bb506077d1563bfc61b1d58e7ed895b5493d8"},
+  {"scientific-large-limit", "1e16", "bc112219b3b43446c0cfbd154b6aa041f916265b2db796c82ecef775d92b5c59"},
+  {"fixed-large-limit", "1e15", "aa3f14a96345f2ebb16e465cd77593ca1e70846760ad34b5354df760d45b3f4a"},
+  {"fixed-million", "1000000.0", "9d7c66ccbd2a4f21db229b17abaad6df90513c6d2da48385693eef0dc6456561"},
  }
  for _, tc := range cases {
   t.Run(tc.name, func(t *testing.T) {
