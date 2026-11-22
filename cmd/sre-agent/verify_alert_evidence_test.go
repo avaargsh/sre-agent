@@ -247,3 +247,53 @@ func TestOfflineReviewRejectsRehashedAuthorityClaimsAndInconsistentObservationCl
   })
  }
 }
+
+
+func TestOfflineReviewRejectsRehashedContradictorySourceContents(t *testing.T) {
+ rawPath,planPath,bundlePath:=linkedAlertEvidenceFixture(t)
+ changeSamples:=func(b map[string]any,edit func([]any)) {
+  attrs:=b["evidence"].([]any)[1].(map[string]any)["attributes"].(map[string]any)
+  var samples []any
+  if err:=json.Unmarshal([]byte(attrs["samples_json"].(string)),&samples);err!=nil{t.Fatal(err)}
+  edit(samples)
+  updated,err:=json.Marshal(samples)
+  if err!=nil{t.Fatal(err)}
+  attrs["samples_json"]=string(updated)
+ }
+ attacks:=map[string]func(map[string]any){
+  "prom-sample-json-invalid":func(b map[string]any){
+   b["evidence"].([]any)[1].(map[string]any)["attributes"].(map[string]any)["samples_json"]="not JSON"
+  },
+  "prom-series-count-contradicts-samples":func(b map[string]any){
+   b["evidence"].([]any)[1].(map[string]any)["attributes"].(map[string]any)["series_count"]="99"
+  },
+  "prom-sample-nonfinite":func(b map[string]any){
+   changeSamples(b,func(s []any){s[0].(map[string]any)["value"]="NaN"})
+  },
+  "prom-sample-too-old":func(b map[string]any){
+   changeSamples(b,func(s []any){s[0].(map[string]any)["timestamp"]=float64(1)})
+  },
+  "prom-sample-future":func(b map[string]any){
+   changeSamples(b,func(s []any){s[0].(map[string]any)["timestamp"]=float64(time.Now().Add(time.Hour).Unix())})
+  },
+  "prom-zero-max-age":func(b map[string]any){
+   b["evidence"].([]any)[1].(map[string]any)["attributes"].(map[string]any)["max_age_seconds"]="0"
+  },
+  "kubernetes-pods-not-array":func(b map[string]any){
+   b["evidence"].([]any)[0].(map[string]any)["attributes"].(map[string]any)["pods_json"]="{}"
+  },
+  "kubernetes-pod-missing-uid":func(b map[string]any){
+   b["evidence"].([]any)[0].(map[string]any)["attributes"].(map[string]any)["pods_json"]=`[{"name":"one","phase":"Running"}]`
+  },
+ }
+ for name,change:=range attacks{
+  t.Run(name,func(t *testing.T){
+   forged:=rehashStructurallyValidBundle(t,bundlePath,change)
+   var stdout,stderr bytes.Buffer
+   if code:=run(reviewArgs(rawPath,planPath,forged),&stdout,&stderr);code!=3||
+    stdout.Len()!=0||!strings.Contains(stderr.String(),"UNKNOWN:"){
+    t.Fatalf("accepted self-hashed contradictory source contents: exit=%d stdout=%s stderr=%s",code,stdout.String(),stderr.String())
+   }
+  })
+ }
+}
