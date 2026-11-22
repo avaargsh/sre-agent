@@ -90,3 +90,43 @@ def test_prediction_parser_rejects_duplicate_json_and_rows(tmp_path):
                     encoding="utf-8")
     with pytest.raises(ValueError, match="duplicate JSON key"):
         load_predictions(path)
+
+
+def test_legacy_holdout_cli_supports_external_byte_pins(tmp_path):
+    import hashlib
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    ds = tmp_path / "holdout.jsonl"
+    records = [
+        make_episode("train-1", "train-case", "train", True),
+        make_episode("test-1", "test-case", "test", True),
+    ]
+    ds.write_text("".join(json.dumps(item) + "\n" for item in records), encoding="utf-8")
+    preds = tmp_path / "predictions.jsonl"
+    preds.write_text(json.dumps({
+        "episode_id": "test-1",
+        "completion": completion("error_spike", ["ev1"], "verified"),
+    }) + "\n", encoding="utf-8")
+    pinned_ds = hashlib.sha256(ds.read_bytes()).hexdigest()
+    pinned_preds = hashlib.sha256(preds.read_bytes()).hexdigest()
+
+    base = [
+        sys.executable, str(root / "scripts/eval_sre_grpo.py"),
+        "--dataset", str(ds), "--predictions", str(preds),
+        "--expected-dataset-sha256", pinned_ds,
+        "--expected-predictions-sha256", pinned_preds,
+    ]
+    ok = subprocess.run(base, text=True, capture_output=True, cwd=root)
+    assert ok.returncode == 0, ok.stderr
+    result = json.loads(ok.stdout)
+    assert result["dataset_sha256"] == pinned_ds
+    assert result["predictions_sha256"] == pinned_preds
+    assert result["model_runtime_verified"] is False
+    bad = base[:]
+    bad[bad.index("--expected-predictions-sha256") + 1] = "0" * 64
+    fail = subprocess.run(bad, text=True, capture_output=True, cwd=root)
+    assert fail.returncode == 3
+    assert "predictions_sha256" in fail.stderr
