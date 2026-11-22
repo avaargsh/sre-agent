@@ -26,6 +26,11 @@ from agentic_aiops.grpo_train_proof import (
     snapshot_lora_parameters,
     verify_local_lora_update,
 )
+from agentic_aiops.grpo_tensor_link import (
+    capture_posttraining_tensor_map,
+    stage_training_saved_adapter,
+    verify_posttraining_tensor_map,
+)
 
 
 def main() -> None:
@@ -228,6 +233,30 @@ def main() -> None:
         max_steps=args.max_steps,
     )
     trainer.save_model()
+    # Trainer may save tokenizer/trainer sidecars next to the Adapter files.
+    # Stage only two verified PEFT Adapter files into an isolated create-only
+    # subdirectory for independent, strict CPU-only evidence verification.
+    frozen_saved = stage_training_saved_adapter(
+        args.output_dir, args.output_dir/"adapter",
+        base_model=args.model, base_revision=args.model_revision,
+    )
+    post_map = capture_posttraining_tensor_map(
+        trainer.model, base_model=args.model, base_revision=args.model_revision,
+        post_snapshot=after,
+        adapter_config_sha256=frozen_saved.receipt["adapter_config_sha256"],
+        adapter_weights_sha256=frozen_saved.receipt["adapter_weights_sha256"],
+        tensor_bytes=raw_parameter_bytes,
+    )
+    # A successful save_model() return is not enough. Verify *each* saved
+    # byte range against the claimed after-training parameter snapshot before
+    # publishing any additional local result receipt. No issuer proof implied.
+    verify_posttraining_tensor_map(
+        post_map, frozen_saved, expected_post_snapshot=after,
+    )
+    with (args.output_dir/"sre-grpo-post-save-tensor-map.json").open("xb") as fd:
+        fd.write((json.dumps(
+            post_map, sort_keys=True, separators=(",", ":"), allow_nan=False,
+        ) + "\n").encode("utf-8"))
     # Separate create-only lab result, not an authenticated GPU attestation.
     with (args.output_dir / "sre-grpo-local-lora-delta.json").open("xb") as stream:
         stream.write(
