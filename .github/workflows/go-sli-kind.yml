@@ -48,6 +48,8 @@ jobs:
             --prometheus http://127.0.0.1:19090
             --latency-query 'max(checkout_request_latency_seconds)'
             --traffic-query 'sum(rate(checkout_requests_total[20s]))'
+            --age-query 'max(time() - timestamp(checkout_request_latency_seconds))'
+            --max-sample-age-seconds 10
             --max-latency-seconds 10
             --window 20s --step 5s
           )
@@ -63,7 +65,7 @@ jobs:
           for path, want in [('/tmp/go-sli-healthy.json', 'HEALTHY'), ('/tmp/go-sli-unknown.json', 'UNKNOWN')]:
               report = json.load(open(path, encoding='utf-8'))
               assert report['status'] == want, report
-              assert len(report['evidence']) == 2, report
+              assert len(report['evidence']) == 3, report
               for entry in report['evidence']:
                   original = base64.b64decode(entry['raw_response_base64'], validate=True)
                   assert hashlib.sha256(original).hexdigest() == entry['response_sha256']
