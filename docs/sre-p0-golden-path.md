@@ -65,7 +65,11 @@ Only begin actual Qwen3 training after:
 
 **Prohibited claims:** self-reported 17 scenarios = official SREGym score; synthetic good rewards = gradient learning; `.[train]` import = verified CUDA training; trained model = production remediator.
 
-### P2 — Policy-governed action, explicitly deferred
+### P2 — AI Infrastructure fault families, after Kubernetes P0 is proven
+
+Add **separate** observable fault-family contracts for GPU OOM/eviction, vLLM/SGLang inference degradation, Kueue admission/quotas, DRA ResourceClaim allocation/release, PCIe/NCCL/RDMA loss or congestion. Preserve the exact evidence-to-Oracle boundary: independently controlled metric/event sources, failure injected or reproduced in a disposable environment, quantitative GPU/time/token cost, and an explicit UNKNOWN outcome for missing counters or operator-only fault labels. Do not imply an MXC500/NVIDIA physical GPU validation from CPU-only kind tests or synthetic logs. No cross-repository dependence on former-employer proprietary gateway code.
+
+### P3 — Policy-governed action, explicitly deferred
 
 After authenticated ACP + Temporal contract tests and independent review only: Proposal → decision/policy → human approval → scoped ActionHash Permit → UID/resourceVersion/current-state CAS → trusted executor → sustained SLI verification → rollback or UNKNOWN reconciliation. SIGKILL/lost ACK, permit expiry, revocation Epoch and external side effect must fail closed. No generic production shell.
 
