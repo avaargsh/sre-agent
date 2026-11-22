@@ -1032,3 +1032,99 @@ controlled immutable artifact store. `model_runtime_verified`,
 `model_attribution_verified`, `superiority_claim_authorized` and
 `production_eligible` remain **false**. Do not merge the Draft based
 only on this CPU-only consistency result.
+
+
+## P0: CPU-only cross-stage SRE GRPO experiment evidence bundle (2026-11-23)
+
+**Goal:** make a reproducible content-linking artifact, not a GPU execution
+attestation. The standalone standard-library command
+`scripts/build_sre_grpo_evidence.py` runs without Torch, PEFT, TRL, CUDA
+or model weights in memory. It accepts all source paths and **externally
+recorded** SHA256 values for one dataset, pre-run training manifest, local
+LoRA-delta receipt, physical Adapter config/weights, and four Holdout
+files. It **does not** trust an earlier saved Holdout audit verdict:
+it re-runs `verify_holdout_chain(..., require_adapter_files=True,
+require_reenable_probe=True, checkpoint_role="GRPO")` against the
+original pinned evidence.
+
+It fails before publishing if:
+
+- The pre-run `sre-grpo-run-manifest.json` is absent, incomplete,
+  changed since its external digest was recorded, or does not match the
+  dataset's train-episode count, base model commit or explicit
+  `LAB_ONLY_UNVERIFIED` scope.
+- The local training receipt has a missing/mismatched SHA256, changed
+  train/test dataset or model commit, an incompatible pre-training LoRA
+  snapshot, changed parameter layout, unchanged before/after LoRA
+  fingerprints, invalid `global_step/max_steps`, or any forged true
+  production / training-admission / provenance flag. The reviewer
+  **replays internal snapshot-delta consistency checks**, not optimizer
+  steps.
+- The **actual saved Adapter files** cannot be rehashed and parsed, their
+  LoRA PEFT targets/rank/types mismatch their pinned configuration, or
+  Capture Adapter metadata does not match the independently
+  reconstructed receipt.
+- The Holdout source, projections, predictions or Capture manifest
+  fail their pinned SHA256 / exact Episode coverage and strict v4
+  A-B-A local-effect *receipt* consistency checks.
+
+A success writes `sre.grpo.experiment-evidence/v1` to an explicitly
+new, create-only output path through staged/fsynced write plus
+no-replace hard-link publication. Existing files are never overwritten.
+On validation failure or a simulated link crash, no final output is
+published; a sudden power loss or crash between staging and
+publication can still leave untrusted temporary state, which is **not**
+an accepted evidence package. Directory durability after a power loss
+has not been certified.
+
+Example (use real reviewer-controlled 64-character SHA256 variables;
+never use digest strings copied from the producer as proof of
+independent issuer authentication):
+
+```bash
+python scripts/build_sre_grpo_evidence.py \
+  --dataset /trusted/episodes.jsonl \
+  --expected-dataset-sha256 "$PINNED_DATASET_SHA256" \
+  --run-manifest /receipts/sre-grpo-run-manifest.json \
+  --expected-run-manifest-sha256 "$PINNED_RUN_MANIFEST_SHA256" \
+  --train-receipt /receipts/sre-grpo-local-lora-delta.json \
+  --expected-train-receipt-sha256 "$PINNED_TRAIN_RECEIPT_SHA256" \
+  --adapter-dir /reviewer-owned/grpo-adapter \
+  --expected-adapter-config-sha256 "$PINNED_ADAPTER_CONFIG_SHA256" \
+  --expected-adapter-weights-sha256 "$PINNED_ADAPTER_WEIGHTS_SHA256" \
+  --prompts /readonly/test-prompts.jsonl \
+  --projection-manifest /exports/test-projection.json \
+  --predictions /artifacts/grpo-predictions.jsonl \
+  --capture-manifest /artifacts/grpo-capture.json \
+  --expected-prompts-sha256 "$PINNED_PROMPTS_SHA256" \
+  --expected-projection-manifest-sha256 "$PINNED_PROJECTION_MANIFEST_SHA256" \
+  --expected-predictions-sha256 "$PINNED_GRPO_PREDICTIONS_SHA256" \
+  --expected-capture-manifest-sha256 "$PINNED_GRPO_CAPTURE_SHA256" \
+  --split test \
+  --output /evidence/new-grpo-evidence-bundle.json
+```
+
+**Important unverified link:** this package can establish that the
+training *receipt* reports a coherent LoRA before/after delta, and that
+the reviewed Adapter file bytes are structurally valid and consistent
+with the Holdout Capture. It **cannot independently prove that the
+saved Adapter weight bytes equal the post-optimizer in-memory tensor
+snapshot**: existing snapshot fingerprints and serialized PEFT Adapter
+weights do not provide a trustworthy independent mapping between the
+two. Accordingly the package reports
+`saved_weights_equal_posttraining_snapshot_verified=false`,
+`training_execution_independently_verified=false`,
+`model_runtime_verified=false`,
+`model_attribution_verified=false`,
+`data_issuer_authenticated=false`,
+`superiority_claim_authorized=false`, and
+`production_eligible=false`. It intentionally contains only
+digests, counts, cross-stage IDs and validation flags, not private
+Oracle answers, arbitrary training logs, secrets, or weight tensors.
+
+CPU test fixtures synthesize these receipts, deliberately change
+input files/digests, promote forbidden flags, swap Capture metadata,
+remove incomplete files, and inject a crash during publication. CI
+success verifies only content consistency and fail-closed behavior.
+**This is not real training, an independent training-run signature,
+a proven GRPO accuracy gain or production release authorization.**
