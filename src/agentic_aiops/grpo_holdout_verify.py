@@ -15,7 +15,8 @@ from typing import Any
 from .grpo_eval import load_predictions_bytes
 from .grpo_holdout_capture import _MAX_CASES, _MAX_FILE_BYTES, _MAX_PROMPT_BYTES
 from .grpo_rollout_capture import _REPO, _SHA40
-from .grpo_import import _verify_pin
+from .grpo_import import _verify_pin, _sha
+from .grpo_adapter import validate_adapter_receipt
 from .grpo_training import (
     _fields, _id, _strict_json, build_prompt, load_episodes_bytes,
 )
@@ -61,6 +62,9 @@ def verify_holdout_chain(
     model: str,
     model_revision: str,
     split: str = "test",
+    checkpoint_role: str = "Base",
+    expected_adapter_config_sha256: str | None = None,
+    expected_adapter_weights_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Prove raw-content bindings from private Oracle source to predictions.
 
@@ -73,6 +77,14 @@ def verify_holdout_chain(
         raise ValueError("model must be an explicit Qwen/Qwen3-* repository ID")
     if type(model_revision) is not str or not _SHA40.fullmatch(model_revision):
         raise ValueError("model_revision must be pinned lowercase 40-character commit")
+    if checkpoint_role not in ("Base", "SFT", "GRPO"):
+        raise ValueError("checkpoint_role must be Base, SFT or GRPO")
+    if checkpoint_role == "Base":
+        if expected_adapter_config_sha256 is not None or expected_adapter_weights_sha256 is not None:
+            raise ValueError("Base checkpoint_role must not provide adapter SHA256 pins")
+    else:
+        _sha(expected_adapter_config_sha256, "adapter_config_sha256")
+        _sha(expected_adapter_weights_sha256, "adapter_weights_sha256")
     sources = [dataset, prompts, projection_manifest, predictions, capture_manifest]
     if len({Path(p).resolve() for p in sources}) != len(sources):
         raise ValueError("five holdout evidence paths must be distinct")
@@ -142,7 +154,7 @@ def verify_holdout_chain(
         capture_manifest, expected_capture_manifest_sha256,
         "capture_manifest_sha256", _MAX_MANIFEST_BYTES,
     )
-    cap = _manifest(capture_raw, {
+    expected_fields = {
         "schema_version", "source_classification", "prompts_sha256",
         "predictions_sha256", "prompt_sha256", "cases", "split", "model",
         "model_revision", "tokenizer_revision", "seed", "max_new_tokens",
@@ -150,7 +162,25 @@ def verify_holdout_chain(
         "model_runtime_verified", "model_attribution_verified",
         "superiority_claim_authorized", "training_admission_authorized",
         "production_eligible",
-    }, "sre.grpo.holdout-capture/v1", "capture manifest")
+    }
+    if checkpoint_role != "Base":
+        expected_fields |= {"checkpoint_role", "adapter"}
+    cap = _manifest(
+        capture_raw, expected_fields,
+        "sre.grpo.holdout-capture/v1" if checkpoint_role == "Base"
+        else "sre.grpo.holdout-capture/v2", "capture manifest",
+    )
+    adapter = None
+    if checkpoint_role != "Base":
+        if cap["checkpoint_role"] != checkpoint_role:
+            raise ValueError("capture checkpoint_role mismatch")
+        adapter = validate_adapter_receipt(
+            cap["adapter"], base_model=model, base_revision=model_revision,
+        )
+        if adapter["adapter_config_sha256"] != expected_adapter_config_sha256:
+            raise ValueError("capture adapter_config_sha256 mismatch")
+        if adapter["adapter_weights_sha256"] != expected_adapter_weights_sha256:
+            raise ValueError("capture adapter_weights_sha256 mismatch")
     if cap["source_classification"] != "UNVERIFIED_MODEL_HOLDOUT_CAPTURE":
         raise ValueError("capture classification cannot be promoted")
     if cap["prompts_sha256"] != prompts_sha:
@@ -185,6 +215,11 @@ def verify_holdout_chain(
             raise ValueError(f"unverified capture cannot claim {field}")
     return {
         "schema_version": "sre.grpo.holdout-chain-audit/v1",
+        "checkpoint_role": checkpoint_role,
+        **({
+            "adapter_config_sha256": adapter["adapter_config_sha256"],
+            "adapter_weights_sha256": adapter["adapter_weights_sha256"],
+        } if adapter is not None else {}),
         "dataset_sha256": dataset_sha,
         "prompts_sha256": prompts_sha,
         "projection_manifest_sha256": proj_manifest_sha,
