@@ -121,3 +121,19 @@ func TestReceiptIsCanonicalAndWithoutProductionClaim(t *testing.T){
   t.Fatalf("misleading release receipt %s",b)
  }
 }
+
+func TestReadFailsClosedWhileWriterIsUncertain(t *testing.T){
+ root:=privateDir(t)
+ if err:=os.Mkdir(filepath.Join(root,".writer"),0700);err!=nil{t.Fatal(err)}
+ if _,err:=Read(root);err==nil{t.Fatal("read returned successful empty proof despite a writer lock")}
+}
+func TestTamperedInitializationMarkerFailsClosed(t *testing.T){
+ root:=privateDir(t)
+ if _,err:=Commit(root,example());err!=nil{t.Fatal(err)}
+ marker:=filepath.Join(root,".initialized")
+ if err:=os.WriteFile(marker,[]byte("forged reinitialized ledger\n"),0600);err!=nil{t.Fatal(err)}
+ if _,err:=Read(root);err==nil{t.Fatal("tampered initialized marker accepted")}
+ newEvidence:=example();newEvidence.EvidenceSHA256=strings.Repeat("e",64)
+ newEvidence.ReleaseID="candidate-003"
+ if _,err:=Commit(root,newEvidence);err==nil{t.Fatal("tampered marker permitted a new admission")}
+}
