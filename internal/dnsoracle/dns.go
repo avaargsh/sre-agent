@@ -16,6 +16,7 @@ import (
  "reflect"
  "strings"
 
+ "github.com/avaargsh/sre-agent/internal/evidence"
  "github.com/avaargsh/sre-agent/internal/oracle"
 )
 
@@ -72,6 +73,12 @@ func decodeSnapshot(s oracle.Snapshot,limit int)([]byte,error){
  if err!=nil||len(b)==0||len(b)>limit{return nil,errors.New("invalid or empty source bytes")}
  h:=sha256.Sum256(b)
  if hex.EncodeToString(h[:])!=s.ResponseSHA256{return nil,errors.New("source hash mismatch")}
+ // Source SHA proves byte equality, not unambiguous JSON interpretation.
+ // G2g's token-stream validation rejects nested duplicate keys even when a
+ // forged/admin-controlled snapshot has a correctly recomputed hash.
+ if err:=evidence.ValidateUniqueJSONObject(b);err!=nil{
+  return nil,fmt.Errorf("ambiguous DNS source JSON: %w",err)
+ }
  return b,nil
 }
 // parseProbe explicitly rejects duplicate JSON keys, unknown fields, trailing
