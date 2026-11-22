@@ -19,6 +19,7 @@ func TestOfflineReviewRejectsMissingKubernetesFieldsEvenWithNewEvidenceID(t *tes
   "missing-pod-list-version":func(a map[string]any){delete(a,"pod_list_resource_version")},
   "non-numeric-generation":func(a map[string]any){a["generation"]="not-a-number"},
   "negative-observed-generation":func(a map[string]any){a["observed_generation"]="-1"},
+  "observed-generation-ahead":func(a map[string]any){a["generation"]="1";a["observed_generation"]="2"},
   "blank-pod-list-version":func(a map[string]any){a["pod_list_resource_version"]="" },
  }
  for name,change:=range changes{
