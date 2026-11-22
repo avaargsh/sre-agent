@@ -16,7 +16,13 @@ KEY=/tmp/g2j-selfissued-private.pem
 PUBLIC=/tmp/g2j-selfissued-public.pem
 COPIED="$(mktemp -d)"
 POLICY_DIR="$(mktemp -d)"
-cleanup() { rm -f "$KEY" "$PUBLIC"; rm -rf "$COPIED" "$POLICY_DIR"; }
+# LAB-only ledgers are intentionally outside the signed original evidence
+# root; never let a failed test leave an untrusted release journal behind.
+LAB_LEDGER="$(mktemp -d)"
+LAB_CORRUPT="$(mktemp -d)"
+LAB_ACKLOSS="$(mktemp -d)"
+chmod 0700 "$LAB_LEDGER" "$LAB_CORRUPT" "$LAB_ACKLOSS"
+cleanup() { rm -f "$KEY" "$PUBLIC"; rm -rf "$COPIED" "$POLICY_DIR" "$LAB_LEDGER" "$LAB_CORRUPT" "$LAB_ACKLOSS"; }
 trap cleanup EXIT
 
 # Explicit allowlist: no secrets, credentials, token files or generated
