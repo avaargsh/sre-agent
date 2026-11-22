@@ -112,6 +112,10 @@ func readJournal(root string)([]Receipt,error){
  if err!=nil{return nil,err}
  if exists!=marker{return nil,errors.New("missing marker or journal after interrupted/tampered commit")}
  if !exists{return []Receipt{},nil}
+ markerBytes,err:=os.ReadFile(filepath.Join(root,markerName))
+ if err!=nil||string(markerBytes)!="sre-agent/lab-release-ledger/v1\n"{
+  return nil,errors.New("initialization marker corrupted (no automatic recovery)")
+ }
  st,err:=os.Stat(filepath.Join(root,journalName))
  if err!=nil||st.Size()<=0||st.Size()>maxJournalBytes{return nil,errors.New("journal empty or outside read budget")}
  raw,err:=os.ReadFile(filepath.Join(root,journalName))
@@ -152,7 +156,13 @@ func readJournal(root string)([]Receipt,error){
 // hash-chain continuity. Hash chains detect accidental mutation; WITHOUT
 // an external immutable head they are NOT authenticated against malicious
 // complete-log rollback or replacement.
-func Read(root string)([]Receipt,error){return readJournal(root)}
+func Read(root string)([]Receipt,error){
+ if err:=ensureDir(root);err!=nil{return nil,err}
+ if _,err:=os.Lstat(filepath.Join(root,lockName));err==nil{
+  return nil,errors.New("uncertain or active ledger writer; readback cannot claim a stable snapshot")
+ }else if !errors.Is(err,os.ErrNotExist){return nil,err}
+ return readJournal(root)
+}
 
 // Commit records a single, LAB ONLY admission on a trusted local POSIX
 // filesystem. The caller must independently verify the source signature,
