@@ -136,6 +136,10 @@ def _validate_safetensors(
         if config is not None and target not in config["target_modules"]:
             raise ValueError(f"LoRA tensor target_modules mismatch: {target}")
         found_targets.add(target)
+        # A saved key and its runtime ".default" alias are unique JSON
+        # keys but refer to the same PEFT semantic A/B slot. Reject both.
+        if kind in groups.get(prefix, set()):
+            raise ValueError(f"duplicate LoRA {kind} tensor slot: {prefix}")
         groups.setdefault(prefix, set()).add(kind)
         if (type(value) is not dict
                 or set(value) != {"dtype", "shape", "data_offsets"}):
