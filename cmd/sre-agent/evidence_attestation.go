@@ -8,6 +8,7 @@ import (
  "fmt"
  "io"
  "os"
+ "path/filepath"
  "strings"
 
  "github.com/avaargsh/sre-agent/internal/evidenceauth"
@@ -59,6 +60,20 @@ func readPrivateKey(path string)(ed25519.PrivateKey,error){
  if !ok{return nil,fmt.Errorf("not an Ed25519 private key")}
  return key,nil
 }
+// A self-issued public key packaged with the attested evidence cannot serve
+// as an independently authorized trust anchor. Resolve both paths to avoid
+// bypassing the check using a parent-directory symlink.
+func publicKeyInEvidenceRoot(root,keyPath string)(bool,error){
+ r,err:=filepath.EvalSymlinks(root)
+ if err!=nil{return false,err}
+ k,err:=filepath.EvalSymlinks(keyPath)
+ if err!=nil{return false,err}
+ r,err=filepath.Abs(r);if err!=nil{return false,err}
+ k,err=filepath.Abs(k);if err!=nil{return false,err}
+ rel,err:=filepath.Rel(r,k)
+ if err!=nil{return false,err}
+ return rel=="."||filepath.IsLocal(rel),nil
+}
 func readTrustedPublicKey(path string)(ed25519.PublicKey,error){
  if path==""{return nil,fmt.Errorf("explicit trusted public key file required")}
  info,err:=os.Lstat(path)
@@ -99,6 +114,11 @@ func verifyEvidence(args []string,stdout,stderr io.Writer)int{
  episode:=f.String("expected-episode","","expected episode ID from outside attestation")
  if err:=f.Parse(args);err!=nil{return 2}
  if len(f.Args())!=0||*root==""||*envelope==""||*pub==""{fmt.Fprintln(stderr,"missing independent verification arguments");return 2}
+ inside,err:=publicKeyInEvidenceRoot(*root,*pub)
+ if err!=nil||inside{
+  fmt.Fprintln(stderr,"UNKNOWN: trusted key must come from outside the evidence root")
+  return 3
+ }
  raw,err:=readSmallFile(*envelope,128<<10)
  if err!=nil{fmt.Fprintln(stderr,"UNKNOWN: signed envelope unreadable");return 3}
  key,err:=readTrustedPublicKey(*pub)
