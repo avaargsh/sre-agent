@@ -14,17 +14,38 @@ permissions:
   contents: read
 
 jobs:
-  true-calico-deny-and-restore:
+  calico-manifest-integrity:
     runs-on: ubuntu-latest
-    timeout-minutes: 28
+    timeout-minutes: 6
     steps:
-      # The manifest binds to the exact PR head, so run this evidence
-      # workflow from that exact immutable ref, not pull_request's synthetic
-      # merge ref. Other workflows still exercise merge compatibility.
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Verify checkout is the exact immutable workflow head
+        env:
+          EXPECTED_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_HEAD"
+      - name: Reject tampered Calico manifest before any kind cluster is created
+        run: |
+          set -euo pipefail
+          curl --retry 3 --retry-delay 2 -fsSL \
+            "https://raw.githubusercontent.com/projectcalico/calico/v3.33.0/manifests/calico.yaml" \
+            -o /tmp/g2i-calico.yaml
+          bash demo/go-networkpolicy/test-pin.sh /tmp/g2i-calico.yaml
+  true-calico-deny-and-restore:
+    needs: calico-manifest-integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify checkout is the exact immutable workflow head
+        env:
+          EXPECTED_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_HEAD"
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -43,10 +64,8 @@ jobs:
             "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_TAG}/manifests/calico.yaml" \
             -o /tmp/g2i-calico.yaml
           test -s /tmp/g2i-calico.yaml
-          # A version tag is not a digest pin: reject any changed upstream
-          # bytes before kubectl parses or creates CRDs and DaemonSets.
+          # A tag alone does not pin content: fail before kubectl creates resources.
           bash demo/go-networkpolicy/verify-calico-manifest.sh /tmp/g2i-calico.yaml
-          bash demo/go-networkpolicy/test-pin.sh /tmp/g2i-calico.yaml
           sha256sum /tmp/g2i-calico.yaml | tee /tmp/g2i-calico-sha.txt
           # Fresh cluster; create avoids oversize last-applied-configuration
           # annotation on bundled CRDs.
@@ -57,10 +76,8 @@ jobs:
           kubectl -n kube-system get ds calico-node -o wide
       - name: Verify real NetworkPolicy deny, recovered HTTP, and offline Oracle
         run: bash demo/go-networkpolicy/run-kind.sh
-      # Pull-request GITHUB_SHA can be a synthetic merge commit. The trust
-      # contract indexes the exact PR head, supplied independently by Actions.
-      # This self-issued CI key proves mechanics only, not signer authority.
-      - name: Test lab-only Ed25519 source index and external-trust verifier
+      # A CI-issued ephemeral key proves signature mechanics, not signer authority.
+      - name: Test LAB Ed25519 original-source attestation mechanics
         env:
           SRE_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: bash demo/go-networkpolicy/test-evidence-attestation.sh

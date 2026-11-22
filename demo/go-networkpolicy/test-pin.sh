@@ -20,4 +20,4 @@ if bash "$SCRIPT_DIR/verify-calico-manifest.sh" "$copy.not-found"; then
   echo "FAIL: missing Calico manifest accepted" >&2
   exit 1
 fi
-echo "PASS: trusted pinned Calico manifest accepted, corrupt/missing rejected"
+echo "PASS: allowlisted Calico manifest accepted, corrupt/missing rejected"
