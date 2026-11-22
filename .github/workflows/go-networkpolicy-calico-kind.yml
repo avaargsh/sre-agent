@@ -26,8 +26,6 @@ jobs:
         env:
           EXPECTED_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_HEAD"
-        with:
-          persist-credentials: false
       - name: Reject tampered Calico manifest before any kind cluster is created
         run: |
           set -euo pipefail
