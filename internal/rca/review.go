@@ -15,6 +15,7 @@ import (
  "time"
 
  "github.com/avaargsh/sre-agent/internal/change"
+ "github.com/avaargsh/sre-agent/internal/evidence"
  "github.com/avaargsh/sre-agent/internal/verifier"
 )
 
@@ -70,6 +71,7 @@ func sourceRef(origin, hash, encoded string)(string,error){
  if err!=nil||len(raw)==0||len(raw)>maxSourceBytes{return "",errors.New("invalid or oversized source bytes")}
  digest:=sha256.Sum256(raw)
  if hex.EncodeToString(digest[:])!=hash{return "",errors.New("source content digest mismatch")}
+ if err:=evidence.ValidateUniqueJSONObject(raw);err!=nil{return "",fmt.Errorf("ambiguous source JSON: %w",err)}
  decoder:=json.NewDecoder(bytes.NewReader(raw))
  var obj map[string]any
  if err:=decoder.Decode(&obj);err!=nil||obj==nil{return "",errors.New("source is not JSON object")}
