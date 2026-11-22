@@ -179,7 +179,7 @@ def _publish_create_only(path: Path, document: dict[str, Any]) -> None:
             stage.unlink(missing_ok=True)
 
 
-def build_grpo_evidence_bundle(
+def _recompute_grpo_evidence_bundle(
     *,
     dataset: str | Path,
     expected_dataset_sha256: str,
@@ -191,9 +191,9 @@ def build_grpo_evidence_bundle(
     expected_adapter_config_sha256: str,
     expected_adapter_weights_sha256: str,
     holdout: Mapping[str, Any],
-    output: str | Path,
+    output: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Re-verify source facts before create-only publication.
+    """Re-verify source facts without publishing or trusting old verdicts.
 
     A bundle does not authorize training or release and explicitly cannot
     establish that the exported adapter equals the in-memory post-step
@@ -210,13 +210,15 @@ def build_grpo_evidence_bundle(
         )),
         Path(adapter_dir)/"adapter_config.json",
         Path(adapter_dir)/"adapter_model.safetensors",
-        output,
     ]
+    if output is not None:
+        sources.append(output)
     if len({Path(item).resolve() for item in sources}) != len(sources):
         raise ValueError("experiment evidence input/output paths must be distinct")
-    result_path = Path(output)
-    if result_path.exists() or result_path.is_symlink():
-        raise FileExistsError(f"evidence output already exists: {result_path}")
+    if output is not None:
+        result_path = Path(output)
+        if result_path.exists() or result_path.is_symlink():
+            raise FileExistsError(f"evidence output already exists: {result_path}")
     data_path = Path(dataset)
     if data_path.is_symlink() or not data_path.is_file():
         raise ValueError("dataset must be a regular non-symlink file")
@@ -310,5 +312,111 @@ def build_grpo_evidence_bundle(
         "superiority_claim_authorized": False,
         "production_eligible": False,
     }
-    _publish_create_only(result_path, bundle)
     return bundle
+
+
+def build_grpo_evidence_bundle(
+    *,
+    dataset: str | Path,
+    expected_dataset_sha256: str,
+    run_manifest: str | Path,
+    expected_run_manifest_sha256: str,
+    train_receipt: str | Path,
+    expected_train_receipt_sha256: str,
+    adapter_dir: str | Path,
+    expected_adapter_config_sha256: str,
+    expected_adapter_weights_sha256: str,
+    holdout: Mapping[str, Any],
+    output: str | Path,
+) -> dict[str, Any]:
+    """Compute all content claims, then create-only publish the final bundle."""
+    result = _recompute_grpo_evidence_bundle(
+        dataset=dataset,
+        expected_dataset_sha256=expected_dataset_sha256,
+        run_manifest=run_manifest,
+        expected_run_manifest_sha256=expected_run_manifest_sha256,
+        train_receipt=train_receipt,
+        expected_train_receipt_sha256=expected_train_receipt_sha256,
+        adapter_dir=adapter_dir,
+        expected_adapter_config_sha256=expected_adapter_config_sha256,
+        expected_adapter_weights_sha256=expected_adapter_weights_sha256,
+        holdout=holdout,
+        output=output,
+    )
+    _publish_create_only(Path(output), result)
+    return result
+
+
+def verify_grpo_evidence_bundle(
+    *,
+    evidence_bundle: str | Path,
+    expected_evidence_bundle_sha256: str,
+    dataset: str | Path,
+    expected_dataset_sha256: str,
+    run_manifest: str | Path,
+    expected_run_manifest_sha256: str,
+    train_receipt: str | Path,
+    expected_train_receipt_sha256: str,
+    adapter_dir: str | Path,
+    expected_adapter_config_sha256: str,
+    expected_adapter_weights_sha256: str,
+    holdout: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Read-only recomputation of every published bundle field.
+
+    A published JSON verdict is untrusted input, even with a matching
+    SHA256. Re-evaluate original pinned files, then compare the entire
+    object byte-content semantics. No temporary output or cache is written.
+    Independent SHA pins do not authenticate their issuer.
+    """
+    holdout = _fields(holdout, _HOLDOUT_FIELDS, "holdout inputs")
+    sources = [
+        dataset, run_manifest, train_receipt,
+        *(holdout[name] for name in (
+            "prompts", "projection_manifest", "predictions", "capture_manifest",
+        )),
+        Path(adapter_dir)/"adapter_config.json",
+        Path(adapter_dir)/"adapter_model.safetensors",
+    ]
+    bundle_path = Path(evidence_bundle)
+    if bundle_path.is_symlink() or not bundle_path.is_file():
+        raise ValueError("evidence bundle must be a regular non-symlink file")
+    if bundle_path.resolve() in {Path(p).resolve() for p in sources}:
+        raise ValueError("evidence bundle path must be distinct from original sources")
+    published = _read_json(
+        bundle_path, expected_evidence_bundle_sha256,
+        label="evidence_bundle_sha256",
+    )
+    recomputed = _recompute_grpo_evidence_bundle(
+        dataset=dataset,
+        expected_dataset_sha256=expected_dataset_sha256,
+        run_manifest=run_manifest,
+        expected_run_manifest_sha256=expected_run_manifest_sha256,
+        train_receipt=train_receipt,
+        expected_train_receipt_sha256=expected_train_receipt_sha256,
+        adapter_dir=adapter_dir,
+        expected_adapter_config_sha256=expected_adapter_config_sha256,
+        expected_adapter_weights_sha256=expected_adapter_weights_sha256,
+        holdout=holdout,
+    )
+    if published != recomputed:
+        raise ValueError(
+            "evidence bundle fields do not match independently recomputed sources"
+        )
+    return {
+        "schema_version": "sre.grpo.experiment-replay/v1",
+        "status": "CONTENT_REPLAY_CONSISTENT_NOT_EXECUTION_ATTESTED",
+        "evidence_bundle_sha256": expected_evidence_bundle_sha256,
+        "dataset_sha256": recomputed["dataset_sha256"],
+        "adapter_config_sha256": recomputed["adapter_config_sha256"],
+        "adapter_weights_sha256": recomputed["adapter_weights_sha256"],
+        "holdout_capture_sha256": recomputed["holdout_capture_sha256"],
+        "source_content_reverified": True,
+        "exact_bundle_fields_match_recomputed": True,
+        "saved_weights_equal_posttraining_snapshot_verified": False,
+        "training_execution_independently_verified": False,
+        "model_runtime_verified": False,
+        "model_attribution_verified": False,
+        "superiority_claim_authorized": False,
+        "production_eligible": False,
+    }
