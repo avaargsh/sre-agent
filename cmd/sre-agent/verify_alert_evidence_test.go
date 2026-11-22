@@ -319,3 +319,53 @@ func TestOfflineReviewRejectsImpossibleEmbeddedPodSnapshots(t *testing.T) {
   })
  }
 }
+
+
+func TestOfflineReviewRejectsIncompleteOrContradictoryReadOnlyEvidence(t *testing.T) {
+ rawPath,planPath,bundlePath:=linkedAlertEvidenceFixture(t)
+ attacks:=map[string]func(map[string]any){
+  "missing-generation":func(b map[string]any){
+   delete(b["evidence"].([]any)[0].(map[string]any)["attributes"].(map[string]any),"generation")
+  },
+  "missing-observed-generation":func(b map[string]any){
+   delete(b["evidence"].([]any)[0].(map[string]any)["attributes"].(map[string]any),"observed_generation")
+  },
+  "missing-desired-replicas":func(b map[string]any){
+   delete(b["evidence"].([]any)[0].(map[string]any)["attributes"].(map[string]any),"desired_replicas")
+  },
+  "missing-ready-replicas":func(b map[string]any){
+   delete(b["evidence"].([]any)[0].(map[string]any)["attributes"].(map[string]any),"ready_replicas")
+  },
+  "missing-pod-list-resource-version":func(b map[string]any){
+   delete(b["evidence"].([]any)[0].(map[string]any)["attributes"].(map[string]any),"pod_list_resource_version")
+  },
+  "missing-entity-refs":func(b map[string]any){
+   delete(b["evidence"].([]any)[0].(map[string]any),"entity_refs")
+  },
+  "unexpected-entity-refs":func(b map[string]any){
+   b["evidence"].([]any)[0].(map[string]any)["entity_refs"]=[]any{"missing-entity"}
+  },
+  "contradictory-kubernetes-observation":func(b map[string]any){
+   b["evidence"].([]any)[0].(map[string]any)["observation"]="deployment golden-demo/checkout-api desired=2 ready=0"
+  },
+  "contradictory-prometheus-observation":func(b map[string]any){
+   b["evidence"].([]any)[1].(map[string]any)["observation"]="PromQL max(checkout_request_latency_seconds): 99 fresh finite series"
+  },
+  "forged-kubernetes-evidence-id":func(b map[string]any){
+   b["evidence"].([]any)[0].(map[string]any)["evidence_id"]="obs-forged-kubernetes"
+  },
+  "forged-prometheus-evidence-id":func(b map[string]any){
+   b["evidence"].([]any)[1].(map[string]any)["evidence_id"]="obs-forged-prometheus"
+  },
+ }
+ for name,edit:=range attacks {
+  t.Run(name,func(t *testing.T){
+   forged:=rehashStructurallyValidBundle(t,bundlePath,edit)
+   var stdout,stderr bytes.Buffer
+   if code:=run(reviewArgs(rawPath,planPath,forged),&stdout,&stderr);code!=3||
+    stdout.Len()!=0||!strings.Contains(stderr.String(),"UNKNOWN:"){
+    t.Fatalf("accepted incomplete or contradictory read-only evidence: exit=%d stdout=%s stderr=%s",code,stdout.String(),stderr.String())
+   }
+  })
+ }
+}
