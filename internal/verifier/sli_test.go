@@ -46,7 +46,7 @@ func TestHealthyRequiresSustainedLatencyAndTraffic(t *testing.T){
  srv,calls:=serveRange(t,latency,traffic)
  got:=Assess(context.Background(),policy(srv.URL))
  if got.Status!=Healthy{t.Fatalf("status=%s reason=%s",got.Status,got.Reason)}
- if len(got.Evidence)!=2||got.Evidence[0].ResponseSHA256==""||got.Evidence[0].RawResponse==nil{t.Fatalf("source proof missing: %+v",got)}
+ if len(got.Evidence)!=2||got.Evidence[0].ResponseSHA256==""||got.Evidence[0].RawResponseBase64==""{t.Fatalf("source proof missing: %+v",got)}
  if len(*calls)!=2||(*calls)[0]!="GET /api/v1/query_range"||(*calls)[1]!="GET /api/v1/query_range"{t.Fatalf("not exactly two readonly requests: %v",*calls)}
 }
 func TestUnhealthyWhenOneLatencySampleBreaches(t *testing.T){
