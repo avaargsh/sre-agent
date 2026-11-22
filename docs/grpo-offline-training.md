@@ -164,3 +164,80 @@ pytest -q tests/test_grpo_import.py
 Next: connect disposable kind fault-injection exports and an external Oracle
 verifier as independently authenticated evidence inputs. Keep unverified
 episodes out of reported real-model accuracy and external release gates.
+
+
+## G2i NetworkPolicy lab evidence intake (candidate only)
+
+The independent Go G2i NetworkPolicy evaluator, source signing and signer-policy
+mechanics are currently in the **separate stacked Draft PR #6–#10**. This
+Python GRPO branch **does not merge, endorse, or replace** those Go changes.
+
+The opt-in adapter `grpo_lab_intake.py` understands the G2i data contract:
+`episode.json` (15 original admin snapshots across before/during/after),
+`evaluation.json`, three independently captured observer logs and three
+`sre.dns-observation/v1` files. An owner-authored, independently SHA-pinned
+approval must contain:
+
+```json
+{
+  "schema_version": "sre.grpo.networkpolicy-lab-approval/v1",
+  "episode_id": "np-calico-egress-001",
+  "output_episode_id": "lab-np-001",
+  "fault_family": "network-egress-unknown",
+  "split": "test",
+  "episode_sha256": "<sha256-of-original-episode.json>",
+  "evaluation_sha256": "<sha256-of-original-evaluation.json>",
+  "observer_log_sha256": {
+    "before": "<sha256-of-before-observer.log>",
+    "during": "<sha256-of-during-observer.log>",
+    "after": "<sha256-of-after-observer.log>"
+  }
+}
+```
+
+The expected **approval file SHA256** must come from outside the untrusted
+artifact directory. The adapter validates all 15 original base64 snapshots
+and embedded SHA values, source/evaluation identity, actual before/during/after
+probe statuses, original observer/admin log byte equality, probe/observer
+diagnostic agreement, and create-only output. It cannot claim cryptographic
+origin from these checks. A forged administrator capable of replacing all
+files, or a forged self-issued signing key, is **not defeated** merely by
+internally consistent SHA256 values.
+
+```bash
+python scripts/import_g2i_lab_candidate.py \
+  --root /isolated/g2i-raw-proof \
+  --approval /independent/reviewed-approval.json \
+  --expected-approval-sha256 "$OUT_OF_BAND_APPROVAL_SHA256" \
+  --output /new/grpo-lab-candidate.jsonl
+
+pytest -q tests/test_grpo_lab_intake.py
+```
+
+**Critical Observer/Oracle distinction:** the G2i admin can prove an isolated
+network-policy test fault in a disposable kind cluster. But the restricted
+Observer sees only healthy DNS and failed HTTP. It does not have permissions to
+read the NetworkPolicy and cannot conclude `network_policy_denial` from its
+logs. The generated model prompt includes only **before and during observer
+evidence**, not the after-restoration result, admin snapshots or test-admin
+verdict. The only defensible label under this observation budget is:
+
+```json
+{"root_cause_id":"unknown","evidence_ids":[],"stop_reason":"insufficient_evidence"}
+```
+
+Every generated receipt explicitly has
+`source_classification=unverified-lab-candidate`,
+`lab_claim_authenticated=false`,
+`training_admission_authorized=false` and
+`production_causality_verified=false`. This is a contract/abstention test
+fixture, **not authenticated real training data**. A separate authoritative
+source identity, independent Go evaluator verification, signed provenance,
+reviewer trust and immutable dataset admission must be implemented and
+tested before any actual lab record is promoted or used to claim real
+evaluation gains.
+
+The negative CI cases include mutated observer bytes, changed admin bytes,
+invalid diagnosis classification, changed episode/evaluation digests,
+ambiguous JSON keys, duplicate output, and attempted promotion to a
+model-visible positive Oracle.
