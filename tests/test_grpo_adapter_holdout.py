@@ -12,10 +12,11 @@ from agentic_aiops.grpo_holdout_capture import capture_holdout_predictions
 from agentic_aiops.grpo_holdout_verify import verify_holdout_chain
 from test_grpo_adapter import create_adapter, MODEL, REV
 from test_grpo_adapter_effect import observe
+from test_grpo_adapter_effect_aba import valid as aba_observe
 from test_grpo_holdout_capture import FakeTokenizer, ROOT, projection
 
 
-def prepare(tmp_path, role="GRPO", *, effect=False):
+def prepare(tmp_path, role="GRPO", *, effect=False, aba=False):
     adapter_dir, adapter_pins = create_adapter(tmp_path)
     frozen = load_pinned_adapter(
         adapter_dir, base_model=MODEL, base_revision=REV, **adapter_pins
@@ -28,7 +29,7 @@ def prepare(tmp_path, role="GRPO", *, effect=False):
         tokenizer=FakeTokenizer(), sampler=lambda prompt, seed: "{}",
         model=MODEL, model_revision=REV,
         checkpoint_role=role, adapter_receipt=frozen.receipt,
-        local_effect_receipt=observe() if effect else None,
+        local_effect_receipt=aba_observe() if aba else (observe() if effect else None),
     )
     paths = dict(
         dataset=dataset, prompts=prompts, projection_manifest=projection_manifest,
@@ -169,4 +170,44 @@ def test_rehashed_forged_local_probe_is_rejected(tmp_path):
             **paths, **{
                 **pins, "expected_capture_manifest_sha256": updated_sha,
             }, require_local_effect_probe=True,
+        )
+
+
+def test_v4_aba_receipt_requires_reenable_and_never_promotes_source(tmp_path):
+    paths, pins, capture = prepare(tmp_path, aba=True)
+    assert capture["schema_version"] == "sre.grpo.holdout-capture/v4"
+    assert capture["local_effect_probe"]["schema_version"] == (
+        "sre.grpo.local-adapter-effect/v2"
+    )
+    report = verify_holdout_chain(
+        **paths, **pins,
+        require_local_effect_probe=True, require_reenable_probe=True,
+    )
+    assert report["local_effect_probe_content_consistent"] is True
+    assert report["local_reenable_probe_content_consistent"] is True
+    assert report["model_runtime_verified"] is False
+    assert report["model_attribution_verified"] is False
+    assert report["superiority_claim_authorized"] is False
+
+
+def test_legacy_v3_fails_auditor_strict_reenable_gate(tmp_path):
+    paths, pins, _ = prepare(tmp_path, effect=True)
+    with pytest.raises(ValueError, match="reenable|A-B-A"):
+        verify_holdout_chain(
+            **paths, **pins, require_reenable_probe=True,
+        )
+
+
+def test_rehashed_v4_drift_is_rejected(tmp_path):
+    paths, pins, _ = prepare(tmp_path, aba=True)
+    capture_file = paths["capture_manifest"]
+    raw = json.loads(capture_file.read_text())
+    raw["local_effect_probe"]["max_abs_reenable_delta"] = 0.125
+    capture_file.write_text(json.dumps(raw) + "\n", encoding="utf-8")
+    sha = hashlib.sha256(capture_file.read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match="local effect|reenable"):
+        verify_holdout_chain(
+            **paths,
+            **{**pins, "expected_capture_manifest_sha256": sha},
+            require_reenable_probe=True,
         )
