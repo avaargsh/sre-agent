@@ -6,6 +6,7 @@ import (
  "encoding/hex"
  "encoding/json"
  "testing"
+ "strings"
  "github.com/avaargsh/sre-agent/internal/dnsoracle"
  "github.com/avaargsh/sre-agent/internal/oracle"
 )
@@ -94,4 +95,34 @@ func TestUncertainDualTransportFailureCannotClaimGeneralRootCause(t *testing.T){
  if r.Status=="PRODUCTION_ROOT_CAUSE_CONFIRMED"||r.ProductionCausalityVerified||r.DuringDiagnostic!="UNKNOWN"{
   t.Fatalf("must restrict interpretation to lab policy injection: %+v",r)
  }
+}
+
+func rehashRaw(t *testing.T,payload []byte)oracle.Snapshot{
+ t.Helper()
+ sum:=sha256.Sum256(payload)
+ return oracle.Snapshot{ResponseSHA256:hex.EncodeToString(sum[:]),RawResponseBase64:base64.StdEncoding.EncodeToString(payload)}
+}
+func TestPolicySourceNestedDuplicateJSONKeysFailClosed(t *testing.T){
+ e,o:=setup(t)
+ wire,err:=base64.StdEncoding.DecodeString(e.During.PolicyList.RawResponseBase64)
+ if err!=nil{t.Fatal(err)}
+ // Same semantic value duplicated: ordinary Go JSON unmarshalling silently
+ // accepts it, while different auditors/policy systems may reject it.
+ modified:=strings.Replace(string(wire),`"resourceVersion":"88"`,`"resourceVersion":"88","resourceVersion":"88"`,1)
+ if modified==string(wire){t.Fatal("test fixture source JSON changed")}
+ e.During.PolicyList=rehashRaw(t,[]byte(modified))
+ if _,err:=Evaluate(e,o);err==nil{t.Fatal("duplicate nested JSON keys accepted after digest recomputation")}
+}
+func TestPolicySourceRejectsExtraPermissiveRulesEvenWithRecomputedSHA(t *testing.T){
+ e,o:=setup(t)
+ wire,err:=base64.StdEncoding.DecodeString(e.During.PolicyList.RawResponseBase64)
+ if err!=nil{t.Fatal(err)}
+ var doc map[string]any
+ if err:=json.Unmarshal(wire,&doc);err!=nil{t.Fatal(err)}
+ items:=doc["items"].([]any)
+ spec:=items[0].(map[string]any)["spec"].(map[string]any)
+ spec["ingress"]=[]any{map[string]any{}}
+ changed,err:=json.Marshal(doc);if err!=nil{t.Fatal(err)}
+ e.During.PolicyList=rehashRaw(t,changed)
+ if _,err:=Evaluate(e,o);err==nil{t.Fatal("permissive, unreviewed ingress block accepted after valid digest")}
 }
