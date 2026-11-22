@@ -116,9 +116,10 @@ func windowsOverlap(aStart,aEnd,bStart,bEnd time.Time)bool{
 // live sources or authenticate their identities or the caller-owned policy.
 // It cannot return CONFIRMED/SUPPORTED.
 func Review(ch change.Report,sli verifier.Assessment,claims []Candidate)(Report,error){
- if err:=Replay(ch,sli);err!=nil{return Report{},err}
  index,err:=sources(ch,sli)
  if err!=nil{return Report{},err}
+ // Bound and hash-check input bytes before decoding them into replay models.
+ if err:=Replay(ch,sli);err!=nil{return Report{},err}
  if len(claims)==0||len(claims)>maxCandidates{return Report{},errors.New("invalid candidate count")}
  report:=Report{
   SchemaVersion:"sre.rca-triage/v1",Status:"HUMAN_REVIEW_REQUIRED",
