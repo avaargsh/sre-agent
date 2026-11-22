@@ -133,7 +133,7 @@ func Diagnose(serviceRaw,endpointRaw []byte,targetPort int,selector map[string]s
  obs,err:=inspect(endpointRaw,service.Namespace,service.Service)
  if err!=nil{return Prediction{},err}
  classification:="UNKNOWN"
- if service.Classification=="UNKNOWN"{
+ if service.Classification=="UNKNOWN"&&service.CurrentTargetPort==targetPort&&reflect.DeepEqual(service.CurrentSelector,selector){
   if obs.ready>0{classification="READY_ENDPOINTS_OBSERVED"
   }else{classification="NO_READY_ENDPOINTS_OBSERVED"}
  }
