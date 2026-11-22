@@ -95,6 +95,43 @@ jobs:
           assert len(bundle['evidence']) == 2 and not bundle['hypotheses']
           print('alert_readonly_evidence_consistent', plan['incident_id'])
           PY
+          /tmp/sre-agent verify-alert-evidence \
+            --alert-file /tmp/sre-agent-alertmanager.json \
+            --plan /tmp/sre-agent-alert-plan.json \
+            --bundle /tmp/sre-agent-alert-evidence.json \
+            --cluster golden-aiops --namespace golden-demo \
+            --deployment checkout-api \
+            --expected-query 'max(checkout_request_latency_seconds)' \
+            > /tmp/sre-agent-alert-review.json
+          python - <<'PY'
+          import hashlib, json, pathlib
+          receipt=json.loads(pathlib.Path('/tmp/sre-agent-alert-review.json').read_text())
+          plan=json.loads(pathlib.Path('/tmp/sre-agent-alert-plan.json').read_text())
+          assert receipt['schema_version']=='sre.alert-evidence-review/v1'
+          assert receipt['status']=='STRUCTURALLY_LINKED'
+          assert receipt['incident_id']==plan['incident_id']
+          assert receipt['raw_alert_sha256']==plan['raw_sha256']
+          assert receipt['evidence_count']==2
+          assert all(receipt[k] is False for k in (
+              'source_authenticated','authorizes_execution',
+              'root_cause_verified','recovery_verified'))
+          print('offline alert/evidence review is structural only',receipt['incident_id'])
+          PY
+          set +e
+          /tmp/sre-agent verify-alert-evidence \
+            --alert-file /tmp/sre-agent-alertmanager.json \
+            --plan /tmp/sre-agent-alert-plan.json \
+            --bundle /tmp/sre-agent-alert-evidence.json \
+            --cluster golden-aiops --namespace golden-demo \
+            --deployment checkout-api \
+            --expected-query 'unapproved_query' \
+            > /tmp/sre-agent-bad-review.json 2>/tmp/sre-agent-bad-review-stderr.txt
+          REVIEW_REJECT=$?
+          set -e
+          test "$REVIEW_REJECT" -eq 3
+          test ! -s /tmp/sre-agent-bad-review.json
+          grep -q UNKNOWN /tmp/sre-agent-bad-review-stderr.txt
+          echo "PASS offline triad review and wrong-query UNKNOWN"
           python - <<'PY'
           import json
           path = '/tmp/sre-agent-alert-plan.json'
@@ -128,4 +165,5 @@ jobs:
             /tmp/sre-agent-alertmanager.json
             /tmp/sre-agent-alert-plan.json
             /tmp/sre-agent-alert-evidence.json
+            /tmp/sre-agent-alert-review.json
             /tmp/sre-prometheus-pf.log
