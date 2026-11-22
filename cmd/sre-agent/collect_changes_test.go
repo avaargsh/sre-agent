@@ -34,7 +34,7 @@ func TestCollectChangesCLIReadOnlyAndImmutable(t *testing.T){
  var stdout,stderr bytes.Buffer
  if code:=run(args,&stdout,&stderr);code!=0{t.Fatalf("status %d: %s",code,stderr.String())}
  raw,err:=os.ReadFile(path);if err!=nil{t.Fatal(err)}
- if !bytes.Contains(raw,[]byte(`"relationship": "TIME_OVERLAP_ONLY"`))||!bytes.Contains(raw,[]byte(`"UNVERIFIED"`)){t.Fatalf("incorrect causal report: %s",raw)}
+ if !bytes.Contains(raw,[]byte(`"relationship": "TIME_OVERLAP_ONLY"`))||!bytes.Contains(raw,[]byte("UNVERIFIED")){t.Fatalf("incorrect causal report: %s",raw)}
  if calls!=3{t.Fatalf("expected 3 GETs, got %d",calls)}
  if code:=run(args,&stdout,&stderr);code!=1{t.Fatal("overwrote frozen change evidence file")}
 }
