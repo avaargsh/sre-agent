@@ -166,7 +166,7 @@ assert result['status']=='MATCHED_LAB_NETWORK_POLICY_DENIAL'
 assert result['production_causality_verified'] is False
 assert result['during_diagnostic']=='UNKNOWN'
 for stage in ('before','during','after'):
-    assert (p/(stage+'observer.log')).read_bytes()==(p/(stage+'admin.log')).read_bytes()
+    assert (p/(stage+'-observer.log')).read_bytes()==(p/(stage+'-admin.log')).read_bytes()
     for name in ('probe','pod','service','endpoint_slices','network_policy_list'):
         item=episode[stage][name]
         raw=base64.b64decode(item['raw_response_base64'],validate=True)
