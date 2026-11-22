@@ -277,3 +277,45 @@ def make_trl_reward(
         ]
 
     return reward
+
+
+def qwen3_chat_rows(
+    tokenizer: Any,
+    episodes: Sequence[SREEpisode],
+    *,
+    max_prompt_tokens: int = 1024,
+    max_completion_tokens: int = 192,
+) -> list[dict[str, str]]:
+    """Render explicit non-thinking chat template; refuse truncated evidence.
+
+    Gold labels are used *only* to check whether a valid answer can fit
+    the completion budget; they are never attached to a model input row.
+    """
+    result: list[dict[str, str]] = []
+    for ep in episodes:
+        if ep.split != "train":
+            continue
+        prompt = tokenizer.apply_chat_template(
+            [{"role": "user", "content": build_prompt(ep)}],
+            tokenize=False, add_generation_prompt=True, enable_thinking=False,
+        )
+        if type(prompt) is not str or not prompt:
+            raise ValueError("Qwen3 chat template must return a string")
+        encoded = tokenizer(prompt, add_special_tokens=False)["input_ids"]
+        if not 0 < len(encoded) <= max_prompt_tokens:
+            raise ValueError(f"prompt would be truncated: {ep.episode_id}")
+
+        gold = {
+            "root_cause_id": ep.oracle.root_cause_id,
+            "evidence_ids": list(ep.oracle.required_evidence_ids),
+            "stop_reason": (
+                "verified" if ep.oracle.answerable else "insufficient_evidence"
+            ),
+        }
+        gold_ids = tokenizer(
+            json.dumps(gold), add_special_tokens=False,
+        )["input_ids"]
+        if len(gold_ids) > max_completion_tokens:
+            raise ValueError(f"valid answer exceeds completion budget: {ep.episode_id}")
+        result.append({"prompt": prompt, "episode_id": ep.episode_id})
+    return result
