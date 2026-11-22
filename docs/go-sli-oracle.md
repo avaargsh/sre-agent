@@ -4,13 +4,13 @@ This is a **narrow, stacked migration slice** on top of G0 and G1. It does not i
 
 ## Contract
 
-`sre-agent verify-sli` evaluates two *freshly queried* Prometheus `query_range` sources: latency and real request traffic. It does **not** accept or trust a model-generated `SUPPORTED`, `VERIFIED`, or `RECOVERED` conclusion.
+`sre-agent verify-sli` evaluates three *independently queried* Prometheus `query_range` sources: latency, real request traffic, and maximum underlying scrape age (`time() - timestamp(metric)`). It does **not** accept or trust a model-generated `SUPPORTED`, `VERIFIED`, or `RECOVERED` conclusion.
 
-- `HEALTHY`: every observed latency sample is at or below the configured threshold **and** every observed request rate is at or above the minimum in the complete window.
+- `HEALTHY`: every latency sample is at or below the configured threshold, every observed request rate meets the minimum, and every underlying scrape-age sample meets its freshness budget for the complete window.
 - `UNHEALTHY`: traffic suffices, but at least one latency sample breaches threshold.
-- `UNKNOWN`: no traffic, missing points, a gap, duplicate series, stale/misaligned timestamps, invalid/NaN/Inf/negative values, an HTTP/JSON failure, an invalid query window, or a window predating a supplied trusted barrier. **UNKNOWN must not trigger automatic rollback, approval, or release.**
+- `UNKNOWN`: no traffic, missing points, a gap, duplicate series, misaligned evaluation timestamps, stale underlying scrape data, invalid/NaN/Inf/negative values, an HTTP/JSON failure, an invalid query window, or a window predating a supplied trusted barrier. **UNKNOWN must not trigger automatic rollback, approval, or release.**
 
-For each of the two GET requests the JSON result includes a Base64 encoding of the **exact original HTTP response bytes** (`raw_response_base64`) and `response_sha256` for independent readback. The assessment is written exclusively to a new mode-0600 file (or stdout). The response SHA-256 is a checksum, **not** a signature or proof of source identity; protect and independently pin the artifact in a real evidence store. Prometheus labels may contain sensitive metadata: do not publish raw artifacts without review.
+For each of the three GET requests the JSON result includes a Base64 encoding of the **exact original HTTP response bytes** (`raw_response_base64`) and `response_sha256` for independent readback. The assessment is written exclusively to a new mode-0600 file (or stdout). The response SHA-256 is a checksum, **not** a signature or proof of source identity; protect and independently pin the artifact in a real evidence store. Prometheus labels may contain sensitive metadata: do not publish raw artifacts without review.
 
 ## Manual CLI
 
@@ -21,6 +21,8 @@ Build with `go build -o /tmp/sre-agent ./cmd/sre-agent`, port-forward Prometheus
   --prometheus http://127.0.0.1:19090 \
   --latency-query 'max(checkout_request_latency_seconds)' \
   --traffic-query 'sum(rate(checkout_requests_total[20s]))' \
+  --age-query 'max(time() - timestamp(checkout_request_latency_seconds))' \
+  --max-sample-age-seconds 10 \
   --max-latency-seconds 0.35 \
   --min-traffic-rps 0.1 \
   --window 30s --step 5s \
