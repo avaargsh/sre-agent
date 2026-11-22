@@ -54,8 +54,47 @@ func rawSource(s oracle.Snapshot)([]byte,error){
  if hex.EncodeToString(sum[:])!=s.ResponseSHA256{return nil,errors.New("source digest disagrees with raw bytes")}
  return raw,nil
 }
+// strictJSON recursively checks object key uniqueness at every depth. A
+// matching SHA-256 does not make an ambiguous/duplicate-key document safe.
+func strictJSON(raw []byte)error{
+ dec:=json.NewDecoder(bytes.NewReader(raw))
+ var consume func()error
+ consume=func()error{
+  token,err:=dec.Token()
+  if err!=nil{return err}
+  marker,ok:=token.(json.Delim)
+  if !ok{return nil}
+  switch marker{
+  case '{':
+   seen:=map[string]bool{}
+   for dec.More(){
+    keyToken,err:=dec.Token()
+    if err!=nil{return err}
+    key,ok:=keyToken.(string)
+    if !ok||seen[key]{return errors.New("duplicate or invalid JSON object key")}
+    seen[key]=true
+    if err:=consume();err!=nil{return err}
+   }
+   end,err:=dec.Token()
+   if err!=nil||end!=json.Delim('}'){return errors.New("unterminated JSON object")}
+  case '[':
+   for dec.More(){
+    if err:=consume();err!=nil{return err}
+   }
+   end,err:=dec.Token()
+   if err!=nil||end!=json.Delim(']'){return errors.New("unterminated JSON array")}
+  default:
+   return errors.New("unexpected JSON delimiter")
+  }
+  return nil
+ }
+ if err:=consume();err!=nil{return err}
+ if _,err:=dec.Token();!errors.Is(err,io.EOF){return errors.New("trailing JSON after source value")}
+ return nil
+}
 func decode(s oracle.Snapshot,output any)error{
  raw,err:=rawSource(s);if err!=nil{return err}
+ if err:=strictJSON(raw);err!=nil{return err}
  dec:=json.NewDecoder(bytes.NewReader(raw))
  if err:=dec.Decode(output);err!=nil{return err}
  var extra any
@@ -95,9 +134,13 @@ type networkPolicyList struct{
  Items []struct{
   Metadata meta `json:"metadata"`
   Spec struct{
-   PodSelector struct{MatchLabels map[string]string `json:"matchLabels"`} `json:"podSelector"`
+   PodSelector struct{MatchLabels map[string]string `json:"matchLabels"`;MatchExpressions []json.RawMessage `json:"matchExpressions"`} `json:"podSelector"`
    PolicyTypes []string `json:"policyTypes"`
-   Egress []struct{Ports []struct{Protocol string `json:"protocol"`;Port int `json:"port"`} `json:"ports"`} `json:"egress"`
+   Ingress []json.RawMessage `json:"ingress"`
+   Egress []struct{
+    Ports []struct{Protocol string `json:"protocol"`;Port int `json:"port"`} `json:"ports"`
+    To []json.RawMessage `json:"to"`
+   } `json:"egress"`
   } `json:"spec"`
  } `json:"items"`
 }
@@ -150,8 +193,10 @@ func inspect(e Phase,phase string,obs dnsoracle.Observation)(evidence,error){
   p:=policies.Items[0]
   if p.Metadata.Namespace!="golden-demo"||p.Metadata.Name!="sre-g2i-deny-http"||p.Metadata.UID==""||
    !reflect.DeepEqual(p.Spec.PodSelector.MatchLabels,map[string]string{"app":"sre-np-probe"})||
-   len(p.Spec.PolicyTypes)!=1||p.Spec.PolicyTypes[0]!="Egress"||len(p.Spec.Egress)!=1||
-   len(p.Spec.Egress[0].Ports)!=2{
+   len(p.Spec.PodSelector.MatchExpressions)!=0||
+   len(p.Spec.PolicyTypes)!=1||p.Spec.PolicyTypes[0]!="Egress"||
+   len(p.Spec.Ingress)!=0||len(p.Spec.Egress)!=1||
+   len(p.Spec.Egress[0].To)!=0||len(p.Spec.Egress[0].Ports)!=2{
    return result,errors.New("unexpected/unsafe NetworkPolicy scope or ingress/egress rule")
   }
   ports:=map[string]bool{}
