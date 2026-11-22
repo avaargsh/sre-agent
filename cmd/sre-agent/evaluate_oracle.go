@@ -7,6 +7,7 @@ import (
  "io"
  "os"
  "bytes"
+ "strings"
 
  "github.com/avaargsh/sre-agent/internal/oracle"
 )
@@ -44,6 +45,7 @@ func diagnoseService(args []string,stdout,stderr io.Writer)int{
  flags.SetOutput(stderr)
  src:=flags.String("observed-service","","frozen read-only Kubernetes Service response")
  expected:=flags.Int("expected-target-port",0,"operator-supplied healthy Service targetPort")
+ expectedSelector:=flags.String("expected-selector","","operator-pinned healthy Service selector, e.g. app=checkout-api")
  output:=flags.String("out","-","new prediction JSON file or stdout")
  if err:=flags.Parse(args);err!=nil{return 2}
  if len(flags.Args())>0||*src==""||*expected<1||*output==""{
@@ -52,7 +54,14 @@ func diagnoseService(args []string,stdout,stderr io.Writer)int{
  }
  raw,err:=readSmallFile(*src,2<<20)
  if err!=nil{fmt.Fprintln(stderr,"UNKNOWN: read-only Service source unavailable");return 3}
- prediction,err:=oracle.Diagnose(raw,*expected)
+ var prediction oracle.Prediction
+ if *expectedSelector!=""{
+  parts:=strings.SplitN(*expectedSelector,"=",2)
+  if len(parts)!=2||parts[0]==""||parts[1]==""{fmt.Fprintln(stderr,"UNKNOWN: invalid expected selector");return 3}
+  prediction,err=oracle.DiagnoseWithSelector(raw,*expected,map[string]string{parts[0]:parts[1]})
+ }else{
+  prediction,err=oracle.Diagnose(raw,*expected)
+ }
  if err!=nil{fmt.Fprintln(stderr,"UNKNOWN: unable to diagnose Service:",err);return 3}
  if err:=writeNewJSON(*output,prediction,stdout);err!=nil{fmt.Fprintln(stderr,"cannot write new prediction:",err);return 1}
  return 0
