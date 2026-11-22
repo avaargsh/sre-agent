@@ -112,6 +112,7 @@ func Parse(raw []byte,t Target)(Plan,error) {
  // The v1 evidence helper walks all nested objects and rejects duplicate keys
  // (including escaped aliases) and trailing documents before typed decoding.
  if err:=evidence.ValidateUniqueJSONObject(raw);err!=nil {return Plan{},unknown("ambiguous Alertmanager JSON")}
+ if err:=checkCanonicalFields(raw);err!=nil{return Plan{},err}
  var input envelope
  decoder:=json.NewDecoder(bytes.NewReader(raw))
  if err:=decoder.Decode(&input);err!=nil {return Plan{},unknown("malformed Alertmanager payload")}
