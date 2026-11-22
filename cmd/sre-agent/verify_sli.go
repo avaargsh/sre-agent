@@ -19,6 +19,8 @@ func verifySLI(args []string, stdout, stderr io.Writer) int {
  prom := flags.String("prometheus", "", "Prometheus URL (HTTPS or loopback HTTP)")
  latency := flags.String("latency-query", "", "operator-selected latency query")
  traffic := flags.String("traffic-query", "", "operator-selected traffic rate query")
+ age := flags.String("age-query", "", "operator-selected max scrape age query")
+ maxAge := flags.Float64("max-sample-age-seconds", 0, "maximum observed scrape age in seconds")
  threshold := flags.Float64("max-latency-seconds", 0, "maximum allowed latency")
  minTraffic := flags.Float64("min-traffic-rps", 0, "minimum required request rate")
  window := flags.Duration("window", 30*time.Second, "evaluation window")
@@ -27,7 +29,7 @@ func verifySLI(args []string, stdout, stderr io.Writer) int {
  barrier := flags.String("not-before", "", "optional trusted SLI window lower bound, RFC3339")
  outfile := flags.String("out", "-", "result evidence JSON file (default stdout)")
  if err := flags.Parse(args); err != nil {return 2}
- if len(flags.Args()) != 0 || *prom == "" || *latency == "" || *traffic == "" || *timeout <= 0 || *timeout > 60*time.Second || *outfile == "" {
+ if len(flags.Args()) != 0 || *prom == "" || *latency == "" || *traffic == "" || *age == "" || *timeout <= 0 || *timeout > 60*time.Second || *outfile == "" {
   fmt.Fprintln(stderr, "invalid verify-sli arguments")
   return 2
  }
@@ -40,7 +42,7 @@ func verifySLI(args []string, stdout, stderr io.Writer) int {
  ctx, cancel := context.WithTimeout(context.Background(), *timeout)
  defer cancel()
  result := verifier.Assess(ctx, verifier.Policy{
-  PrometheusURL: *prom, LatencyQuery: *latency, TrafficQuery: *traffic,
+  PrometheusURL: *prom, LatencyQuery: *latency, TrafficQuery: *traffic, AgeQuery: *age, MaxSampleAgeSeconds: *maxAge,
   MaxLatencySeconds: *threshold, MinTrafficPerSecond: *minTraffic,
   Window: *window, Step: *step, NotBefore: notBefore,
  })
