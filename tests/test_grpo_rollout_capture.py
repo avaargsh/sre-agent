@@ -252,3 +252,53 @@ def test_capture_does_not_publish_a_partial_output_when_write_fails(
         )
     assert not output.exists(), "partial rollout was published under final path"
     assert not manifest.exists()
+
+
+def test_competing_output_created_during_sampling_is_never_overwritten(
+    tmp_path
+):
+    """The publication primitive must be fail-closed against a late writer."""
+    dataset, sha = dataset_file(tmp_path)
+    output = tmp_path / "out.jsonl"
+    manifest = tmp_path / "capture.json"
+
+    def competing_sampler(prompt, seed):
+        if not output.exists():
+            output.write_bytes(b"independent-writer")
+        return "{}"
+
+    with pytest.raises(FileExistsError):
+        capture_rollout_groups(
+            dataset, expected_dataset_sha256=sha,
+            output=output, manifest=manifest,
+            tokenizer=ToyTokenizer(), sampler=competing_sampler,
+            model="Qwen/Qwen3-0.6B", model_revision=REV,
+        )
+    assert output.read_bytes() == b"independent-writer"
+    assert not manifest.exists()
+    assert not list(tmp_path.glob(".sre-grpo-*.stage"))
+
+
+def test_competing_manifest_created_during_sampling_preserved_on_failure(
+    tmp_path
+):
+    """If the receipt destination races, roll back only our own output."""
+    dataset, sha = dataset_file(tmp_path)
+    output = tmp_path / "out.jsonl"
+    manifest = tmp_path / "capture.json"
+
+    def competing_sampler(prompt, seed):
+        if not manifest.exists():
+            manifest.write_bytes(b"independent-manifest")
+        return "{}"
+
+    with pytest.raises(FileExistsError):
+        capture_rollout_groups(
+            dataset, expected_dataset_sha256=sha,
+            output=output, manifest=manifest,
+            tokenizer=ToyTokenizer(), sampler=competing_sampler,
+            model="Qwen/Qwen3-0.6B", model_revision=REV,
+        )
+    assert manifest.read_bytes() == b"independent-manifest"
+    assert not output.exists()
+    assert not list(tmp_path.glob(".sre-grpo-*.stage"))
