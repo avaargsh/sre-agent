@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from agentic_aiops.grpo_adapter_effect import (
-    validate_local_effect_observation,
+    validate_local_effect_observation, validate_local_effect_receipt,
 )
 
 
@@ -77,3 +77,21 @@ def test_adapter_must_remain_enabled_unmerged_and_frozen_after_disable_context(c
         setattr(after, key, value)
     with pytest.raises(ValueError, match="adapter status"):
         observe(status_after=after)
+
+
+def test_only_exact_recomputable_local_effect_receipt_is_allowed():
+    report = observe()
+    assert validate_local_effect_receipt(report) == report
+    for name, value in [
+        ("max_abs_logit_delta", 0.0),
+        ("max_abs_base_logit", -1.0),
+        ("normalized_logit_delta", 1.0),
+        ("normalized_threshold", 0.0),
+        ("local_forward_effect_observed", False),
+        ("model_runtime_independently_verified", True),
+        ("model_attribution_verified", True),
+        ("superiority_claim_authorized", True),
+        ("production_eligible", True),
+    ]:
+        with pytest.raises(ValueError, match="local effect|probe"):
+            validate_local_effect_receipt({**report, name: value})
