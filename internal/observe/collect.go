@@ -120,6 +120,7 @@ func getJSON(ctx context.Context,hc *http.Client,endpoint *url.URL,path,token st
  if res.StatusCode!=http.StatusOK{return unknownf("source response status %d",res.StatusCode)}
  payload,err:=io.ReadAll(io.LimitReader(res.Body,maxResponseBytes+1))
  if err!=nil||len(payload)>maxResponseBytes{return unknownf("source response failed or exceeded limit")}
+ if err:=validateSourceJSON(payload);err!=nil{return unknownf("invalid native source JSON")}
  decoder:=json.NewDecoder(bytes.NewReader(payload))
  if err:=decoder.Decode(out);err!=nil{return unknownf("malformed source JSON")}
  var extra any
