@@ -40,6 +40,26 @@ func sha256hex(raw []byte)string{
  return hex.EncodeToString(digest[:])
 }
 
+// Exact-name extraction deliberately refuses to treat "Status" as "status".
+// Invalid types yield empty values and are rejected by the contract checks;
+// the v1 Evidence verifier independently checks outer schema/digest validity.
+func exactObject(v any)map[string]any{
+ m,_:=v.(map[string]any)
+ return m
+}
+func exactArray(v any)[]any{
+ items,_:=v.([]any)
+ return items
+}
+func exactText(m map[string]any,key string)string{
+ v,_:=m[key].(string)
+ return v
+}
+func exactInt(m map[string]any,key string)float64{
+ v,_:=m[key].(float64)
+ return v
+}
+
 // reviewLinkedEvidence verifies a sealed-v1 plan against the original raw
 // alert and expected independently supplied operator scope, then independently
 // verifies the Evidence Bundle's canonical hash and cross-field linkage.
@@ -56,30 +76,61 @@ func reviewLinkedEvidence(rawAlert,frozenPlan,bundle []byte,target alertintake.T
  if checked.EvidenceCount!=2||checked.SupportedHypotheses!=0 {
   return AlertEvidenceReview{},fmt.Errorf("not an unpromoted two-source read-only observation")
  }
- var doc struct{
-  Incident struct{
-   ID string `json:"incident_id"`
-   Summary string `json:"summary"`
-   Severity string `json:"severity"`
-   Scope string `json:"scope"`
-  } `json:"incident"`
-  Evidence []struct{
-   Source string `json:"source"`
-   Attributes map[string]string `json:"attributes"`
-  } `json:"evidence"`
-  Hypotheses []json.RawMessage `json:"hypotheses"`
-  Entities []json.RawMessage `json:"entities"`
-  Edges []json.RawMessage `json:"edges"`
-  Changes []json.RawMessage `json:"changes"`
-  Metadata struct{
-   SchemaVersion string `json:"schema_version"`
-   ObservationStatus string `json:"observation_status"`
-   ToolCount int `json:"tool_count"`
-   EvidenceCount int `json:"evidence_count"`
-  } `json:"metadata"`
- }
+ // Use a generic map after the structural verifier rather than decoding
+ // into Go structs: encoding/json matches struct tags case-insensitively,
+ // and a late "Source" alias can override the canonical "source" key.
+ var doc map[string]any
  if err:=json.Unmarshal(bundle,&doc);err!=nil {
   return AlertEvidenceReview{},fmt.Errorf("unparseable observation bundle: %w",err)
+ }
+ incident:=exactObject(doc["incident"])
+ meta:=exactObject(doc["metadata"])
+ items:=exactArray(doc["evidence"])
+ expectedScope:="namespace="+target.Namespace+",deployment="+target.Deployment
+ if exactText(incident,"incident_id")!=plan.IncidentID||
+  exactText(incident,"summary")!=plan.Summary||
+  exactText(incident,"severity")!=plan.Severity||
+  exactText(incident,"scope")!=expectedScope {
+  return AlertEvidenceReview{},fmt.Errorf("bundle incident identity or operator scope differs from reviewed plan")
+ }
+ if exactText(meta,"schema_version")!="aiops.evidence/v1"||
+  exactText(meta,"observation_status")!="complete"||
+  exactText(meta,"bundle_sha256")!=checked.BundleSHA256||
+  exactInt(meta,"tool_count")!=2||exactInt(meta,"evidence_count")!=2||
+  len(items)!=2||len(exactArray(doc["hypotheses"]))!=0||
+  len(exactArray(doc["entities"]))!=0||
+  len(exactArray(doc["edges"]))!=0||len(exactArray(doc["changes"]))!=0{
+  return AlertEvidenceReview{},fmt.Errorf("bundle does not match the v1 read-only observation contract")
+ }
+ sources:=map[string]bool{}
+ for _,rawItem:=range items{
+  item:=exactObject(rawItem)
+  source:=exactText(item,"source")
+  if sources[source]{return AlertEvidenceReview{},fmt.Errorf("duplicate observation source")}
+  sources[source]=true
+  attrs:=exactObject(item["attributes"])
+  switch source{
+  case "kubernetes":
+   if exactText(attrs,"namespace")!=target.Namespace||
+     exactText(attrs,"deployment")!=target.Deployment||
+     exactText(attrs,"uid")==""||
+     exactText(attrs,"resource_version")==""{
+    return AlertEvidenceReview{},fmt.Errorf("Kubernetes observation target mismatch")
+   }
+  case "prometheus":
+   if expectedQuery==""||len(expectedQuery)>512||
+     exactText(attrs,"promql")!=expectedQuery||
+     exactText(attrs,"result_type")!="vector"{
+    return AlertEvidenceReview{},fmt.Errorf("unapproved Prometheus observation query")
+   }
+  default:
+   return AlertEvidenceReview{},fmt.Errorf("unknown observation source")
+  }
+ }
+ if !sources["kubernetes"]||!sources["prometheus"]{
+  return AlertEvidenceReview{},fmt.Errorf("missing required independent source types")
+ }
+ return AlertEvidenceReview{},fmt.Errorf("unparseable observation bundle: %w",err)
  }
  expectedScope:="namespace="+target.Namespace+",deployment="+target.Deployment
  if doc.Incident.ID!=plan.IncidentID||doc.Incident.Summary!=plan.Summary||
