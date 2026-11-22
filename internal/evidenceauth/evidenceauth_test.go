@@ -28,7 +28,7 @@ func TestTrustAnchorAndCompleteSignedEvidenceIndex(t *testing.T){
  root,expected,envelope,pub,_:=signedFixture(t)
  got,err:=Verify(root,envelope,pub,expected)
  if err!=nil{t.Fatal(err)}
- if got.SchemaVersion!="sre.evidence-manifest/v1"||len(got.Files)!=2||
+ if got.SchemaVersion!="sre.evidence-manifest/v2"||len(got.Files)!=2||
   got.Files[0].Path!="before-service.json"||got.Files[1].Path!="during-probe.json"{
   t.Fatalf("incorrect manifest canonical order or completeness: %+v",got)
  }
@@ -62,8 +62,8 @@ func TestRejectCorruptedFilesSignatureAndReplayedManifest(t *testing.T){
 }
 func TestRejectDuplicateJSONKeysEvenWhenAttackerCanSign(t *testing.T){
  root,expected,envelope,pub,priv:=signedFixture(t)
- dupEnvelope:=strings.Replace(string(envelope),`"schema_version":"sre.evidence-attestation/v1"`,
-  `"schema_version":"sre.evidence-attestation/v1","schema_version":"sre.evidence-attestation/v1"`,1)
+ dupEnvelope:=strings.Replace(string(envelope),`"schema_version":"sre.evidence-attestation/v2"`,
+  `"schema_version":"sre.evidence-attestation/v2","schema_version":"sre.evidence-attestation/v2"`,1)
  if dupEnvelope==string(envelope){t.Fatal("fixture envelope JSON changed")}
  if _,err:=Verify(root,[]byte(dupEnvelope),pub,expected);err==nil{t.Fatal("accepted duplicate envelope key")}
  var a Envelope
