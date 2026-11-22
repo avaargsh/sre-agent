@@ -30,8 +30,10 @@ type Policy struct {
  PrometheusURL string
  LatencyQuery string
  TrafficQuery string
+ AgeQuery string
  MaxLatencySeconds float64
  MinTrafficPerSecond float64
+ MaxSampleAgeSeconds float64
  Window time.Duration
  Step time.Duration
  NotBefore time.Time
@@ -53,6 +55,7 @@ type Assessment struct {
  StepSeconds int64 `json:"step_seconds"`
  MaxLatencySeconds float64 `json:"max_latency_seconds"`
  MinTrafficPerSecond float64 `json:"min_traffic_per_second"`
+ MaxSampleAgeSeconds float64 `json:"max_sample_age_seconds"`
  Evidence []SourceEvidence `json:"evidence"`
 }
 const maxResponseSize = 2 << 20
@@ -60,8 +63,8 @@ func finite(x float64)bool{return !math.IsNaN(x)&&!math.IsInf(x,0)}
 func checkPolicy(p Policy)(*url.URL,time.Time,time.Time,error){
  if p.Now==nil {p.Now=time.Now}
  if p.Window<=0||p.Step<time.Second||p.Step%time.Second!=0||p.Window%p.Step!=0||p.Window<2*p.Step||p.Window>10*time.Minute||p.Window/p.Step>120{return nil,time.Time{},time.Time{},errors.New("unsupported or undersampled SLI window")}
- if !finite(p.MaxLatencySeconds)||p.MaxLatencySeconds<=0||!finite(p.MinTrafficPerSecond)||p.MinTrafficPerSecond<=0{return nil,time.Time{},time.Time{},errors.New("positive finite latency and traffic thresholds are required")}
- if len(p.LatencyQuery)==0||len(p.LatencyQuery)>512||len(p.TrafficQuery)==0||len(p.TrafficQuery)>512{return nil,time.Time{},time.Time{},errors.New("invalid SLI query")}
+ if !finite(p.MaxLatencySeconds)||p.MaxLatencySeconds<=0||!finite(p.MinTrafficPerSecond)||p.MinTrafficPerSecond<=0||!finite(p.MaxSampleAgeSeconds)||p.MaxSampleAgeSeconds<=0{return nil,time.Time{},time.Time{},errors.New("positive finite latency and traffic thresholds are required")}
+ if len(p.LatencyQuery)==0||len(p.LatencyQuery)>512||len(p.TrafficQuery)==0||len(p.TrafficQuery)>512||len(p.AgeQuery)==0||len(p.AgeQuery)>512{return nil,time.Time{},time.Time{},errors.New("invalid SLI query")}
  u,err:=url.Parse(p.PrometheusURL)
  if err!=nil||u==nil||u.Host==""||u.User!=nil||u.RawQuery!=""||u.Fragment!=""||(u.Path!=""&&u.Path!="/"){return nil,time.Time{},time.Time{},errors.New("invalid Prometheus URL")}
  if u.Scheme!="http"&&u.Scheme!="https"{return nil,time.Time{},time.Time{},errors.New("invalid Prometheus scheme")}
@@ -91,6 +94,7 @@ func query(ctx context.Context,p Policy,u *url.URL,start,end time.Time,threshold
  q:=url.Values{}
  name:=p.LatencyQuery
  if mode=="traffic"{name=p.TrafficQuery}
+ if mode=="age"{name=p.AgeQuery}
  q.Set("query",name)
  q.Set("start",strconv.FormatInt(start.Unix(),10))
  q.Set("end",strconv.FormatInt(end.Unix(),10))
@@ -133,7 +137,7 @@ func query(ctx context.Context,p Policy,u *url.URL,start,end time.Time,threshold
    if err:=json.Unmarshal(point[1],&value);err!=nil{return SourceEvidence{},false,errors.New("invalid sample encoding")}
    number,err:=strconv.ParseFloat(value,64)
    if err!=nil||!finite(number)||number<0{return SourceEvidence{},false,errors.New("non-finite or negative SLI sample")}
-   if (mode=="latency"&&number>threshold)||(mode=="traffic"&&number<threshold){allHealthy=false}
+   if ((mode=="latency"||mode=="age")&&number>threshold)||(mode=="traffic"&&number<threshold){allHealthy=false}
    samples++
   }
  }
@@ -144,7 +148,7 @@ func query(ctx context.Context,p Policy,u *url.URL,start,end time.Time,threshold
 // that the inspected bounded SLI window meets operator-selected constraints.
 // UNKNOWN cannot authorize automation or compensation.
 func Assess(ctx context.Context,p Policy) Assessment{
- report:=Assessment{Status:Unknown,Reason:"insufficient independently verified SLI",MaxLatencySeconds:p.MaxLatencySeconds,MinTrafficPerSecond:p.MinTrafficPerSecond,Evidence:[]SourceEvidence{}}
+ report:=Assessment{Status:Unknown,Reason:"insufficient independently verified SLI",MaxLatencySeconds:p.MaxLatencySeconds,MinTrafficPerSecond:p.MinTrafficPerSecond,MaxSampleAgeSeconds:p.MaxSampleAgeSeconds,Evidence:[]SourceEvidence{}}
  u,start,end,err:=checkPolicy(p)
  if err!=nil{report.Reason=err.Error();return report}
  report.Start,report.End,report.StepSeconds=start,end,int64(p.Step.Seconds())
@@ -154,6 +158,10 @@ func Assess(ctx context.Context,p Policy) Assessment{
  traffic,okTraffic,err:=query(ctx,p,u,start,end,p.MinTrafficPerSecond,"traffic")
  if err!=nil{report.Reason=err.Error();return report}
  report.Evidence=append(report.Evidence,traffic)
+ age,okAge,err:=query(ctx,p,u,start,end,p.MaxSampleAgeSeconds,"age")
+ if err!=nil{report.Reason=err.Error();return report}
+ report.Evidence=append(report.Evidence,age)
+ if !okAge{report.Reason="one or more Prometheus scrape samples exceed freshness budget";return report}
  if !okTraffic{report.Reason="insufficient observed request traffic";return report}
  if !okLatency{report.Status=Unhealthy;report.Reason="one or more observed latency samples breach SLI threshold";return report}
  report.Status=Healthy;report.Reason="all observed samples satisfy latency and minimum traffic SLI conditions"
