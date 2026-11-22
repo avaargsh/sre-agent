@@ -101,3 +101,15 @@ def test_non_tiny_lab_requires_externally_pinned_baseline(tmp_path):
     assert result.returncode != 0
     assert "--baseline-rollouts" in result.stderr
     assert not (tmp_path / "sre-grpo-run-manifest.json").exists()
+
+    # This escape hatch is only for truly tiny smoke data, not a way to
+    # silently skip a reward-collapse audit on a full-size dataset.
+    bypass = invoke(
+        "train_sre_grpo.py", "--execute", "--lab-only", "--allow-tiny-lab",
+        "--dataset", dataset, "--model", "nonexistent/model",
+        "--output-dir", tmp_path,
+    )
+    assert bypass.returncode != 0
+    assert "--allow-tiny-lab" in bypass.stderr
+    assert "fewer than 8" in bypass.stderr
+    assert not (tmp_path / "sre-grpo-run-manifest.json").exists()
