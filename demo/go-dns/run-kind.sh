@@ -100,8 +100,8 @@ kubectl -n golden-demo logs pod/dns-bad -c probe > "$ROOT/admin-dns-bad.log"
 SA=system:serviceaccount:golden-demo:sre-dns-reader
 test "$(kubectl auth can-i get pods/dns-good --as="$SA" -n golden-demo)" = yes
 test "$(kubectl auth can-i get pods/dns-bad --as="$SA" -n golden-demo)" = yes
-test "$(kubectl auth can-i get pods/log --resource-name=dns-good --as="$SA" -n golden-demo)" = yes
-test "$(kubectl auth can-i get pods/log --resource-name=dns-bad --as="$SA" -n golden-demo)" = yes
+# kubectl auth can-i has no --resource-name switch in this version. Use
+# the actual restricted bearer-token log GET calls below as positive proof.
 test "$(kubectl auth can-i get secrets --as="$SA" -n golden-demo)" = no
 test "$(kubectl auth can-i list pods --as="$SA" -n golden-demo)" = no
 test "$(kubectl auth can-i create pods --as="$SA" -n golden-demo)" = no
