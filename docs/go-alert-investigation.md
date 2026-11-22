@@ -30,6 +30,20 @@ go run ./cmd/sre-agent investigate-alert \
 go run ./cmd/sre-agent verify-bundle --file incident-evidence.json
 ```
 
+**3. Independently review all three original artifacts offline** — this performs no Kubernetes/Prometheus requests:
+
+```bash
+go run ./cmd/sre-agent verify-alert-evidence \
+  --alert-file alert.json --plan incident-plan.json \
+  --bundle incident-evidence.json \
+  --cluster golden-aiops --namespace golden-demo --deployment checkout-api \
+  --expected-query 'max(checkout_request_latency_seconds)'
+```
+
+A successful review returns JSON `sre.alert-evidence-review/v1` with `status=STRUCTURALLY_LINKED`, the stable incident ID, exact original alert SHA-256, plan-file SHA-256, canonical bundle SHA-256 and observation count. The fields `source_authenticated`, `authorizes_execution`, `root_cause_verified`, and `recovery_verified` are **always false**. Invalid, stale or mismatched inputs return `UNKNOWN` (exit 3), with no success receipt. The reviewer checks the incident ID/summary/severity and namespace/Deployment in Kubernetes evidence, exactly one Kubernetes plus one Prometheus source, operator-pinned PromQL, a full read-only observation and zero promoted hypotheses. Tests explicitly forge self-hashed but cross-incident, cross-namespace or cross-query bundles, which must still be rejected.
+
+This is not a signed provenance chain. A malicious actor who controls all three files can forge mutually consistent hashes. The `index-evidence` / `sign-evidence` / `verify-evidence` v2 commands elsewhere in the repository can separately bind original files to an externally authorized Ed25519 key and exact workflow attempt, but that authorized signer policy and immutable artifact storage are **not** supplied by this offline command.
+
 `investigate-alert` first recomputes the v1 plan **from the exact original alert file and independently supplied target**. It demands byte-for-byte equality with the canonical output of `plan-alert` (including the newline). It rejects a stale plan if annotations change, forged `source_authenticated`/`authorizes_execution` flags, changed target, extra/duplicate JSON keys, invalid or oversized files, and an existing output path. **No Kubernetes or Prometheus request happens before this preflight.** The existing Go `investigate` command owns all subsequent HTTP reads, TLS, timeouts, sample freshness, evidence generation and exclusive output creation.
 
 The bundle's `incident.incident_id`, `summary` and `severity` are re-derived from the plan; its sources are currently Deployment, matching Pods and a Prometheus instant-vector query. The **separate** `incident-plan.json` carries the exact source alert SHA-256. This implementation does **not** embed a signed alert-identity or source-SHA chain in the Evidence Bundle itself. Preserve both original files and verify them together; a schema-valid SHA-256 is not a proof of source authenticity.
