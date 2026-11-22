@@ -15,7 +15,11 @@ import struct
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .grpo_adapter import FrozenAdapter, _LORA_KEY, load_pinned_adapter
+from .grpo_adapter import (
+    FrozenAdapter, _LORA_KEY, load_pinned_adapter,
+    _read_regular, _validate_config, _validate_safetensors,
+    _MAX_CONFIG, _MAX_WEIGHTS,
+)
 from .grpo_import import _sha, _verify_pin
 from .grpo_train_proof import _encode, snapshot_lora_parameters, verify_local_lora_update
 from .grpo_training import _fields, _strict_json
@@ -343,3 +347,57 @@ def verify_pinned_tensor_map_with_training_receipt(
         "optimizer_step_independently_verified": False,
         "production_eligible": False,
     }
+
+
+def stage_training_saved_adapter(
+    source_dir: str | Path, target_dir: str | Path,
+    *, base_model: str, base_revision: str,
+) -> FrozenAdapter:
+    """Copy only the two verified PEFT files out of Trainer's output root.
+
+    Trainer may also write tokenizer/trainer/optimizer sidecars beside the
+    Adapter. Offline and inference auditors must NEVER trust those sidecars.
+    A private create-only Adapter directory contains only config/safetensors.
+    This is a local checkpoint consistency gate, not a storage attestation.
+    """
+    source = Path(source_dir)
+    target = Path(target_dir)
+    if source.is_symlink() or not source.is_dir():
+        raise ValueError("saved Trainer source directory cannot be symlink or missing")
+    if target.exists() or target.is_symlink():
+        raise FileExistsError("isolated saved Adapter destination already exists")
+    if target.parent.resolve() == source.resolve() and target.name in (
+        "adapter_config.json", "adapter_model.safetensors"
+    ):
+        raise ValueError("isolated Adapter target aliases a source artifact")
+    config_raw = _read_regular(
+        source/"adapter_config.json", limit=_MAX_CONFIG,
+    )
+    weights_raw = _read_regular(
+        source/"adapter_model.safetensors", limit=_MAX_WEIGHTS,
+    )
+    config = _validate_config(
+        config_raw, base_model=base_model, base_revision=base_revision,
+    )
+    _validate_safetensors(weights_raw, config=config)
+    target.mkdir(mode=0o700, parents=False, exist_ok=False)
+    try:
+        for name, raw in (
+            ("adapter_config.json", config_raw),
+            ("adapter_model.safetensors", weights_raw),
+        ):
+            with (target/name).open("xb") as fd:
+                fd.write(raw)
+                fd.flush()
+                import os
+                os.fsync(fd.fileno())
+        return load_pinned_adapter(
+            target, base_model=base_model, base_revision=base_revision,
+            expected_adapter_config_sha256=hashlib.sha256(config_raw).hexdigest(),
+            expected_adapter_weights_sha256=hashlib.sha256(weights_raw).hexdigest(),
+        )
+    except BaseException:
+        for name in ("adapter_config.json", "adapter_model.safetensors"):
+            (target/name).unlink(missing_ok=True)
+        target.rmdir()
+        raise
