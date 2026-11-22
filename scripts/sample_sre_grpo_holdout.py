@@ -179,6 +179,7 @@ def main() -> int:
             max_new_tokens=args.max_new_tokens,
             checkpoint_role=args.checkpoint_role,
             adapter_receipt=adapter.receipt if adapter is not None else None,
+            local_effect_receipt=local_effect,
         )
     except (OSError, ValueError, UnicodeError) as exc:
         print(f"UNKNOWN: holdout capture rejected: {exc}", file=sys.stderr)
