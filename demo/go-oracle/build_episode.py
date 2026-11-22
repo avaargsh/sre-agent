@@ -35,7 +35,7 @@ def main() -> None:
     parser.add_argument("--episode-id", required=True)
     parser.add_argument(
         "--scenario", required=True,
-        choices=("NO_FAULT", "SERVICE_TARGETPORT_MISROUTED")
+        choices=("NO_FAULT", "SERVICE_TARGETPORT_MISROUTED", "SERVICE_SELECTOR_MISMATCH")
     )
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
