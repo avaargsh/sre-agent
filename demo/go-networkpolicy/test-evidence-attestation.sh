@@ -19,7 +19,7 @@ trap cleanup EXIT
 
 # Explicit allowlist: no secrets, credentials, token files or generated
 # signer keys may be automatically included in the signed source index.
-sources=(evaluation.json calico-node-ds.json kind-ready-nodes.json)
+sources=(evaluation.json calico-node-ds.json kind-ready-nodes.json preflight-pod.json preflight-admin.log)
 for phase in before during after; do
   sources+=(
     "$phase-pod.json"
@@ -97,6 +97,13 @@ fail_closed() {
 cp -a "$ROOT/." "$COPIED/"
 printf '\n# tampered client log\n' >> "$COPIED/during-admin.log"
 fail_closed modified-source verify "$COPIED" "$PUBLIC" "$SRE_SOURCE_HEAD"
+
+# A startup preflight is original evidence, not permission to discard early
+# connection failures. Its byte-level tampering must independently invalidate
+# the signed manifest even when all 3 scored phase files are left untouched.
+cp "$ROOT/during-admin.log" "$COPIED/during-admin.log"
+printf '\n# forged preflight readiness\n' >> "$COPIED/preflight-admin.log"
+fail_closed modified-preflight verify "$COPIED" "$PUBLIC" "$SRE_SOURCE_HEAD"
 fail_closed bundled-self-issued-key verify "$ROOT" "$ROOT/LAB-ONLY-UNTRUSTED-public-key.pem" "$SRE_SOURCE_HEAD"
 
 # Verification must reject a different exact commit, not merely branch name.
