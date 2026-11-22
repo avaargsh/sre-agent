@@ -98,13 +98,21 @@ def _check_probe(raw: bytes, phase: str) -> dict[str, Any]:
         raise ValueError("unexpected read-only probe schema")
     if probe.get("host") != "checkout-api.golden-demo.svc.cluster.local":
         raise ValueError("unexpected probe host")
+    # ipaddress.ip_address accepts integers (and, on some Python versions,
+    # bools), but a Kubernetes Service IP and its DNS answers are wire-level
+    # JSON strings. Never allow a forged integer DNS answer to match by type.
+    service_ip = probe.get("service_ip")
+    if type(service_ip) is not str:
+        raise ValueError("invalid probe service_ip: string required")
     try:
-        ipaddress.ip_address(probe.get("service_ip"))
+        ipaddress.ip_address(service_ip)
     except (TypeError, ValueError) as exc:
         raise ValueError("invalid probe service_ip") from exc
     addresses = probe.get("dns_addresses")
-    if type(addresses) is not list or probe["service_ip"] not in addresses:
-        raise ValueError("DNS result does not match the Service IP")
+    if (type(addresses) is not list or not 1 <= len(addresses) <= 32
+            or any(type(address) is not str for address in addresses)
+            or service_ip not in addresses):
+        raise ValueError("DNS result must contain string Service IP addresses")
     if probe.get("dns_ok") is not True or probe.get("dns_error") != "":
         raise ValueError("probe DNS must remain healthy")
     attempts = probe.get("direct_http_attempts")
