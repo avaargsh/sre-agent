@@ -42,7 +42,7 @@ Existing G1 [#2](https://github.com/avaargsh/sre-agent/pull/2) contains scoped G
 
 ### P0-C — G2 real fault Oracle and negative controls
 
-Reuse [#3](https://github.com/avaargsh/sre-agent/pull/3) SLI Oracle and [#4–#10](https://github.com/avaargsh/sre-agent/pulls) stacked Go Evidence/Oracle drafts in dependency order. Start with:
+Reuse the already merged [#3](https://github.com/avaargsh/sre-agent/pull/3) SLI Oracle and [#4–#10](https://github.com/avaargsh/sre-agent/pulls?q=is%3Apr+is%3Amerged) Go Evidence/Oracle LAB baselines; their green CI does not independently authenticate upstream evidence or permit production write access. Start with:
 
 - Service/EndpointSlice selector mismatch causing observable outage, with no-Pod-ready and healthy negative controls.
 - DNS vs direct-IP contradiction, with injected DNS failure independent from NetworkPolicy denial.
@@ -84,8 +84,69 @@ After authenticated ACP + Temporal contract tests and independent review only: P
 | Reproducibility | Exact SHA/HEAD, dependency lock, test command, CI artifact, private Oracle, failure transcript | Green CI attributed to a different commit or hand-authored summary alone |
 | Authorization | Only read-only credentials in v0.1; production writing disabled | Any model-initiated Kubernetes mutation without ACP Permit |
 
+## Branch hygiene — verify before deleting any remote ref
+
+Snapshot **2026-11-23**: 17 remote heads in `avaargsh/sre-agent` —
+`main`, 10 old heads of merged PR #1–#10, and six live PR heads
+#11–#16. PR #16 is stacked on **unmerged** PR #15; do not delete
+either one. PR #12, #13 and #11 are still Draft; #14/#15 are Ready but
+require a non-author independent review. No branch is eligible merely
+because a local CI job was green.
+
+The ten merged heads were independently checked against their respective
+GitHub squash merge commits: **for every PR #1–#10, the HEAD Git tree SHA
+equals the merged commit Git tree SHA**. Thus their snapshot contents
+were preserved in `main`. This checks content, **not** remote ref
+deletion. The repository has `delete_branch_on_merge=false`.
+
+The following operator command is deliberately **dry-run by default**.
+Use an authenticated GitHub CLI session with repository write access; it
+re-checks the PR merged flag, exact head branch name/SHA, and merged-tree
+equality immediately before any deletion. It will abort on drift. Run
+first without `APPLY_DELETE=1`, inspect all ten printed candidates and
+only then opt in to deleting those remote refs.
+
+```bash
+set -euo pipefail
+repo=avaargsh/sre-agent
+gh auth status
+for n in $(seq 1 10); do
+  pr=$(gh api "repos/$repo/pulls/$n")
+  merged=$(jq -r '.merged' <<<"$pr")
+  name=$(jq -r '.head.ref' <<<"$pr")
+  owner=$(jq -r '.head.repo.full_name // ""' <<<"$pr")
+  head=$(jq -r '.head.sha' <<<"$pr")
+  merge=$(jq -r '.merge_commit_sha' <<<"$pr")
+  [[ "$merged" == "true" && "$owner" == "$repo" ]] || {
+    echo "STOP PR #$n is not merged or is a fork"; exit 1;
+  }
+  [[ "$name" != "main" && "$name" != "feat/sre-grpo-offline-contract-v1" ]] || {
+    echo "STOP protected branch $name"; exit 1;
+  }
+  live=$(gh api "repos/$repo/branches/$name" --jq '.commit.sha')
+  [[ "$live" == "$head" ]] || { echo "STOP branch $name moved"; exit 1; }
+  old_tree=$(gh api "repos/$repo/git/commits/$head" --jq '.tree.sha')
+  merged_tree=$(gh api "repos/$repo/git/commits/$merge" --jq '.tree.sha')
+  [[ "$old_tree" == "$merged_tree" ]] || {
+    echo "STOP PR #$n has unmatched merged-tree content"; exit 1;
+  }
+  echo "VERIFIED SAFE merged PR #$n: $name@$head"
+  if [[ "${APPLY_DELETE:-0}" == 1 ]]; then
+    gh api --method DELETE "repos/$repo/git/refs/heads/$name" >/dev/null
+    echo "DELETED $name"
+  fi
+done
+# Only after explicit opt-in deletion, confirm the live branches:
+gh api "repos/$repo/branches?per_page=100" --jq '.[].name'
+```
+
+To actually delete verified historical refs, run the same command with
+`APPLY_DELETE=1` in its environment. Do not move old heads, force push,
+or delete open PR heads as a substitute for safe branch cleanup.
+**No deletion is claimed until the live branch list confirms it.**
+
 ## Shipping rule
 
-Keep Go G1/G2 stacks and GRPO Draft until dependency order, exact-head CI, real disposable-kind artifact inspection, source integrity, independent review and branch rules are proven. Do not silently weaken the historic `four-repo-acceptance` workflow because legacy pinned repositories became inaccessible; replace it only after an explicitly designed ACP/Temporal authority migration has its own acceptance evidence.
+Go #1–#10 are merged into development `main` as experimental evidence/Oracle/LAB baselines; do **not** retroactively call them production-certified. Keep still-open PR #11–#16 under exact-head CI, relevant independent reviews and branch rules before merging. GRPO training remains Draft, not real Qwen3/GPU training proof. Do not silently weaken the historic `four-repo-acceptance` workflow because legacy pinned repositories became inaccessible; replace it only after an explicitly designed ACP/Temporal authority migration has its own acceptance evidence.
 
 **First user demo target:** one alert, a single CLI command, a printable evidence-linked RCA/UNKNOWN report, and the reproducible independent kind benchmark that can tell whether the diagnosis was actually correct.
