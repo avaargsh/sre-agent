@@ -14,9 +14,10 @@ import (
 
 func run(args []string, stdout, stderr io.Writer) int {
  if len(args) == 0 {
-  fmt.Fprintln(stderr, "usage: sre-agent verify-bundle|investigate|verify-sli|collect-changes|review-rca|diagnose-service|evaluate-oracle|diagnose-endpoints|evaluate-endpoints|diagnose-dns|evaluate-dns [options]")
+  fmt.Fprintln(stderr, "usage: sre-agent verify-bundle|plan-alert|investigate|verify-sli|collect-changes|review-rca|diagnose-service|evaluate-oracle|diagnose-endpoints|evaluate-endpoints|diagnose-dns|evaluate-dns [options]")
   return 2
  }
+ if args[0] == "plan-alert" { return planAlert(args[1:], stdout, stderr) }
  if args[0] == "investigate" { return investigate(args[1:], stdout, stderr) }
  if args[0] == "verify-sli" { return verifySLI(args[1:], stdout, stderr) }
  if args[0] == "collect-changes" { return collectChanges(args[1:], stdout, stderr) }
@@ -27,7 +28,7 @@ func run(args []string, stdout, stderr io.Writer) int {
  if args[0] == "evaluate-endpoints" { return evaluateEndpoints(args[1:], stdout, stderr) }
  if args[0] == "diagnose-dns" { return diagnoseDNS(args[1:], stdout, stderr) }
  if args[0] == "evaluate-dns" { return evaluateDNS(args[1:], stdout, stderr) }
- if args[0] != "verify-bundle" { fmt.Fprintln(stderr, "usage: sre-agent verify-bundle|investigate|verify-sli|collect-changes|review-rca|diagnose-service|evaluate-oracle|diagnose-endpoints|evaluate-endpoints|diagnose-dns|evaluate-dns [options]"); return 2 }
+ if args[0] != "verify-bundle" { fmt.Fprintln(stderr, "usage: sre-agent verify-bundle|plan-alert|investigate|verify-sli|collect-changes|review-rca|diagnose-service|evaluate-oracle|diagnose-endpoints|evaluate-endpoints|diagnose-dns|evaluate-dns [options]"); return 2 }
  flags := flag.NewFlagSet("verify-bundle", flag.ContinueOnError)
  flags.SetOutput(stderr)
  path := flags.String("file", "", "bundle JSON file (use - for stdin)")
