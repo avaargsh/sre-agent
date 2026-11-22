@@ -15,6 +15,7 @@ from .grpo_training import _fields
 
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _MIN_NORMALIZED_DELTA = 1e-5
+_MAX_REENABLE_NORMALIZED_DRIFT = 1e-5
 _PROBE = (
     "For a Kubernetes Pod that restarts frequently, what read-only "
     "evidence would you inspect first? Return a short JSON answer."
@@ -73,6 +74,47 @@ def validate_local_effect_observation(
     }
 
 
+def validate_aba_effect_observation(
+    *, prompt_sha256: str, vocab_size: int, max_abs_delta: float,
+    max_abs_base: float, max_abs_reenable_delta: float,
+    enabled_finite: bool, disabled_finite: bool, reenabled_finite: bool,
+    status_after: Any,
+) -> dict[str, Any]:
+    """Fail closed unless enabled-after matches enabled-before.
+
+    A-B can show an apparent effect even when repeated model forward passes
+    drift. A-B-A explicitly requires reproducibility upon re-enabling.
+    Both thresholds are bounded LAB heuristics, not numerical guarantees.
+    """
+    if type(reenabled_finite) is not bool or reenabled_finite is not True:
+        raise ValueError("invalid probe reenabled finite status")
+    if (type(max_abs_reenable_delta) not in (float, int)
+            or not math.isfinite(max_abs_reenable_delta)
+            or max_abs_reenable_delta < 0):
+        raise ValueError("invalid probe reenable logit delta")
+    result = validate_local_effect_observation(
+        prompt_sha256=prompt_sha256, vocab_size=vocab_size,
+        max_abs_delta=max_abs_delta, max_abs_base=max_abs_base,
+        enabled_finite=enabled_finite, disabled_finite=disabled_finite,
+        status_after=status_after,
+    )
+    normalized_drift = (
+        float(max_abs_reenable_delta)
+        / max(1.0, float(max_abs_base))
+    )
+    if normalized_drift > _MAX_REENABLE_NORMALIZED_DRIFT:
+        raise ValueError("LoRA reenable forward-logit drift exceeds LAB limit")
+    return {
+        **result,
+        "schema_version": "sre.grpo.local-adapter-effect/v2",
+        "max_abs_reenable_delta": float(max_abs_reenable_delta),
+        "normalized_reenable_delta": round(normalized_drift, 9),
+        "reenable_threshold": _MAX_REENABLE_NORMALIZED_DRIFT,
+        "reenabled_finite": True,
+        "forward_reenable_consistent": True,
+    }
+
+
 def probe_loaded_adapter_effect(
     model: Any, tokenizer: Any, *,
     torch: Any, get_model_status: Any,
@@ -105,22 +147,30 @@ def probe_loaded_adapter_effect(
     enabled = logits()
     with model.disable_adapter():
         disabled = logits()
+    # Repeat with the adapter re-enabled; A-B alone can confuse
+    # nondeterministic forward drift with a causal LoRA contribution.
+    reenabled = logits()
     status_after = get_model_status(model)
-    if enabled.shape != disabled.shape or len(enabled.shape) != 1:
+    if (len(enabled.shape) != 1
+            or enabled.shape != disabled.shape
+            or enabled.shape != reenabled.shape):
         raise ValueError("invalid probe output tensor shape")
     if not _status_ok(status_after):
         raise ValueError("adapter status changed or adapter was disabled/unfrozen")
     good_enabled = bool(torch.isfinite(enabled).all().item())
     good_disabled = bool(torch.isfinite(disabled).all().item())
-    if not good_enabled or not good_disabled:
-        raise ValueError("invalid probe nonfinite enabled/disabled logits")
+    good_reenabled = bool(torch.isfinite(reenabled).all().item())
+    if not (good_enabled and good_disabled and good_reenabled):
+        raise ValueError("invalid probe nonfinite enabled/disabled/reenabled logits")
 
-    return validate_local_effect_observation(
+    return validate_aba_effect_observation(
         prompt_sha256=hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
         vocab_size=int(enabled.shape[0]),
         max_abs_delta=float((enabled - disabled).abs().amax().item()),
         max_abs_base=float(disabled.abs().amax().item()),
+        max_abs_reenable_delta=float((enabled - reenabled).abs().amax().item()),
         enabled_finite=good_enabled, disabled_finite=good_disabled,
+        reenabled_finite=good_reenabled,
         status_after=status_after,
     )
 
@@ -133,6 +183,12 @@ _LOCAL_EFFECT_FIELDS = {
     "production_eligible",
 }
 
+_LOCAL_EFFECT_FIELDS_V2 = _LOCAL_EFFECT_FIELDS | {
+    "max_abs_reenable_delta", "normalized_reenable_delta",
+    "reenable_threshold", "reenabled_finite",
+    "forward_reenable_consistent",
+}
+
 
 def validate_local_effect_receipt(value: Any) -> dict[str, Any]:
     """Validate a self-reported local effect claim, NOT model attestation.
@@ -141,11 +197,19 @@ def validate_local_effect_receipt(value: Any) -> dict[str, Any]:
     forged. Bind the exact receipt into the capture manifest and require
     independent model execution evidence before authorizing a claim.
     """
+    version = value.get("schema_version") if type(value) is dict else None
+    field_set = (
+        _LOCAL_EFFECT_FIELDS_V2 if version == "sre.grpo.local-adapter-effect/v2"
+        else _LOCAL_EFFECT_FIELDS
+    )
     try:
-        report = _fields(value, _LOCAL_EFFECT_FIELDS, "local effect probe")
+        report = _fields(value, field_set, "local effect probe")
     except ValueError as exc:
         raise ValueError(f"invalid local effect probe fields: {exc}") from exc
-    if report["schema_version"] != "sre.grpo.local-adapter-effect/v1":
+    if report["schema_version"] not in (
+        "sre.grpo.local-adapter-effect/v1",
+        "sre.grpo.local-adapter-effect/v2",
+    ):
         raise ValueError("invalid local effect probe schema_version")
     if (type(report["prompt_sha256"]) is not str
             or not _SHA256.fullmatch(report["prompt_sha256"])
@@ -172,4 +236,18 @@ def validate_local_effect_receipt(value: Any) -> dict[str, Any]:
                   "production_eligible"):
         if report[field] is not False:
             raise ValueError(f"invalid local effect probe {field} claim")
+    if report["schema_version"] == "sre.grpo.local-adapter-effect/v2":
+        reen = report["max_abs_reenable_delta"]
+        if (type(reen) not in (int, float) or not math.isfinite(reen)
+                or reen < 0):
+            raise ValueError("invalid local effect probe reenable delta")
+        reen_norm = float(reen) / max(1.0, float(base))
+        if (reen_norm > _MAX_REENABLE_NORMALIZED_DRIFT
+                or type(report["normalized_reenable_delta"]) not in (int, float)
+                or report["normalized_reenable_delta"] != round(reen_norm, 9)
+                or type(report["reenable_threshold"]) not in (int, float)
+                or report["reenable_threshold"] != _MAX_REENABLE_NORMALIZED_DRIFT
+                or report["reenabled_finite"] is not True
+                or report["forward_reenable_consistent"] is not True):
+            raise ValueError("invalid local effect probe reenable consistency")
     return report
