@@ -12,6 +12,8 @@ import (
  "errors"
  "io"
  "strconv"
+ "strings"
+ "unicode"
  "unicode/utf8"
 )
 
@@ -74,6 +76,23 @@ func validateSourceEscapes(raw []byte) error {
  return nil
 }
 
+// encoding/json matches JSON struct fields by Unicode simple-folding, so
+// differently cased object keys can still overwrite the same typed field.
+// Return the smallest rune in each SimpleFold cycle for an O(n) canonical
+// key. A distinct key in a different JSON object remains independent.
+func foldedKey(key string) string {
+ var out strings.Builder
+ out.Grow(len(key))
+ for _,r := range key {
+  smallest := r
+  for folded := unicode.SimpleFold(r); folded != r; folded = unicode.SimpleFold(folded) {
+   if folded < smallest { smallest = folded }
+  }
+  out.WriteRune(smallest)
+ }
+ return out.String()
+}
+
 // Walk the decoder token stream before the typed decode; decoding into a map
 // or struct would already have discarded the conflicting original key.
 func readUniqueSourceValue(decoder *json.Decoder) error {
@@ -84,12 +103,16 @@ func readUniqueSourceValue(decoder *json.Decoder) error {
  switch delim {
  case '{':
   keys := make(map[string]struct{})
+  foldedKeys := make(map[string]struct{})
   for decoder.More() {
    token, err := decoder.Token()
    if err != nil { return err }
    key, ok := token.(string)
    if !ok { return errInvalidSourceJSON }
    if _, exists := keys[key]; exists { return errInvalidSourceJSON }
+   folded := foldedKey(key)
+   if _, exists := foldedKeys[folded]; exists { return errInvalidSourceJSON }
+   foldedKeys[folded] = struct{}{}
    keys[key] = struct{}{}
    if err := readUniqueSourceValue(decoder); err != nil { return err }
   }
