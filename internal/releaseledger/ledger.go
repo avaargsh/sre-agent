@@ -23,6 +23,7 @@ const (
  lockName=".writer"
  maxJournalBytes=16<<20
  maxRecords=4096
+ maxRecordBytes=4096
  domain="sre-agent/lab-release-ledger/v1\x00"
 )
 var atom=regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
@@ -131,7 +132,7 @@ func readJournal(root string)([]Receipt,error){
  prev:=strings.Repeat("0",64)
  for i,line:=range lines{
   var r Receipt
-  if len(line)==0||len(line)>4096{return nil,errors.New("empty/oversized receipt record")}
+  if len(line)==0||len(line)>maxRecordBytes{return nil,errors.New("empty/oversized receipt record")}
   if err:=json.Unmarshal(line,&r);err!=nil{return nil,fmt.Errorf("receipt decode: %w",err)}
   canonical,err:=json.Marshal(r)
   if err!=nil||!bytes.Equal(canonical,line){return nil,errors.New("noncanonical, unknown or duplicate receipt JSON")}
@@ -205,7 +206,23 @@ func Commit(root string,req Request)(Receipt,error){
  receipt:=labReceipt(req,uint64(len(rows)+1),prev)
  line,err:=json.Marshal(receipt)
  if err!=nil{return zero,err}
+ // The replay reader rejects individual lines over maxRecordBytes and any
+ // journal over maxJournalBytes. Enforce both limits BEFORE creating the
+ // initialization marker or opening an append handle: a successful write
+ // must remain independently readable.
+ if len(line)>maxRecordBytes{
+  return zero,errors.New("receipt exceeds journal record budget")
+ }
  path:=filepath.Join(root,journalName)
+ var currentSize int64
+ if len(rows)>0{
+  st,err:=os.Stat(path)
+  if err!=nil{return zero,err}
+  currentSize=st.Size()
+ }
+ if currentSize+int64(len(line))+1>maxJournalBytes{
+  return zero,errors.New("journal capacity exceeded before append")
+ }
  if len(rows)==0{
   uncertain=true
   f,err:=os.OpenFile(filepath.Join(root,markerName),os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
