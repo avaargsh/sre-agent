@@ -152,3 +152,31 @@ def test_exclusive_output_and_no_partial_write(tmp_path):
     with pytest.raises(FileExistsError):
         run_import(source, manifest, digest, output)
     assert output.read_bytes() == snapshot
+
+
+def test_import_command_produces_replayable_receipt(tmp_path):
+    import subprocess
+    import sys
+
+    source, manifest, digest = inputs(tmp_path)
+    output = tmp_path / "imported.jsonl"
+    command = [
+        sys.executable, str(ROOT / "scripts/import_sre_episode.py"),
+        "--scenario", str(source),
+        "--approval", str(manifest),
+        "--expected-approval-sha256", digest,
+        "--output", str(output),
+    ]
+    process = subprocess.run(command, cwd=ROOT, text=True,
+                             capture_output=True, check=False)
+    assert process.returncode == 0, process.stderr
+    receipt = json.loads(process.stdout)
+    assert receipt["episode_sha256"] == hashlib.sha256(output.read_bytes()).hexdigest()
+    assert receipt["independent_issuer_verified"] is False
+    assert "db_pool_saturation" not in process.stdout
+    assert "required_evidence_ids" not in process.stdout
+
+    replay = subprocess.run(command, cwd=ROOT, text=True,
+                            capture_output=True, check=False)
+    assert replay.returncode != 0
+    assert output.exists()
