@@ -25,6 +25,45 @@ The outer status is **always** `HUMAN_REVIEW_REQUIRED`, even if the Agent suppli
 
 A valid SHA-256 detects accidental or uncoordinated changes to raw bytes **but is not a cryptographic origin signature**. A malicious party controlling both bytes and digest can forge both. The checker now **does** independently replay summarized SLI status and the change relationship from stored raw responses, but it still **cannot verify the source's live identity or the operator-owned policy/query provenance**. The Prometheus API response does not cryptographically bind its result to the supplied PromQL; a party controlling the report can alter the query label together with the response. The three Kubernetes reads are not an atomic snapshot, and checksums are not signatures. It is **not** a source-authenticated independent RCA adjudicator; the production G2 gate remains **open**.
 
+## G2d — Externally pinned review policy
+
+`review-rca` now **requires** both `--policy FILE` and `--policy-sha256 PIN`, independently obtained from the operator's trusted configuration/approval channel. The checker binds exact Deployment namespace/name/UID, the three PromQL strings in their respective latency/traffic/freshness roles, all SLI thresholds, sample step and window duration. A mismatched policy pin, duplicate JSON key, unknown JSON field or inconsistent source query fails closed as `UNKNOWN` (exit 3, no report).
+
+The policy is an explicit flat `sre.rca-policy/v1` JSON object. Example for a particular Deployment UID (replace with a separately observed authoritative UID):
+
+```json
+{
+  "schema_version": "sre.rca-policy/v1",
+  "namespace": "golden-demo",
+  "deployment": "checkout-api",
+  "deployment_uid": "REPLACE_WITH_REAL_DEPLOYMENT_UID",
+  "latency_query": "max(checkout_request_latency_seconds)",
+  "traffic_query": "sum(rate(checkout_requests_total[20s]))",
+  "age_query": "max(time() - timestamp(checkout_request_latency_seconds))",
+  "max_latency_seconds": 0.01,
+  "min_traffic_rps": 0.001,
+  "max_sample_age_seconds": 10,
+  "window_seconds": 20,
+  "step_seconds": 5
+}
+```
+
+The deliberately strict 0.01-second limit is a **test-only threshold** and must not be treated as a production SLO. A production policy must use approved business SLOs and deployment identity.
+
+```bash
+# Pin must be provisioned by a trusted operator / approval channel independently
+# of the untrusted Agent-proposed claims or any downloaded evidence.
+POLICY=/etc/sre/approved-rca-policy.json
+EXPECTED_SHA="$(cat /etc/sre/approved-rca-policy.sha256)"
+sre-agent review-rca \
+  --changes "$CHANGES" --sli "$SLI" \
+  --candidates /tmp/rca-candidates.json \
+  --policy "$POLICY" --policy-sha256 "$EXPECTED_SHA" \
+  --out /tmp/rca-review.json
+```
+
+The same-kind CI demo obtains Deployment UID from the test administrator's Kubernetes read, generates a policy, pins it, then tests unchanged source queries, a forged query, forged SLI summaries and a modified policy file. **Generating both policy bytes and their checksum in CI is only a reproducible integration test, not a source-authenticity or signature proof.** Merely recomputing SHA-256 from an untrusted policy file in the verifier process would defeat the pin. No ACP signer or external policy authority is attached yet.
+
 ## Example with grounded evidence references
 
 Use real JSON files from the *same* Golden Incident; do not use artifacts from separate kind runs as a cross-source causal demonstration.
@@ -56,6 +95,7 @@ jq -n --arg k "$K8S_REF" --arg p "$PROM_REF" '[
 go run ./cmd/sre-agent review-rca \
   --changes "$CHANGES" --sli "$SLI" \
   --candidates /tmp/rca-candidates.json \
+  --policy "$POLICY" --policy-sha256 "$EXPECTED_SHA" \
   --out /tmp/rca-review.json
 ```
 
@@ -65,5 +105,6 @@ The result creates a new mode-0600 report, with **no Kubernetes or Prometheus wr
 
 1. **Independent replay (implemented for stored snapshots):** re-derive change relationship, Deployment UID/Generation, ReplicaSet ownership/revisions and SLI matrix verdict from decoded raw bytes. Remaining: query-range response provenance, immutable policy IDs, signed source identity, cross-source incident binding and robust ambiguous/malformed JSON rejection.
 2. **Source authentication:** bind exact queries and sources to a signed or separately trusted Evidence Package, with immutable provenance and redaction.
-3. **Counterexamples and RCA Oracle:** inject real faults and competing change/metric/log/event histories, compare against externally provided ground truth, report false-positive and abstention rates.
-4. **ACP authority and Temporal recovery:** separate identity/policy and execution from validation. All write paths remain disabled; the old Python four-repository gate is still a documented historical dependency.
+3. **Policy binding (implemented for operator-supplied files):** enforce an independently supplied SHA-256 pin and the exact target, PromQL and thresholds. Remaining: signature / authenticated policy distribution through ACP, source identity attestation, durable approval epoch and tamper-proof journaling.
+4. **Counterexamples and RCA Oracle:** inject real faults and competing change/metric/log/event histories, compare against externally provided ground truth, report false-positive and abstention rates.
+5. **ACP authority and Temporal recovery:** separate identity/policy and execution from validation. All write paths remain disabled; the old Python four-repository gate is still a documented historical dependency.
