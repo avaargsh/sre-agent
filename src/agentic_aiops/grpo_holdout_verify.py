@@ -16,7 +16,7 @@ from .grpo_eval import load_predictions_bytes
 from .grpo_holdout_capture import _MAX_CASES, _MAX_FILE_BYTES, _MAX_PROMPT_BYTES
 from .grpo_rollout_capture import _REPO, _SHA40
 from .grpo_import import _verify_pin, _sha
-from .grpo_adapter import validate_adapter_receipt
+from .grpo_adapter import load_pinned_adapter, validate_adapter_receipt
 from .grpo_adapter_effect import validate_local_effect_receipt
 from .grpo_training import (
     _fields, _id, _strict_json, build_prompt, load_episodes_bytes,
@@ -68,6 +68,8 @@ def verify_holdout_chain(
     expected_adapter_weights_sha256: str | None = None,
     require_local_effect_probe: bool = False,
     require_reenable_probe: bool = False,
+    adapter_dir: str | Path | None = None,
+    require_adapter_files: bool = False,
 ) -> dict[str, Any]:
     """Prove raw-content bindings from private Oracle source to predictions.
 
@@ -86,14 +88,20 @@ def verify_holdout_chain(
         raise ValueError("require_local_effect_probe must be boolean")
     if type(require_reenable_probe) is not bool:
         raise ValueError("require_reenable_probe must be boolean")
+    if type(require_adapter_files) is not bool:
+        raise ValueError("require_adapter_files must be boolean")
     if checkpoint_role == "Base" and (require_local_effect_probe or require_reenable_probe):
         raise ValueError("Base cannot require local effect probe or reenable evidence")
     if checkpoint_role == "Base":
-        if expected_adapter_config_sha256 is not None or expected_adapter_weights_sha256 is not None:
-            raise ValueError("Base checkpoint_role must not provide adapter SHA256 pins")
+        if (adapter_dir is not None or require_adapter_files
+                or expected_adapter_config_sha256 is not None
+                or expected_adapter_weights_sha256 is not None):
+            raise ValueError("Base cannot accept adapter files, pins or strict audit")
     else:
         _sha(expected_adapter_config_sha256, "adapter_config_sha256")
         _sha(expected_adapter_weights_sha256, "adapter_weights_sha256")
+        if require_adapter_files and adapter_dir is None:
+            raise ValueError("required adapter files: --adapter-dir is missing")
     sources = [dataset, prompts, projection_manifest, predictions, capture_manifest]
     if len({Path(p).resolve() for p in sources}) != len(sources):
         raise ValueError("five holdout evidence paths must be distinct")
@@ -211,6 +219,22 @@ def verify_holdout_chain(
             raise ValueError("capture adapter_config_sha256 mismatch")
         if adapter["adapter_weights_sha256"] != expected_adapter_weights_sha256:
             raise ValueError("capture adapter_weights_sha256 mismatch")
+    physical_adapter_verified = False
+    if adapter_dir is not None:
+        # The auditor itself reads the two immutable-by-digest Adapter files.
+        # The producer's embedded receipt is treated as an untrusted claim:
+        # every structural metadata field must match the independently
+        # reconstructed result, not merely its copied SHA256 fields.
+        physical = load_pinned_adapter(
+            adapter_dir, base_model=model, base_revision=model_revision,
+            expected_adapter_config_sha256=expected_adapter_config_sha256,
+            expected_adapter_weights_sha256=expected_adapter_weights_sha256,
+        )
+        if adapter != physical.receipt:
+            raise ValueError(
+                "adapter metadata in capture differs from physical adapter files"
+            )
+        physical_adapter_verified = True
     if cap["source_classification"] != "UNVERIFIED_MODEL_HOLDOUT_CAPTURE":
         raise ValueError("capture classification cannot be promoted")
     if cap["prompts_sha256"] != prompts_sha:
@@ -246,6 +270,8 @@ def verify_holdout_chain(
     return {
         "schema_version": "sre.grpo.holdout-chain-audit/v1",
         "checkpoint_role": checkpoint_role,
+        "adapter_files_content_verified": physical_adapter_verified,
+        "adapter_metadata_matches_files": physical_adapter_verified,
         "local_effect_probe_content_consistent": local_effect is not None,
         "local_reenable_probe_content_consistent": bool(
             local_effect is not None
