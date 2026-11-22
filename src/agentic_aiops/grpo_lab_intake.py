@@ -2,9 +2,10 @@
 
 This adapter intentionally does NOT elevate an administrator's lab outcome
 to a model-visible cause label. The G2i read-only observer never sees the
-admin's NetworkPolicy; its correct diagnostic answer is UNKNOWN. The Go
-G2i evaluator and v2 signed evidence verifier remain independent and live
-in a separate Draft PR stack, not reimplemented or implicitly trusted here.
+admin's NetworkPolicy; its correct diagnostic answer is UNKNOWN. The Go G2i evaluator, v2 signed evidence verifier, independent signer-policy
+check and LAB release ledger are present in the merged Go mainline (G2i–G2m).
+This candidate-only adapter DOES NOT call or verify that signed trust chain,
+nor does it accept a self-issued signature as externally authorized provenance.
 
 Both approval and source checks are necessary but not sufficient for issuer
 authentication, actual Kubernetes provenance or a production release.
