@@ -169,3 +169,20 @@ func TestDirectIPRetryHistoryIsAuditableAndConsistent(t *testing.T){
  }
  _=b
 }
+
+func TestDNSSuccessToWrongAddressCannotProveHealthyService(t *testing.T){
+ e,_,bad:=fixture(t)
+ raw,err:=base64.StdEncoding.DecodeString(e.HealthyProbe.RawResponseBase64)
+ if err!=nil{t.Fatal(err)}
+ var p Probe
+ if err:=json.Unmarshal(raw,&p);err!=nil{t.Fatal(err)}
+ p.DNSAddresses=[]string{"203.0.113.7"}
+ bytes,err:=json.Marshal(p);if err!=nil{t.Fatal(err)}
+ obs,err:=Diagnose(bytes)
+ if err!=nil{t.Fatal(err)}
+ if obs.Classification!="UNKNOWN"{
+  t.Fatalf("DNS name resolved outside pinned Service IP, must abstain: %+v",obs)
+ }
+ e.HealthyProbe=frozen(t,p)
+ if _,err:=Evaluate(e,obs,bad);err==nil{t.Fatal("accepted wrong resolved address as a genuine healthy control")}
+}
