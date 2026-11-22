@@ -20,7 +20,7 @@ trap cleanup EXIT
 
 # Explicit allowlist: no secrets, credentials, token files or generated
 # signer keys may be automatically included in the signed source index.
-sources=(evaluation.json calico-node-ds.json kind-ready-nodes.json)
+sources=(evaluation.json calico-node-ds.json kind-ready-nodes.json preflight-pod.json preflight-admin.log)
 for phase in before during after; do
   sources+=(
     "$phase-pod.json"
@@ -52,6 +52,18 @@ KEY_VERSION=ci-ephemeral-1
   --signing-key-id "$KEY_ID" \
   --signing-key-version "$KEY_VERSION" \
   --out "$ROOT/source-manifest.json"
+
+# Prevent favorable-only publication: every preflight failure and its
+# source Pod identity must be pinned by the Ed25519 source manifest.
+python3 - "$ROOT/source-manifest.json" <<'PY'
+import json,sys
+m=json.load(open(sys.argv[1],encoding="utf-8"))
+indexed={f["path"] for f in m["files"]}
+required={"preflight-admin.log","preflight-pod.json"}
+assert required.issubset(indexed),(
+  f"FAIL CLOSED: omitted unscored startup evidence: {sorted(required-indexed)}")
+print("PASS: signer index contains complete unscored preflight evidence")
+PY
 
 # This key is a CI test fixture and is never uploaded. Publishing a public
 # key alongside an attestation DOES NOT make it independently trusted.
@@ -99,6 +111,12 @@ fail_closed() {
 cp -a "$ROOT/." "$COPIED/"
 printf '\n# tampered client log\n' >> "$COPIED/during-admin.log"
 fail_closed modified-source verify "$COPIED" "$PUBLIC" "$SRE_SOURCE_HEAD"
+
+# Even when scored phase evidence is pristine, altered startup observations
+# must independently fail v2 verification.
+cp "$ROOT/during-admin.log" "$COPIED/during-admin.log"
+printf '\n# forged preflight readiness\n' >> "$COPIED/preflight-admin.log"
+fail_closed modified-preflight verify "$COPIED" "$PUBLIC" "$SRE_SOURCE_HEAD"
 fail_closed bundled-self-issued-key verify "$ROOT" "$ROOT/LAB-ONLY-UNTRUSTED-public-key.pem" "$SRE_SOURCE_HEAD"
 
 # Verification must reject a different exact commit, not merely branch name.

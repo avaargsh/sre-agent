@@ -1,6 +1,6 @@
 # G2i — Real Calico NetworkPolicy egress-denial Oracle
 
-**State:** stacked **Draft** PR #6, based on G2h PR #5. This is a bounded,
+**State:** **Draft** PR #6, rebased by a two-parent reconciliation onto merged `main` (G0–G2h). This is a bounded,
 disposable-kind network lab, **not** production RCA, automatic repair, model
 accuracy, or authenticated evidence provenance.
 
@@ -36,6 +36,14 @@ GlobalNetworkPolicy. The test restricts the **client**, not the checkout
 backend. At each phase a separately created Pod probes the exact same
 Service `checkout-api.golden-demo.svc.cluster.local:8080` and ClusterIP;
 the browser/runner cannot impersonate this in-cluster dataplane.
+
+### Dataplane startup stabilization (not scored)
+
+The [Calico kind run #45044048997](https://github.com/avaargsh/sre-agent/actions/runs/45044048997) passed both Calico installation digest gates, but the first unmodified, no-policy baseline Pod recorded DNS success with FQDN HTTP failure and direct Service-IP attempts `[0,200,200]`. Treating this cold-start dataplane observation as proof of a sustained policy denial would be incorrect; the experiment failed closed.
+
+A new, separate `np-preflight` Pod (distinct label and UID from the three scored Pods) performs **at most eight explicitly logged snapshots**, each snapshot consisting of one name-resolution/HTTP attempt and three direct-IP HTTP attempts. It only enables the actual experiment after **two consecutive completely clean snapshots**. Every failed and successful preflight snapshot is retained in `preflight-admin.log`, alongside `preflight-pod.json`. Exhausting the limit, a malformed result or a missing Service IP fails closed without creating a successful Oracle result.
+
+**The scored Oracle criteria are unchanged:** the `np-before` and `np-after` Pods must each contain three direct-IP HTTP 200 results and successful name HTTP; the `np-during` Pod must retain DNS success, failed FQDN HTTP, and three failed direct-IP HTTP attempts. The preflight is neither the no-fault control nor a replacement for it. This prevents hiding a failed workload by retrospectively selecting the best attempt. `tests/test_networkpolicy_preflight.py` checks bounded attempts, consecutive stability, all-event logging, and failure behavior.
 
 ### Source evidence and independent offline Oracle
 
@@ -83,6 +91,8 @@ Use a fresh disposable cluster with Docker and tools installed:
 ```bash
 kind create cluster --name golden-netpol --config demo/go-networkpolicy/kind-calico.yaml
 curl -fsSL https://raw.githubusercontent.com/projectcalico/calico/v3.33.0/manifests/calico.yaml -o /tmp/g2i-calico.yaml
+bash demo/go-networkpolicy/verify-calico-manifest.sh /tmp/g2i-calico.yaml
+bash demo/go-networkpolicy/test-pin.sh /tmp/g2i-calico.yaml
 kubectl create -f /tmp/g2i-calico.yaml
 kubectl -n kube-system rollout status ds/calico-node --timeout=360s
 kubectl wait nodes --all --for condition=Ready --timeout=360s
@@ -92,11 +102,18 @@ kind delete cluster --name golden-netpol
 
 CI: `.github/workflows/go-networkpolicy-calico-kind.yml` runs the full
 experiment and uploads `go-networkpolicy-kind-proof` even on failure.
-The Calico manifest **version tag** is fixed, but the downloaded upstream
-YAML is not pinned to a separately trusted **manifest SHA**; CI records
-its SHA only as an audit value. This is **not** cryptographic installation
-provenance. A release-quality gate requires verifying its digest or
-signature against an independently authorized source.
+The exact Calico v3.33.0 installation YAML is allowlisted with
+SHA-256 `2de8f47595fb9c41b3f47d7b767a1f8e72ecf84057af834738ff12689a234da5`.
+`calico-manifest-integrity` runs before the disposable kind job and rejects
+tampered or missing files. The installation job separately validates the
+downloaded bytes **before** passing them to `kubectl create`.
+Both checks are required; a version tag alone is insufficient.
+
+The digest was observed in prior lab CI runs and is a **content allowlist**,
+not an independently authenticated Project Calico release signature. It
+does not pin the referenced container image digests or prove the producer's
+identity. Production-grade Calico provenance and image supply-chain
+attestation remain outside this laboratory acceptance.
 
 ### Limits and unclosed merge gates
 
@@ -110,7 +127,8 @@ signature against an independently authorized source.
   by a network policy. No LLM model diagnosis or GRPO evaluation is tested.
 - No policy admission/governance, broad RBAC, prod repair, or model tool
   execution rights are granted. The Agent only gets read-only logs.
-- PRs #1–#5 remain stacked Draft/unmerged; the historical four-repo
-  acceptance dependency, independent security review, evidence source
-  authentication and ordered merge policy remain open. **Keep PR #6
-  Draft, do not merge or label production-ready.**
+- PRs #1–#5 are merged as **experimental** read-only baselines.
+  Historical four-repo acceptance, independent external security review,
+  evidence source authentication, and production admission/governance remain
+  open. Merge PR #6 only after exact-HEAD Go/Python and real Calico deny/restore
+  CI succeed. Any such merge is not a production-ready security declaration.

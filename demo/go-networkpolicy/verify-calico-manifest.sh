@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Pinned Calico YAML integrity: rejects changed upstream bytes before any
-# installation. This checksum was observed twice in completed G2i CI runs.
+# installation. This digest is an allowlist from previous G2i CI observations; it is not a vendor signature.
 # It is a reproducibility allowlist, NOT an upstream authenticated signature
 # or verification of container image digests.
 set -euo pipefail
