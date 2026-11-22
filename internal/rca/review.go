@@ -49,6 +49,7 @@ type Decision struct {
 type Report struct {
  SchemaVersion string `json:"schema_version"`
  Status string `json:"status"`
+ PolicySHA256 string `json:"policy_sha256,omitempty"`
  Explanation string `json:"explanation"`
  Candidates []Decision `json:"candidates"`
 }
