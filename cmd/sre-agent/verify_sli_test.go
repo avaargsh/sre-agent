@@ -41,6 +41,6 @@ func TestVerifySLICommandUnknownExit3(t *testing.T){
  srv:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){w.WriteHeader(503)}))
  defer srv.Close()
  var stdout,stderr bytes.Buffer
- status:=run([]string{"verify-sli","--prometheus",srv.URL,"--latency-query","max(latency)","--traffic-query","sum(rate(requests[10s]))","--max-latency-seconds","0.35","--min-traffic-rps","0.1","--window","10s","--step","5s"},&stdout,&stderr)
+ status:=run([]string{"verify-sli","--prometheus",srv.URL,"--latency-query","max(latency)","--traffic-query","sum(rate(requests[10s]))","--age-query","max(time()-timestamp(latency))","--max-sample-age-seconds","10","--max-latency-seconds","0.35","--min-traffic-rps","0.1","--window","10s","--step","5s"},&stdout,&stderr)
  if status!=3||!strings.Contains(stdout.String(),`"status": "UNKNOWN"`){t.Fatalf("expected UNKNOWN exit 3: exit=%d stdout=%s stderr=%s",status,stdout.String(),stderr.String())}
 }
