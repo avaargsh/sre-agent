@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .grpo_import import _verify_pin
-from .grpo_training import _fields, _id, _strict_json, load_episodes, score_completion
+from .grpo_training import _fields, _id, _strict_json, load_episodes_bytes, score_completion
 
 _MAX_ROLLOUT_FILE_BYTES = 4 * 1024 * 1024
 _MAX_ROLLOUT_LINE_BYTES = 128 * 1024
@@ -43,7 +43,7 @@ def audit_rollout_groups(
 
     dataset_raw = Path(dataset_path).read_bytes()
     dataset_sha = _verify_pin(dataset_raw, expected_dataset_sha256, "dataset_sha256")
-    episodes = load_episodes(dataset_path)
+    episodes = load_episodes_bytes(dataset_raw)
     training = {ep.episode_id: ep for ep in episodes if ep.split == "train"}
     if not training:
         raise ValueError("no train episodes to audit")
