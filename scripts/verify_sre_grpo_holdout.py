@@ -32,6 +32,10 @@ def main() -> int:
                         help="require v4 A-B-A LoRA reenable consistency receipt")
     parser.add_argument("--expected-adapter-config-sha256")
     parser.add_argument("--expected-adapter-weights-sha256")
+    parser.add_argument("--adapter-dir", type=Path,
+                        help="local adapter files for independent CPU-only SHA and PEFT structure audit")
+    parser.add_argument("--require-adapter-files", action="store_true",
+                        help="fail closed if adapted run has no independently read adapter files")
     parser.add_argument("--model", required=True)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--split", choices=("test", "validation"), default="test")
@@ -54,6 +58,8 @@ def main() -> int:
             expected_adapter_weights_sha256=args.expected_adapter_weights_sha256,
             require_local_effect_probe=args.require_local_effect_probe,
             require_reenable_probe=args.require_reenable_probe,
+            adapter_dir=args.adapter_dir,
+            require_adapter_files=args.require_adapter_files,
         )
     except (OSError, ValueError, UnicodeError) as exc:
         print(f"UNKNOWN: independent holdout binding rejected: {exc}", file=sys.stderr)
