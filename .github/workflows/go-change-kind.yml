@@ -1,0 +1,75 @@
+name: go-change-kind
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "cmd/sre-agent/**"
+      - "internal/change/**"
+      - "demo/go-changes/**"
+      - ".github/workflows/go-change-kind.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  change-timeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: helm/kind-action@v1.12.0
+        with:
+          cluster_name: golden-changes
+      - name: Start disposable workload and scoped observer
+        run: |
+          set -euo pipefail
+          kubectl apply -f demo/k8s/golden-stack.yaml
+          kubectl apply -f demo/go-changes/reader-role.yaml
+          kubectl -n golden-demo rollout status deploy/checkout-api --timeout=180s
+      - name: Verify observer is not a writer
+        run: |
+          set -euo pipefail
+          SA=system:serviceaccount:golden-demo:sre-change-reader
+          test "$(kubectl auth can-i get deployments --as="$SA" -n golden-demo)" = yes
+          test "$(kubectl auth can-i list replicasets --as="$SA" -n golden-demo)" = yes
+          test "$(kubectl auth can-i patch deployments --as="$SA" -n golden-demo)" = no
+          test "$(kubectl auth can-i patch deployments/scale --as="$SA" -n golden-demo)" = no
+          test "$(kubectl auth can-i get secrets --as="$SA" -n golden-demo)" = no
+      - name: Inject and observe an admin-controlled rollout
+        run: |
+          set -euo pipefail
+          kubectl -n golden-demo create token sre-change-reader --duration=10m > /tmp/sre-change-token
+          chmod 0600 /tmp/sre-change-token
+          trap 'rm -f /tmp/sre-change-token' EXIT
+          kubectl config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d > /tmp/sre-change-ca.pem
+          API="$(kubectl config view --raw --minify -o jsonpath='{.clusters[0].cluster.server}')"
+          START="$(date -u -d '2 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
+          # This kubectl write is a disposable CI **admin** action, never an Agent action.
+          kubectl -n golden-demo rollout restart deploy/checkout-api
+          kubectl -n golden-demo rollout status deploy/checkout-api --timeout=180s
+          END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          go build -o /tmp/sre-agent ./cmd/sre-agent
+          /tmp/sre-agent collect-changes             --kube-api "$API" --namespace golden-demo --deployment checkout-api             --kube-token-file /tmp/sre-change-token --ca-file /tmp/sre-change-ca.pem             --start "$START" --end "$END"             --out /tmp/go-change-timeline.json
+          python - <<'PY'
+          import base64, hashlib, json
+          d = json.load(open("/tmp/go-change-timeline.json", encoding="utf-8"))
+          assert d["status"] == "OBSERVED", d
+          assert d["relationship"] == "TIME_OVERLAP_ONLY", d
+          assert "UNVERIFIED" in d["explanation"], d
+          assert len(d["revisions"]) >= 2, d
+          assert len(d["sources"]) == 3, d
+          for source in d["sources"]:
+              raw = base64.b64decode(source["raw_response_base64"], validate=True)
+              assert hashlib.sha256(raw).hexdigest() == source["response_sha256"]
+          print("PASS: source-proof, revision timeline and causal non-assertion")
+          PY
+      - name: Upload immutable change evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-change-kind-proof
+          path: /tmp/go-change-timeline.json
