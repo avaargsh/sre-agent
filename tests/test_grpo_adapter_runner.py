@@ -102,6 +102,8 @@ class FakeModel:
         assert self.state["adapter_loaded"] is True
         if self.state["disabled"] or self.state["simulate_no_effect"]:
             values = [2.0, 3.0, 4.0]
+        elif self.state["simulate_reenable_drift"] and self.state["disable_seen"]:
+            values = [2.0, 3.25, 4.0]
         else:
             values = [2.0, 3.1, 4.0]
         return types.SimpleNamespace(logits=FakeLogits(values))
@@ -113,6 +115,7 @@ class FakeModel:
             yield
         finally:
             self.state["disabled"] = False
+            self.state["disable_seen"] = True
 
     def generate(self, **kwargs):
         assert kwargs["do_sample"] is False
@@ -128,6 +131,7 @@ def fake_runtime(monkeypatch, pins):
         "adapter_loaded": False, "sampled": 0, "staging_dir": None,
         "loaded_weights": {}, "simulate_missing_weights": False,
         "disabled": False, "simulate_no_effect": False,
+        "disable_seen": False, "simulate_reenable_drift": False,
     }
     torch = types.ModuleType("torch")
     torch.uint8 = "torch.uint8"
@@ -341,3 +345,38 @@ def test_cli_refuses_frozen_adapter_that_has_no_forward_effect(
         module.main()
     assert state["sampled"] == 0
     assert not prediction.exists() and not manifest.exists()
+
+
+def test_adapter_logit_drift_after_reenable_refuses_sampling(
+    tmp_path, monkeypatch
+):
+    """A-B can pass even when A again changes; A-B-A must fail."""
+    import pytest
+    adapter_dir, pins = create_adapter(tmp_path)
+    _, prompts, _, projected = projection(tmp_path)
+    state = fake_runtime(monkeypatch, pins)
+    state["simulate_reenable_drift"] = True
+    spec = importlib.util.spec_from_file_location(
+        "grpo_forward_drift_cli_test",
+        ROOT / "scripts/sample_sre_grpo_holdout.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    predictions = tmp_path / "unsafe-predictions.jsonl"
+    manifest = tmp_path / "unsafe-capture.json"
+    monkeypatch.setattr(sys, "argv", [
+        "sample_sre_grpo_holdout.py", "--execute", "--lab-only",
+        "--checkpoint-role", "GRPO", "--prompts", str(prompts),
+        "--expected-prompts-sha256", projected["prompts_sha256"],
+        "--model", MODEL, "--revision", REV,
+        "--adapter-dir", str(adapter_dir),
+        "--expected-adapter-config-sha256", pins["expected_adapter_config_sha256"],
+        "--expected-adapter-weights-sha256", pins["expected_adapter_weights_sha256"],
+        "--output", str(predictions), "--manifest", str(manifest),
+    ])
+    with pytest.raises(ValueError, match="reenable|drift"):
+        module.main()
+    assert state["disable_seen"] is True
+    assert state["sampled"] == 0
+    assert not predictions.exists() and not manifest.exists()
