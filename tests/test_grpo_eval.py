@@ -11,7 +11,7 @@ from agentic_aiops.grpo_eval import evaluate_holdout, load_predictions
 def make_episode(eid, family, split, answerable):
     return {
         "schema_version": "sre.grpo.episode/v1", "episode_id": eid,
-        "fault_family": family, "split": split, "alert": "Synthetic alert",
+        "fault_family": family, "split": split, "alert": f"Synthetic alert {family}",
         "observations": [
             {"evidence_id": "ev1", "tool": "prometheus.query", "text": "error counter rising"}
         ],
