@@ -20,9 +20,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
-from .grpo_import import _verify_pin
+from .grpo_import import _verify_pin, _sha
 from .grpo_rollout_capture import _REPO, _SHA40
-from .grpo_training import _strict_json
+from .grpo_training import _strict_json, _fields
 
 _MAX_CONFIG = 64 * 1024
 _MAX_WEIGHTS = 256 * 1024 * 1024
@@ -222,3 +222,49 @@ def staged_pinned_adapter(frozen: FrozenAdapter) -> Iterator[Path]:
             with (path/name).open("xb") as stream:
                 stream.write(raw)
         yield path
+
+
+_ADAPTER_RECEIPT_FIELDS = {
+    "schema_version", "adapter_config_sha256", "adapter_weights_sha256",
+    "base_model", "base_model_revision", "lora_tensor_count",
+    "lora_modules", "target_modules", "model_attribution_verified",
+    "training_admission_authorized", "production_eligible",
+}
+
+
+def validate_adapter_receipt(
+    payload: Any, *, base_model: str, base_revision: str,
+) -> dict[str, Any]:
+    """Validate a capture-supplied adapter receipt without trusting its claims.
+
+    An independent verifier must additionally require externally pinned
+    config and weight digests; a self-authored JSON receipt is not proof.
+    """
+    receipt = _fields(payload, _ADAPTER_RECEIPT_FIELDS, "adapter receipt")
+    if receipt["schema_version"] != "sre.grpo.pinned-lora-adapter/v1":
+        raise ValueError("unsupported adapter receipt schema_version")
+    if receipt["base_model"] != base_model:
+        raise ValueError("adapter receipt base_model mismatch")
+    if receipt["base_model_revision"] != base_revision:
+        raise ValueError("adapter receipt base_model_revision mismatch")
+    _sha(receipt["adapter_config_sha256"], "adapter_config_sha256")
+    _sha(receipt["adapter_weights_sha256"], "adapter_weights_sha256")
+    count = receipt["lora_tensor_count"]
+    if type(count) is not int or not 2 <= count <= 4096:
+        raise ValueError("adapter lora_tensor_count invalid")
+    modules = receipt["lora_modules"]
+    if (type(modules) is not list or not modules or len(modules)>2048
+            or any(type(x) is not str or not x or len(x)>512 for x in modules)
+            or len(set(modules)) != len(modules)):
+        raise ValueError("adapter lora_modules invalid")
+    target_modules = receipt["target_modules"]
+    if (type(target_modules) is not list or not target_modules
+            or any(type(x) is not str or x not in {"q_proj", "v_proj"}
+                   for x in target_modules)
+            or len(set(target_modules)) != len(target_modules)):
+        raise ValueError("adapter target_modules invalid")
+    for name in ("model_attribution_verified", "training_admission_authorized",
+                 "production_eligible"):
+        if receipt[name] is not False:
+            raise ValueError(f"unverified adapter cannot claim {name}")
+    return receipt
