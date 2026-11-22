@@ -172,6 +172,8 @@ for mode in prediction recovery source; do
  echo "PASS: rejected forged $mode Oracle evidence"
 done
 
+python3 demo/go-oracle/score_suite.py
+
 # Explicitly prove the temporary test cluster was restored.
 test "$(kubectl -n golden-demo get svc checkout-api -o jsonpath='{.spec.ports[0].targetPort}')" = 8080
  test "$(kubectl -n golden-demo get svc checkout-api -o jsonpath='{.spec.selector.app}')" = checkout-api
