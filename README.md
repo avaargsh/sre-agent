@@ -1,8 +1,8 @@
-# SRE Agent (Go migration of Agentic AIOps)
+# Agentic AIOps
 
-> **Go migration status (2026-11-22):** G0 has merged into `main` and currently implements **read-only Evidence Bundle structural/digest verification**. Go Kubernetes/Prometheus observation (G1), independent fault Oracles (G2) and offline SRE GRPO training are still under Draft PR review; they are **not** merged Go capabilities. The existing Python Agentic AIOps Golden Incident is retained as a frozen reference, not a Go production or ACP integration proof. See [Go rewrite plan](docs/go-rewrite-plan.md) and [evidence-first v0.1 product/acceptance plan](docs/sre-p0-golden-path.md).
+> **Go experimental baseline (2026-11-23):** PR #1–#10 are merged into development `main`: Go read-only Kubernetes/Prometheus evidence collection and selected isolated fault Oracles (including real disposable Calico), exact-source integrity, LAB Ed25519 signer-policy mechanics and a single-host LAB receipt journal. These are **not production-authenticated evidence or authorization to modify a real cluster**. Offline Qwen3 SFT/GRPO training is still Draft PR #11; the other hardening and alert-intake PRs #12–#16 remain under review. See [Go rewrite plan](docs/go-rewrite-plan.md) and [evidence-first SRE Golden Incident acceptance plan](docs/sre-p0-golden-path.md).
 >
-> Try the Go entrypoint: `go run ./cmd/sre-agent verify-bundle --scenario --file benchmarks/scenarios/checkout-latency.json`. The result `STRUCTURALLY_VALID` is **not** evidence authenticity, RCA correctness or verified operational recovery. No Go cluster writes are authorized in G0.
+> Example: `go run ./cmd/sre-agent verify-bundle --scenario --file benchmarks/scenarios/checkout-latency.json`. `STRUCTURALLY_VALID` means structural/digest consistency only, **not** source authentication, RCA correctness, verified operational recovery or permission for a production write.
 
 
 Evidence-first Agentic incident investigation and safe remediation, with a runnable **Golden Incident v0.1** spanning Prometheus, Kubernetes, a Decision Gateway and Temporal durable approval.
@@ -153,6 +153,6 @@ A stack change is therefore an explicit reviewable dependency update. CI fails c
 
 ## Contributing and license
 
-Contributions are welcome through focused pull requests (GitHub Issues are currently disabled). See `CONTRIBUTING.md`, `SECURITY.md`, and `CODE_OF_CONDUCT.md`.
+Contributions are welcome through focused issues and pull requests. See `CONTRIBUTING.md`, `SECURITY.md`, and `CODE_OF_CONDUCT.md`.
 
 Licensed under Apache License 2.0. See `LICENSE`.

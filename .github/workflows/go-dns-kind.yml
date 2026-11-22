@@ -1,0 +1,35 @@
+name: go-dns-kind
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "internal/dnsoracle/**"
+      - "cmd/sre-agent/dns_oracle.go"
+      - "cmd/sre-agent/main.go"
+      - "demo/go-dns/**"
+      - ".github/workflows/go-dns-kind.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-client-dns-oracle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: helm/kind-action@v1.12.0
+        with:
+          cluster_name: golden-dns
+      - name: Prove in-cluster DNS-only failure without Service IP outage
+        run: bash demo/go-dns/run-kind.sh
+      - name: Upload original Pod DNS policy, probe and Oracle evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-dns-kind-proof
+          path: /tmp/go-dns-proof/
