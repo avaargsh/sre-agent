@@ -6,6 +6,7 @@ on:
     paths:
       - "cmd/sre-agent/**"
       - "internal/change/**"
+      - "internal/rca/**"
       - "demo/go-changes/**"
       - ".github/workflows/go-change-kind.yml"
 
@@ -126,9 +127,30 @@ jobs:
           ]
           json.dump(candidates,open('/tmp/go-rca-candidates.json','w',encoding='utf-8'))
           PY
+          # Test admin establishes the policy independently of any RCA/SLI
+          # report; this CI SHA is a local demo pin, NOT a signed ACP authority.
+          export OPERATOR_DEPLOYMENT_UID="$(kubectl -n golden-demo get deploy checkout-api -o jsonpath='{.metadata.uid}')"
+          python - <<'PY'
+          import json,os
+          policy={
+            'schema_version':'sre.rca-policy/v1',
+            'namespace':'golden-demo','deployment':'checkout-api',
+            'deployment_uid':os.environ['OPERATOR_DEPLOYMENT_UID'],
+            'latency_query':'max(checkout_request_latency_seconds)',
+            'traffic_query':'sum(rate(checkout_requests_total[20s]))',
+            'age_query':'max(time() - timestamp(checkout_request_latency_seconds))',
+            'max_latency_seconds':0.01,'min_traffic_rps':0.001,
+            'max_sample_age_seconds':10.0,'window_seconds':20,'step_seconds':5
+          }
+          with open('/tmp/go-rca-operator-policy.json','w',encoding='utf-8') as out:
+              json.dump(policy,out,sort_keys=True,separators=(',',':'))
+          PY
+          sha256sum /tmp/go-rca-operator-policy.json | cut -d ' ' -f1 > /tmp/go-rca-policy-pin.txt
+          OPERATOR_SHA="$(cat /tmp/go-rca-policy-pin.txt)"
           /tmp/sre-agent review-rca \
             --changes /tmp/go-rca-changes.json --sli /tmp/go-rca-sli.json \
             --candidates /tmp/go-rca-candidates.json \
+            --policy /tmp/go-rca-operator-policy.json --policy-sha256 "$OPERATOR_SHA" \
             --out /tmp/go-rca-review.json
           python - <<'PY'
           import base64, hashlib, json
@@ -136,6 +158,9 @@ jobs:
           sli=json.load(open('/tmp/go-rca-sli.json',encoding='utf-8'))
           review=json.load(open('/tmp/go-rca-review.json',encoding='utf-8'))
           assert review['status']=='HUMAN_REVIEW_REQUIRED',review
+          import hashlib
+          raw=open('/tmp/go-rca-operator-policy.json','rb').read()
+          assert hashlib.sha256(raw).hexdigest()==review['policy_sha256']
           assert [c['verdict'] for c in review['candidates']]==[
               'CORRELATED_NOT_PROVEN','UNVERIFIED'],review
           assert changes['window_start']<=sli['start']<changes['window_end']
@@ -163,19 +188,31 @@ jobs:
           fake=copy.deepcopy(changes)
           fake['revisions'][0]['revision']='9999'
           (src/'go-rca-forged-revision.json').write_text(json.dumps(fake))
+          fake=copy.deepcopy(sli)
+          fake['evidence'][0]['query']='vector(0)'
+          (src/'go-rca-forged-query.json').write_text(json.dumps(fake))
+          original_policy=json.loads((src/'go-rca-operator-policy.json').read_text())
+          fake=copy.deepcopy(original_policy)
+          fake['max_latency_seconds']=999
+          (src/'go-rca-forged-policy.json').write_text(json.dumps(fake))
           PY
-          for variant in sli changes revision; do
+          OPERATOR_SHA="$(cat /tmp/go-rca-policy-pin.txt)"
+          for variant in sli changes revision query policy; do
             CHANGE=/tmp/go-rca-changes.json
             SLI=/tmp/go-rca-sli.json
+            POLICY=/tmp/go-rca-operator-policy.json
             case "$variant" in
               sli) SLI=/tmp/go-rca-forged-sli.json ;;
               changes) CHANGE=/tmp/go-rca-forged-changes.json ;;
               revision) CHANGE=/tmp/go-rca-forged-revision.json ;;
+              query) SLI=/tmp/go-rca-forged-query.json ;;
+              policy) POLICY=/tmp/go-rca-forged-policy.json ;;
             esac
             set +e
             /tmp/sre-agent review-rca \
               --changes "$CHANGE" --sli "$SLI" \
               --candidates /tmp/go-rca-candidates.json \
+              --policy "$POLICY" --policy-sha256 "$OPERATOR_SHA" \
               --out "/tmp/forged-$variant-review.json" >"/tmp/forged-$variant-stdout.txt" 2>&1
             CODE=$?
             set -e
@@ -195,4 +232,6 @@ jobs:
             /tmp/go-rca-sli.json
             /tmp/go-rca-candidates.json
             /tmp/go-rca-review.json
+            /tmp/go-rca-operator-policy.json
+            /tmp/go-rca-policy-pin.txt
             /tmp/go-rca-prometheus-pf.log
