@@ -1,5 +1,10 @@
 # Agentic AIOps
 
+> **Go migration — G0 (in progress):** This repository is being migrated to a Go-native Kubernetes SRE Agent. The new Go functionality is currently **read-only Evidence Bundle structural/digest verification**, not a working Go incident remediation system. The existing Python Agentic AIOps Golden Incident remains as a frozen migration baseline. See [Go rewrite plan](docs/go-rewrite-plan.md).
+>
+> Try the Go entrypoint: `go run ./cmd/sre-agent verify-bundle --scenario --file benchmarks/scenarios/checkout-latency.json`. The result `STRUCTURALLY_VALID` is **not** evidence authenticity, RCA correctness or verified operational recovery. No Go cluster writes are authorized in G0.
+
+
 Evidence-first Agentic incident investigation and safe remediation, with a runnable **Golden Incident v0.1** spanning Prometheus, Kubernetes, a Decision Gateway and Temporal durable approval.
 
 ## Golden Incident v0.1
