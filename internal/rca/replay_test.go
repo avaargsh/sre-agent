@@ -165,3 +165,31 @@ func TestReplayNoExternalCommandsOrAuthority(t *testing.T){
  if err!=nil{t.Fatal(err)}
  if got.Status!="HUMAN_REVIEW_REQUIRED"||strings.Contains(string(got.Candidates[0].Verdict),"RECOVERED"){t.Fatalf("model self-certification accepted: %+v",got)}
 }
+
+
+func TestReplayRejectsWarnedOrPartialSLIEvenWithRecomputedSourceSHA(t *testing.T) {
+ // The independent replay must enforce G2a's fail-closed Prometheus matrix
+ // contract, not merely compare points and recompute an attacker-controlled
+ // digest. Keep claim refs updated so this tests actual source replay.
+ for _,tc:=range []struct{name string;mutate func(map[string]any)}{
+  {"warnings",func(v map[string]any){v["warnings"]=[]string{"partial response: missing store"}}},
+  {"isPartial",func(v map[string]any){v["isPartial"]=true}},
+  {"partialResponse",func(v map[string]any){v["partialResponse"]=true}},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   ch,sli,claims:=replayFixture(t)
+   raw,err:=base64.StdEncoding.DecodeString(sli.Evidence[0].RawResponseBase64)
+   if err!=nil{t.Fatal(err)}
+   var root map[string]any
+   if err:=json.Unmarshal(raw,&root);err!=nil{t.Fatal(err)}
+   tc.mutate(root)
+   sum,encoded:=rawEvidence(t,root)
+   sli.Evidence[0].ResponseSHA256=sum
+   sli.Evidence[0].RawResponseBase64=encoded
+   claims[0].SupportingRefs[1]="prom:"+sum
+   if report,err:=Review(ch,sli,claims);err==nil{
+    t.Fatalf("replayed partial Prometheus matrix as trustworthy RCA input: %+v",report)
+   }
+  })
+ }
+}
