@@ -10,6 +10,12 @@ import (
  "testing"
 )
 
+func privateDir(t *testing.T)string{
+ t.Helper()
+ root:=t.TempDir()
+ if err:=os.Chmod(root,0700);err!=nil{t.Fatal(err)}
+ return root
+}
 func example() Request {
  return Request{
   Tenant:"demo-tenant",Project:"demo-project",ReleaseID:"candidate-001",
@@ -20,7 +26,7 @@ func example() Request {
  }
 }
 func TestAdmissionReceiptSingleUseAndHashedChain(t *testing.T){
- root:=t.TempDir()
+ root:=privateDir(t)
  first,err:=Commit(root,example())
  if err!=nil{t.Fatal(err)}
  if first.SchemaVersion!="sre.lab-release-receipt/v1"||
@@ -40,7 +46,7 @@ func TestAdmissionReceiptSingleUseAndHashedChain(t *testing.T){
  records,err=Read(root);if err!=nil||len(records)!=2{t.Fatalf("unable to replay durable ledger: %v %+v",err,records)}
 }
 func TestConcurrentSameEvidenceOnlyOneWinner(t *testing.T){
- root:=t.TempDir()
+ root:=privateDir(t)
  const workers=32
  var wg sync.WaitGroup
  wins:=make(chan Receipt,workers)
@@ -56,7 +62,7 @@ func TestConcurrentSameEvidenceOnlyOneWinner(t *testing.T){
  rows,err:=Read(root);if err!=nil||len(rows)!=1{t.Fatalf("local ledger inconsistent: %v %+v",err,rows)}
 }
 func TestCrashBeforeUnlockFailClosed(t *testing.T){
- root:=t.TempDir()
+ root:=privateDir(t)
  if err:=os.Mkdir(filepath.Join(root,".writer"),0700);err!=nil{t.Fatal(err)}
  if _,err:=Commit(root,example());err==nil{t.Fatal("stale crash lock silently stolen")}
  if _,err:=os.Stat(filepath.Join(root,"ledger.jsonl"));!errors.Is(err,os.ErrNotExist){
@@ -66,7 +72,7 @@ func TestCrashBeforeUnlockFailClosed(t *testing.T){
 func TestTruncatedOrTamperedLedgerFailClosed(t *testing.T){
  for _,attack:=range []string{"remove-newline","change-record","append-malformed","delete-ledger-parent"}{
   t.Run(attack,func(t *testing.T){
-   root:=t.TempDir()
+   root:=privateDir(t)
    if _,err:=Commit(root,example());err!=nil{t.Fatal(err)}
    filename:=filepath.Join(root,"ledger.jsonl")
    raw,err:=os.ReadFile(filename);if err!=nil{t.Fatal(err)}
@@ -98,7 +104,7 @@ func TestBadRequestAndUntrustedLedgerDirectoryRejected(t *testing.T){
   func(r *Request){r.SigningKeyID=""},
  }
  for _,bad:=range bads{
-  root:=t.TempDir();request:=example();bad(&request)
+  root:=privateDir(t);request:=example();bad(&request)
   if _,err:=Commit(root,request);err==nil{t.Fatalf("invalid request accepted: %+v",request)}
  }
  real:=t.TempDir();link:=filepath.Join(t.TempDir(),"linked")
@@ -108,7 +114,7 @@ func TestBadRequestAndUntrustedLedgerDirectoryRejected(t *testing.T){
  if _,err:=Commit(permissive,example());err==nil{t.Fatal("group/world-readable ledger accepted")}
 }
 func TestReceiptIsCanonicalAndWithoutProductionClaim(t *testing.T){
- root:=t.TempDir();r,err:=Commit(root,example());if err!=nil{t.Fatal(err)}
+ root:=privateDir(t);r,err:=Commit(root,example());if err!=nil{t.Fatal(err)}
  b,err:=json.Marshal(r);if err!=nil{t.Fatal(err)}
  if !strings.Contains(string(b),`"production_release_authorized":false`)||
   !strings.Contains(string(b),`"status":"LAB_ADMISSION_RECORDED"`){
