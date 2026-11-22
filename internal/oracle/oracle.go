@@ -14,6 +14,7 @@ import (
  "io"
  "regexp"
  "strings"
+ "reflect"
 )
 
 type Snapshot struct {
@@ -47,6 +48,8 @@ type Prediction struct {
  ResourceVersion string `json:"resource_version"`
  ExpectedTargetPort int `json:"expected_target_port"`
  CurrentTargetPort int `json:"current_target_port"`
+ ExpectedSelector map[string]string `json:"expected_selector,omitempty"`
+ CurrentSelector map[string]string `json:"current_selector,omitempty"`
  Observed Snapshot `json:"observed"`
 }
 type Result struct {
@@ -121,15 +124,34 @@ func decode(s Snapshot)(parsed,error){
 // Diagnose only reads a frozen Service GET response and an operator-provided
 // expected targetPort. It does NOT read test-admin Oracle labels or probes.
 func Diagnose(raw []byte,expectedTargetPort int)(Prediction,error){
+ return diagnoseService(raw,expectedTargetPort,nil)
+}
+// DiagnoseWithSelector independently compares the read-only Service GET to
+// both operator-pinned targetPort and expected label selector. Simultaneous
+// faults conservatively abstain rather than invent a single root cause.
+func DiagnoseWithSelector(raw []byte,expectedTargetPort int,expectedSelector map[string]string)(Prediction,error){
+ if len(expectedSelector)==0{return Prediction{},errors.New("missing operator expected selector")}
+ for k,v:=range expectedSelector{
+  if k==""||v==""{return Prediction{},errors.New("invalid operator expected selector")}
+ }
+ return diagnoseService(raw,expectedTargetPort,expectedSelector)
+}
+func diagnoseService(raw []byte,expectedTargetPort int,expectedSelector map[string]string)(Prediction,error){
  if expectedTargetPort<1||expectedTargetPort>65535{return Prediction{},errors.New("invalid operator expected targetPort")}
  v,err:=parse(raw)
  if err!=nil{return Prediction{},err}
+ var actual map[string]string
+ if err:=json.Unmarshal([]byte(v.SelectorJSON),&actual);err!=nil{return Prediction{},err}
  digest:=sha256.Sum256(raw)
+ portMismatch:=v.TargetPort!=expectedTargetPort
+ selectorMismatch:=len(expectedSelector)>0&&!reflect.DeepEqual(actual,expectedSelector)
  label:="UNKNOWN"
- if v.TargetPort!=expectedTargetPort{label="SERVICE_TARGETPORT_MISROUTED"}
+ if portMismatch&&!selectorMismatch{label="SERVICE_TARGETPORT_MISROUTED"}
+ if selectorMismatch&&!portMismatch{label="SERVICE_SELECTOR_MISMATCH"}
  return Prediction{SchemaVersion:"sre.service-diagnosis/v1",Classification:label,
  Namespace:v.Namespace,Service:v.Name,ServiceUID:v.UID,ResourceVersion:v.ResourceVersion,
  ExpectedTargetPort:expectedTargetPort,CurrentTargetPort:v.TargetPort,
+ ExpectedSelector:expectedSelector,CurrentSelector:actual,
  Observed:Snapshot{ResponseSHA256:hex.EncodeToString(digest[:]),RawResponseBase64:base64.StdEncoding.EncodeToString(raw)}},nil
 }
 func validateProbes(probes []int,wantSuccess bool)error{
@@ -148,7 +170,7 @@ func Evaluate(e Episode,p Prediction)(Result,error){
  if e.SchemaVersion!="sre.fault-oracle/v1"||!idPattern.MatchString(e.EpisodeID)||
   e.Namespace==""||e.Service==""||e.ServiceUID==""||
   e.ExpectedTargetPort<1||e.ExpectedTargetPort>65535||
-  (e.Scenario!="NO_FAULT"&&e.Scenario!="SERVICE_TARGETPORT_MISROUTED"){
+  (e.Scenario!="NO_FAULT"&&e.Scenario!="SERVICE_TARGETPORT_MISROUTED"&&e.Scenario!="SERVICE_SELECTOR_MISMATCH"){
   return Result{},errors.New("invalid Oracle identity or scenario")
  }
  before,err:=decode(e.Before);if err!=nil{return Result{},err}
@@ -156,18 +178,28 @@ func Evaluate(e Episode,p Prediction)(Result,error){
  after,err:=decode(e.After);if err!=nil{return Result{},err}
  for _,v:=range []parsed{before,during,after}{
   if v.Name!=e.Service||v.Namespace!=e.Namespace||v.UID!=e.ServiceUID||
-   v.ServicePort!=before.ServicePort||v.SelectorJSON!=before.SelectorJSON{
+   v.ServicePort!=before.ServicePort{
    return Result{},errors.New("Service identity, selector or exposed port drifted between phases")
   }
  }
- if before.TargetPort!=e.ExpectedTargetPort||after.TargetPort!=e.ExpectedTargetPort{
+ if before.TargetPort!=e.ExpectedTargetPort||after.TargetPort!=e.ExpectedTargetPort||
+  after.SelectorJSON!=before.SelectorJSON{
   return Result{},errors.New("baseline not clean or service was not restored")
  }
  if err:=validateProbes(e.Probes.Before,true);err!=nil{return Result{},err}
  if err:=validateProbes(e.Probes.After,true);err!=nil{return Result{},err}
- fault:=e.Scenario=="SERVICE_TARGETPORT_MISROUTED"
- if fault&&during.TargetPort==e.ExpectedTargetPort{return Result{},errors.New("no actual targetPort mutation in injected fault")}
- if !fault&&during.TargetPort!=e.ExpectedTargetPort{return Result{},errors.New("control episode contains unauthorized fault")}
+ portFault:=e.Scenario=="SERVICE_TARGETPORT_MISROUTED"
+ selectorFault:=e.Scenario=="SERVICE_SELECTOR_MISMATCH"
+ fault:=portFault||selectorFault
+ if portFault&&(during.TargetPort==e.ExpectedTargetPort||during.SelectorJSON!=before.SelectorJSON){
+  return Result{},errors.New("port fault must change only targetPort")
+ }
+ if selectorFault&&(during.TargetPort!=e.ExpectedTargetPort||during.SelectorJSON==before.SelectorJSON){
+  return Result{},errors.New("selector fault must change only Service selector")
+ }
+ if !fault&&(during.TargetPort!=e.ExpectedTargetPort||during.SelectorJSON!=before.SelectorJSON){
+  return Result{},errors.New("control episode contains unauthorized fault")
+ }
  if err:=validateProbes(e.Probes.During,!fault);err!=nil{return Result{},err}
  observed,err:=decode(p.Observed);if err!=nil{return Result{},err}
  if p.SchemaVersion!="sre.service-diagnosis/v1"||
@@ -175,19 +207,32 @@ func Evaluate(e Episode,p Prediction)(Result,error){
   p.ServiceUID!=e.ServiceUID||p.Namespace!=e.Namespace||p.Service!=e.Service||
   p.CurrentTargetPort!=observed.TargetPort||p.ResourceVersion!=observed.ResourceVersion||
   observed.UID!=during.UID||observed.ResourceVersion!=during.ResourceVersion||
-  observed.TargetPort!=during.TargetPort{
+  observed.TargetPort!=during.TargetPort||observed.SelectorJSON!=during.SelectorJSON{
   return Result{},errors.New("read-only prediction is not correlated to frozen during-phase Service identity")
  }
  raw,err:=base64.StdEncoding.Strict().DecodeString(p.Observed.RawResponseBase64)
  if err!=nil{return Result{},err}
- expected,err:=Diagnose(raw,p.ExpectedTargetPort)
+ var expected Prediction
+ if len(p.ExpectedSelector)>0{
+  var beforeSelector map[string]string
+  if err:=json.Unmarshal([]byte(before.SelectorJSON),&beforeSelector);err!=nil{return Result{},err}
+  if !reflect.DeepEqual(p.ExpectedSelector,beforeSelector){
+   return Result{},errors.New("expected selector was not operator-baselined")
+  }
+  expected,err=DiagnoseWithSelector(raw,p.ExpectedTargetPort,p.ExpectedSelector)
+ }else{
+  if selectorFault{return Result{},errors.New("selector diagnosis requires independent expected-selector baseline")}
+  expected,err=Diagnose(raw,p.ExpectedTargetPort)
+ }
  if err!=nil{return Result{},err}
- if p.Classification!=expected.Classification{return Result{},errors.New("prediction classification disagrees with the observed source")}
+ if p.Classification!=expected.Classification||!reflect.DeepEqual(p.CurrentSelector,expected.CurrentSelector){
+  return Result{},errors.New("prediction classification/selector disagrees with the observed source")
+ }
  verdict:="CORRECT_REJECTION"
  if fault{verdict="MATCHED_INJECTED_FAULT"}
  return Result{SchemaVersion:"sre.fault-evaluation/v1",EpisodeID:e.EpisodeID,
  Scenario:e.Scenario,Prediction:p.Classification,Verdict:verdict,
  ExpectedTargetPort:e.ExpectedTargetPort,ObservedTargetPort:observed.TargetPort,
  ProductionCausalityVerified:false,
- Explanation:"Single disposable-kind fault Oracle and deterministic port-comparison baseline only. No production RCA, model accuracy or source signature is established."},nil
+ Explanation:"Disposable-kind Service fault Oracle with operator-baselined port/selector rule. No general causal RCA, LLM accuracy or signed source identity is established."},nil
 }
