@@ -17,6 +17,7 @@ from agentic_aiops.grpo_adapter import (
     load_pinned_adapter, staged_pinned_adapter,
     verify_loaded_adapter_weights,
 )
+from agentic_aiops.grpo_adapter_effect import probe_loaded_adapter_effect
 from agentic_aiops.grpo_holdout_capture import (
     capture_holdout_predictions,
     validate_holdout_prompts,
@@ -136,6 +137,15 @@ def main() -> int:
             tensor_bytes=exact_tensor_bytes,
         )
     model.eval()
+    if adapter is not None:
+        # Identical, fixed-size forward probe with LoRA enabled/disabled.
+        # If PEFT silently becomes trainable after disable_adapter(), or
+        # logits do not change, fail closed before sampling any Holdout row.
+        local_effect = probe_loaded_adapter_effect(
+            model, tokenizer, torch=torch, get_model_status=get_model_status,
+        )
+    else:
+        local_effect = None
 
     def sample(chat_prompt: str, seed: int) -> str:
         # Greedy decode: no user-controlled truncation, temperature or sampling
