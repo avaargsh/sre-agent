@@ -1,5 +1,10 @@
 # Agentic AIOps
 
+> **Go 重构进度 — G0（进行中）：** 本仓库开始向 Go 原生 Kubernetes SRE Agent 迁移。当前 Go 能力只包括**证据包结构及摘要的只读校验**，不是已经具备真实故障修复能力的 Go SRE Agent。原 Python Golden Incident 保留作为迁移对照基线，具体阶段和验收门槛见 [Go 重构方案](docs/go-rewrite-plan.md)。
+>
+> Go 示例：`go run ./cmd/sre-agent verify-bundle --scenario --file benchmarks/scenarios/checkout-latency.json`。结果中的 `STRUCTURALLY_VALID` 不代表证据来源可信、RCA 正确或业务恢复已验证。G0 不允许 Go 执行 Kubernetes 写入。
+
+
 证据优先（Evidence-first）的 Agentic 事件调研与安全修复参考实现，内含可运行的 **Golden Incident v0.1**，覆盖 Prometheus、Kubernetes、Decision Gateway 和 Temporal 持久审批。
 
 ## 什么是本项目
