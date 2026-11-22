@@ -37,6 +37,14 @@ backend. At each phase a separately created Pod probes the exact same
 Service `checkout-api.golden-demo.svc.cluster.local:8080` and ClusterIP;
 the browser/runner cannot impersonate this in-cluster dataplane.
 
+### Dataplane startup stabilization (not scored)
+
+The [Calico kind run #45044048997](https://github.com/avaargsh/sre-agent/actions/runs/45044048997) passed both Calico installation digest gates, but the first unmodified, no-policy baseline Pod recorded DNS success with FQDN HTTP failure and direct Service-IP attempts `[0,200,200]`. Treating this cold-start dataplane observation as proof of a sustained policy denial would be incorrect; the experiment failed closed.
+
+A new, separate `np-preflight` Pod (distinct label and UID from the three scored Pods) performs **at most eight explicitly logged snapshots**, each snapshot consisting of one name-resolution/HTTP attempt and three direct-IP HTTP attempts. It only enables the actual experiment after **two consecutive completely clean snapshots**. Every failed and successful preflight snapshot is retained in `preflight-admin.log`, alongside `preflight-pod.json`. Exhausting the limit, a malformed result or a missing Service IP fails closed without creating a successful Oracle result.
+
+**The scored Oracle criteria are unchanged:** the `np-before` and `np-after` Pods must each contain three direct-IP HTTP 200 results and successful name HTTP; the `np-during` Pod must retain DNS success, failed FQDN HTTP, and three failed direct-IP HTTP attempts. The preflight is neither the no-fault control nor a replacement for it. This prevents hiding a failed workload by retrospectively selecting the best attempt. `tests/test_networkpolicy_preflight.py` checks bounded attempts, consecutive stability, all-event logging, and failure behavior.
+
 ### Source evidence and independent offline Oracle
 
 The test administrator stores five raw source types per phase: Pod JSON,
