@@ -130,45 +130,6 @@ func reviewLinkedEvidence(rawAlert,frozenPlan,bundle []byte,target alertintake.T
  if !sources["kubernetes"]||!sources["prometheus"]{
   return AlertEvidenceReview{},fmt.Errorf("missing required independent source types")
  }
- return AlertEvidenceReview{},fmt.Errorf("unparseable observation bundle: %w",err)
- }
- expectedScope:="namespace="+target.Namespace+",deployment="+target.Deployment
- if doc.Incident.ID!=plan.IncidentID||doc.Incident.Summary!=plan.Summary||
-   doc.Incident.Severity!=plan.Severity||doc.Incident.Scope!=expectedScope {
-  return AlertEvidenceReview{},fmt.Errorf("bundle incident identity or operator scope differs from reviewed plan")
- }
- if doc.Metadata.SchemaVersion!="aiops.evidence/v1"||
-   doc.Metadata.ObservationStatus!="complete"||
-   doc.Metadata.ToolCount!=2||doc.Metadata.EvidenceCount!=2||
-   len(doc.Evidence)!=2||len(doc.Hypotheses)!=0||len(doc.Entities)!=0||
-   len(doc.Edges)!=0||len(doc.Changes)!=0 {
-  return AlertEvidenceReview{},fmt.Errorf("bundle does not match the v1 read-only observation contract")
- }
- sources:=map[string]bool{}
- for _,item:=range doc.Evidence{
-  if sources[item.Source]{return AlertEvidenceReview{},fmt.Errorf("duplicate observation source")}
-  sources[item.Source]=true
-  switch item.Source{
-  case "kubernetes":
-   if item.Attributes["namespace"]!=target.Namespace||
-     item.Attributes["deployment"]!=target.Deployment ||
-     item.Attributes["uid"]==""||
-     item.Attributes["resource_version"]=="" {
-    return AlertEvidenceReview{},fmt.Errorf("Kubernetes observation target mismatch")
-   }
-  case "prometheus":
-   if expectedQuery==""||len(expectedQuery)>512||
-     item.Attributes["promql"]!=expectedQuery||
-     item.Attributes["result_type"]!="vector" {
-    return AlertEvidenceReview{},fmt.Errorf("unapproved Prometheus observation query")
-   }
-  default:
-   return AlertEvidenceReview{},fmt.Errorf("unknown observation source")
-  }
- }
- if !sources["kubernetes"]||!sources["prometheus"]{
-  return AlertEvidenceReview{},fmt.Errorf("missing required independent source types")
- }
  return AlertEvidenceReview{
   SchemaVersion:"sre.alert-evidence-review/v1",Status:"STRUCTURALLY_LINKED",
   IncidentID:plan.IncidentID,RawAlertSHA256:plan.RawSHA256,
