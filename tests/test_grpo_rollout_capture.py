@@ -212,7 +212,6 @@ def test_capture_does_not_publish_a_partial_output_when_write_fails(
     tmp_path, monkeypatch
 ):
     """Injected filesystem write failure must leave no final output/manifest."""
-    import builtins
     from agentic_aiops.grpo_rollout_capture import capture_rollout_groups
 
     data, pinned = dataset_file(tmp_path)
@@ -237,7 +236,9 @@ def test_capture_does_not_publish_a_partial_output_when_write_fails(
 
     def broken_open(path, mode="r", *args, **kwargs):
         wrapped = original_open(path, mode, *args, **kwargs)
-        if path == output and mode == "xb":
+        if mode == "xb" and (
+            path == output or path.name.startswith(".sre-grpo-")
+        ):
             return FailingWriter(wrapped)
         return wrapped
 
