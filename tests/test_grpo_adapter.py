@@ -152,3 +152,70 @@ def test_adapter_files_read_only_once_and_never_reopened_after_pin(tmp_path, mon
     with staged_pinned_adapter(frozen) as staged:
         assert (Path(staged)/"adapter_model.safetensors").is_file()
     assert calls == {path: 1 for path in watched}
+
+
+def shaped_safetensors(entries):
+    """Make a structurally sound F16/BF16 file with adversarial LoRA shapes."""
+    rows, blob = {}, bytearray()
+    for name, shape, dtype in entries:
+        begin = len(blob)
+        width = 2 if dtype in ("F16", "BF16") or type(dtype) is not str else 2
+        length = width
+        for n in shape:
+            length *= n
+        blob.extend(bytes([len(rows) + 1]) * length)
+        rows[name] = {
+            "dtype": dtype,
+            "shape": shape,
+            "data_offsets": [begin, len(blob)],
+        }
+    header = json.dumps(rows, separators=(",", ":"), sort_keys=True).encode()
+    return struct.pack("<Q", len(header)) + header + bytes(blob)
+
+
+PREFIX = "base_model.model.model.layers.0.self_attn"
+
+
+def two_lora(*, module="q_proj", a_shape=(2, 2), b_shape=(2, 2),
+             a_dtype="F16", b_dtype="F16"):
+    return shaped_safetensors([
+        (f"{PREFIX}.{module}.lora_A.weight", a_shape, a_dtype),
+        (f"{PREFIX}.{module}.lora_B.weight", b_shape, b_dtype),
+    ])
+
+
+@pytest.mark.parametrize("weights,expected_error", [
+    (two_lora(module="k_proj"), "target_modules"),
+    (two_lora(module="embed_tokens"), "target_modules"),
+    (two_lora(a_shape=(3, 2), b_shape=(2, 3)), "rank"),
+    (two_lora(b_shape=(2, 3)), "rank"),
+    (two_lora(a_shape=(1, 2, 2)), "matrix"),
+    (two_lora(a_dtype="BF16", b_dtype="F16"), "dtype"),
+    (two_lora(a_dtype=["F16"], b_dtype="F16"), "dtype"),
+])
+def test_adversarial_lora_header_consistent_bytes_but_incompatible_with_config(
+    tmp_path, weights, expected_error
+):
+    directory, pins = create_adapter(tmp_path, weights=weights)
+    with pytest.raises(ValueError, match=expected_error):
+        load(directory, pins)
+
+
+@pytest.mark.parametrize("change,match", [
+    ({"r": 3}, "rank"),
+    ({"target_modules": ["q_proj", "v_proj"]}, "target_modules"),
+])
+def test_unsupported_rank_and_missing_declared_target_tensors_fail_closed(
+    tmp_path, change, match
+):
+    directory, pins = create_adapter(tmp_path, config_change=change)
+    with pytest.raises(ValueError, match=match):
+        load(directory, pins)
+
+
+def test_valid_rank2_q_projection_receipt_describes_exact_module(tmp_path):
+    directory, pins = create_adapter(tmp_path)
+    result = load(directory, pins)
+    assert result.receipt["target_modules"] == ["q_proj"]
+    assert result.receipt["lora_tensor_count"] == 2
+    assert result.receipt["lora_modules"] == [f"{PREFIX}.q_proj"]
