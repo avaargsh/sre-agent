@@ -17,7 +17,7 @@ from typing import Any, Callable, Mapping
 
 from .grpo_adapter import FrozenAdapter, _LORA_KEY, load_pinned_adapter
 from .grpo_import import _sha, _verify_pin
-from .grpo_train_proof import _encode, snapshot_lora_parameters
+from .grpo_train_proof import _encode, snapshot_lora_parameters, verify_local_lora_update
 from .grpo_training import _fields, _strict_json
 
 _SCHEMA = "sre.grpo.post-save-tensor-map/v1"
@@ -257,3 +257,89 @@ def verify_pinned_tensor_map(
     return verify_posttraining_tensor_map(
         doc, frozen, expected_post_snapshot=expected_post_snapshot,
     )
+
+
+_TRAIN_RECEIPT_FIELDS = {
+    "schema_version", "dataset_sha256", "model", "model_revision",
+    "tokenizer_revision", "local_lora_update", "training_scope",
+    "model_runtime_independently_verified", "data_issuer_authenticated",
+    "training_admission_authorized", "production_eligible",
+}
+_UPDATE_FIELDS = {
+    "schema_version", "status", "before", "after", "global_step", "max_steps",
+    "local_lora_changed", "model_runtime_independently_verified",
+    "training_admission_authorized", "production_eligible",
+}
+
+
+def verify_pinned_tensor_map_with_training_receipt(
+    *, tensor_map: str | Path, expected_tensor_map_sha256: str,
+    train_receipt: str | Path, expected_train_receipt_sha256: str,
+    expected_dataset_sha256: str,
+    adapter_dir: str | Path,
+    expected_adapter_config_sha256: str,
+    expected_adapter_weights_sha256: str,
+    base_model: str, base_revision: str,
+) -> dict[str, Any]:
+    """CPU-only cross-check of pinned local train claim vs saved LoRA bytes.
+
+    This can disprove a claimed train-output link. It cannot prove a real
+    optimizer step ran: producer controls the training receipt and tensor map.
+    """
+    digest = _sha(expected_dataset_sha256, "dataset_sha256")
+    path = Path(train_receipt)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("training receipt must be a regular non-symlink file")
+    if not 0 < path.stat().st_size <= _MAX_MANIFEST:
+        raise ValueError("training receipt empty or oversized")
+    raw = path.read_bytes()
+    if not 0 < len(raw) <= _MAX_MANIFEST:
+        raise ValueError("training receipt empty or oversized")
+    _verify_pin(raw, expected_train_receipt_sha256, "training_receipt_sha256")
+    try:
+        doc = _strict_json(raw.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        raise ValueError("invalid training receipt UTF-8") from exc
+    receipt = _fields(doc, _TRAIN_RECEIPT_FIELDS, "training receipt")
+    if receipt["schema_version"] != "sre.grpo.local-training-receipt/v1":
+        raise ValueError("invalid training receipt schema")
+    if receipt["dataset_sha256"] != digest:
+        raise ValueError("dataset_sha256 differs from local train receipt")
+    if receipt["model"] != base_model:
+        raise ValueError("model differs from local train receipt")
+    if (receipt["model_revision"] != base_revision
+            or receipt["tokenizer_revision"] != base_revision):
+        raise ValueError("model_revision differs from local train receipt")
+    if receipt["training_scope"] != "LAB_ONLY_UNVERIFIED":
+        raise ValueError("training scope cannot be promoted")
+    for field in ("model_runtime_independently_verified",
+                  "data_issuer_authenticated", "training_admission_authorized",
+                  "production_eligible"):
+        if receipt[field] is not False:
+            raise ValueError(f"train receipt authority {field} cannot be promoted")
+    update = _fields(receipt["local_lora_update"], _UPDATE_FIELDS, "local_lora_update")
+    claimed = verify_local_lora_update(
+        update["before"], update["after"],
+        global_step=update["global_step"], max_steps=update["max_steps"],
+    )
+    if claimed != update:
+        raise ValueError("local_lora_update fields do not match recomputed delta")
+    audit = verify_pinned_tensor_map(
+        tensor_map, expected_manifest_sha256=expected_tensor_map_sha256,
+        adapter_dir=adapter_dir,
+        expected_adapter_config_sha256=expected_adapter_config_sha256,
+        expected_adapter_weights_sha256=expected_adapter_weights_sha256,
+        base_model=base_model, base_revision=base_revision,
+        expected_post_snapshot=update["after"],
+    )
+    return {
+        **audit,
+        "schema_version": "sre.grpo.post-save-train-link-audit/v1",
+        "training_receipt_sha256": expected_train_receipt_sha256,
+        "tensor_map_sha256": expected_tensor_map_sha256,
+        "dataset_sha256": digest,
+        "training_receipt_content_consistent": True,
+        "training_execution_independently_verified": False,
+        "optimizer_step_independently_verified": False,
+        "production_eligible": False,
+    }
