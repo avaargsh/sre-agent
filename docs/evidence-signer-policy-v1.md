@@ -1,6 +1,6 @@
 # G2l — Independent signer authorization, revocation and scope gate
 
-**State:** Draft PR #9 stacked on G2k PR #8. This is an opt-in, **read-only offline policy check**; it does not deploy a production key authority or prove Kubernetes evidence provenance.
+**State:** Draft PR #9 directly against `main` after G2k PR #8 merged at `8ad02de`. This is an opt-in, **read-only LAB offline policy check**; it does not deploy an independently authenticated production key authority or prove Kubernetes evidence provenance.
 
 ## Threat addressed
 
@@ -59,7 +59,7 @@ The existing `verify-evidence` CLI remains a **cryptographic/integrity-only** va
 
 ### CI proof, limits, and release blockers
 
-`demo/go-networkpolicy/test-evidence-attestation.sh` additionally exercises the authorized command after the real Calico deny/restore lab. It generates a **self-issued, nonproduction** signer key, policy and policy hash outside the evidence root, tests positive authorization, then attempts all of:
+`demo/go-networkpolicy/test-evidence-attestation.sh` retains the v2 **26-file original-source index**, including the unscored startup preflight Pod and full bounded logs, and additionally exercises the authorized command after the real Calico deny/restore lab. It generates a **self-issued, nonproduction** signer key, policy and policy hash outside the evidence root, tests positive authorization, then attempts all of:
 
 - Missing/incorrect pinned policy digest
 - Revocation, expiration and not-yet-valid signer
@@ -71,4 +71,4 @@ The CI-generated hash is calculated from **the same CI-generated policy** to tes
 
 **Not yet implemented:** independently signed, published policy snapshots and monotonic revocation history; enterprise KMS/HSM issuer identity and key lifecycle; authenticated/verifiable time or independent GitHub run metadata; atomic immutable evidence storage; persistent replay journal, tamper-evident receipts; multi-cluster production validation; independent security assessment; historical cross-repository and branch-merge gates. A stale but previously approved policy digest could still be accepted if an external verifier incorrectly reuses it; the trusted policy distribution system must enforce freshness and revocation.
 
-**Gate:** PR #9 stays Draft. Do not merge G0–G2l stack or claim production-grade provenance or `production_causality_verified=true`.
+**Gate:** PRs #1–#8 are merged as development-only baselines. PR #9 remains Draft until exact-HEAD Go, Python and real Calico policy tests are green. A later development-main merge does **not** grant production release authority, independently authorized policy publication or `production_causality_verified=true`.
