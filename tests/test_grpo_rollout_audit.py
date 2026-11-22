@@ -212,3 +212,27 @@ def test_cli_signal_gate_returns_nonzero_for_reward_collapse(tmp_path):
     report = json.loads(result.stdout)
     assert report["model_runtime_verified"] is False
     assert report["nonconstant_reward_groups"] == 1
+
+
+def test_reward_audit_scores_exactly_the_verified_dataset_bytes(
+    tmp_path, monkeypatch
+):
+    """A mutable dataset must not be reopened after digest validation."""
+    from pathlib import Path
+
+    dataset, rollouts, dataset_sha, rollout_sha = setup(tmp_path)
+    original_read = Path.read_bytes
+    reads = []
+
+    def spy_read(path):
+        if path == dataset:
+            reads.append(1)
+        return original_read(path)
+
+    monkeypatch.setattr(Path, "read_bytes", spy_read)
+    result = audit_rollout_groups(
+        dataset, rollouts, expected_dataset_sha256=dataset_sha,
+        expected_rollouts_sha256=rollout_sha, group_size=4,
+    )
+    assert result["groups"] == 1
+    assert len(reads) == 1, "Oracle was reloaded from unpinned mutable bytes"
