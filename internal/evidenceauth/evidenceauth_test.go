@@ -16,10 +16,10 @@ func signedFixture(t *testing.T)(string,Expected,[]byte,ed25519.PublicKey,ed2551
  root:=t.TempDir()
  if err:=os.WriteFile(filepath.Join(root,"before-service.json"),[]byte(`{"kind":"Service","metadata":{"uid":"svc-1"}}`),0600);err!=nil{t.Fatal(err)}
  if err:=os.WriteFile(filepath.Join(root,"during-probe.json"),[]byte(`{"http":0,"dns_ok":true}`),0600);err!=nil{t.Fatal(err)}
- expected:=Expected{Repository:"avaargsh/sre-agent",Commit:"b0228fafedfa577ed05b771e6c8ec3536982e6e5",WorkflowRun:"44995351332",Episode:"np-calico-egress-001"}
+ pub,priv,err:=ed25519.GenerateKey(rand.Reader);if err!=nil{t.Fatal(err)}
+ expected:=Expected{Repository:"avaargsh/sre-agent",Commit:"b0228fafedfa577ed05b771e6c8ec3536982e6e5",WorkflowRun:"44995351332",WorkflowAttempt:"1",Episode:"np-calico-egress-001",SigningKeyID:KeyID(pub),SigningKeyVersion:"ci-ephemeral-1"}
  manifest,err:=Build(root,[]string{"during-probe.json","before-service.json"},expected)
  if err!=nil{t.Fatal(err)}
- pub,priv,err:=ed25519.GenerateKey(rand.Reader);if err!=nil{t.Fatal(err)}
  envelope,err:=Sign(manifest,priv)
  if err!=nil{t.Fatal(err)}
  return root,expected,envelope,pub,priv
@@ -28,7 +28,7 @@ func TestTrustAnchorAndCompleteSignedEvidenceIndex(t *testing.T){
  root,expected,envelope,pub,_:=signedFixture(t)
  got,err:=Verify(root,envelope,pub,expected)
  if err!=nil{t.Fatal(err)}
- if got.SchemaVersion!="sre.evidence-manifest/v1"||len(got.Files)!=2||
+ if got.SchemaVersion!="sre.evidence-manifest/v2"||len(got.Files)!=2||
   got.Files[0].Path!="before-service.json"||got.Files[1].Path!="during-probe.json"{
   t.Fatalf("incorrect manifest canonical order or completeness: %+v",got)
  }
@@ -62,8 +62,8 @@ func TestRejectCorruptedFilesSignatureAndReplayedManifest(t *testing.T){
 }
 func TestRejectDuplicateJSONKeysEvenWhenAttackerCanSign(t *testing.T){
  root,expected,envelope,pub,priv:=signedFixture(t)
- dupEnvelope:=strings.Replace(string(envelope),`"schema_version":"sre.evidence-attestation/v1"`,
-  `"schema_version":"sre.evidence-attestation/v1","schema_version":"sre.evidence-attestation/v1"`,1)
+ dupEnvelope:=strings.Replace(string(envelope),`"schema_version":"sre.evidence-attestation/v2"`,
+  `"schema_version":"sre.evidence-attestation/v2","schema_version":"sre.evidence-attestation/v2"`,1)
  if dupEnvelope==string(envelope){t.Fatal("fixture envelope JSON changed")}
  if _,err:=Verify(root,[]byte(dupEnvelope),pub,expected);err==nil{t.Fatal("accepted duplicate envelope key")}
  var a Envelope
@@ -94,4 +94,60 @@ func TestRejectMissingTrustContextAndDuplicatePaths(t *testing.T){
  if _,err:=Build(root,[]string{"before-service.json"},missing);err==nil{t.Fatal("accepted incomplete external run binding")}
  missing=expected;missing.Commit="main"
  if _,err:=Build(root,[]string{"before-service.json"},missing);err==nil{t.Fatal("accepted mutable branch instead of SHA")}
+}
+
+func TestReplayRejectedAcrossRunAttemptAndKeyVersion(t *testing.T){
+ root,expected,envelope,pub,_:=signedFixture(t)
+ variants:=map[string]func(*Expected){
+  "attempt-increment":func(e *Expected){e.WorkflowAttempt="2"},
+  "attempt-zero":func(e *Expected){e.WorkflowAttempt="0"},
+  "attempt-leading-zero":func(e *Expected){e.WorkflowAttempt="01"},
+  "attempt-empty":func(e *Expected){e.WorkflowAttempt=""},
+  "signing-key-version":func(e *Expected){e.SigningKeyVersion="ci-ephemeral-2"},
+  "signing-key-id":func(e *Expected){e.SigningKeyID=strings.Repeat("a",64)},
+  "key-version-empty":func(e *Expected){e.SigningKeyVersion=""},
+ }
+ for name,modify:=range variants{
+  t.Run(name,func(t *testing.T){
+   other:=expected
+   modify(&other)
+   if _,err:=Verify(root,envelope,pub,other);err==nil{
+    t.Fatalf("replayed signed evidence against unrelated attempt/key identity %+v",other)
+   }
+  })
+ }
+}
+func TestSignerCannotClaimDifferentPublicKey(t *testing.T){
+ root,expected,_,_,_:=signedFixture(t)
+ manifest,err:=Build(root,[]string{"before-service.json"},expected)
+ if err!=nil{t.Fatal(err)}
+ _,unrelated,err:=ed25519.GenerateKey(rand.Reader);if err!=nil{t.Fatal(err)}
+ if _,err:=Sign(manifest,unrelated);err==nil{t.Fatal("signer accepted manifest naming another key")}
+}
+func TestOldV1SchemaAndMissingAttemptCannotBeAcceptedAsV2(t *testing.T){
+ root,expected,envelope,pub,priv:=signedFixture(t)
+ for _,m:=range []func(*Expected){
+  func(e *Expected){e.WorkflowAttempt=""},
+  func(e *Expected){e.SigningKeyID=""},
+  func(e *Expected){e.SigningKeyVersion=""},
+  func(e *Expected){e.WorkflowAttempt="0"},
+  func(e *Expected){e.SigningKeyID="incorrect"},
+ }{
+  bad:=expected;m(&bad)
+  if _,err:=Build(root,[]string{"before-service.json"},bad);err==nil{
+   t.Fatalf("accepted underspecified manifest identity %+v",bad)
+  }
+ }
+ var a Envelope
+ if err:=json.Unmarshal(envelope,&a);err!=nil{t.Fatal(err)}
+ original,err:=base64.StdEncoding.DecodeString(a.PayloadBase64);if err!=nil{t.Fatal(err)}
+ var m Manifest
+ if err:=json.Unmarshal(original,&m);err!=nil{t.Fatal(err)}
+ m.SchemaVersion="sre.evidence-manifest/v1"
+ legacy,_:=json.Marshal(m)
+ if _,err:=Sign(legacy,priv);err==nil{t.Fatal("allowed legacy v1 manifest signing under v2")}
+ a.PayloadBase64=base64.StdEncoding.EncodeToString(legacy)
+ a.SignatureBase64=base64.StdEncoding.EncodeToString(ed25519.Sign(priv,append([]byte(DomainSeparator),legacy...)))
+ fake,_:=json.Marshal(a)
+ if _,err:=Verify(root,fake,pub,expected);err==nil{t.Fatal("accepted replayed legacy signed manifest")}
 }

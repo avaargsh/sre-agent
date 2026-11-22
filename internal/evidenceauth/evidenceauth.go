@@ -7,6 +7,7 @@ import (
  "bytes"
  "crypto/ed25519"
  "crypto/sha256"
+ "crypto/x509"
  "encoding/base64"
  "encoding/hex"
  "encoding/json"
@@ -22,7 +23,7 @@ import (
 )
 
 const (
- DomainSeparator="sre-agent/evidence-manifest/v1\x00"
+ DomainSeparator="sre-agent/evidence-manifest/v2\x00"
  maxSources=64
  maxSourceSize=int64(2<<20)
  maxTotalSize=int64(16<<20)
@@ -33,7 +34,10 @@ type Expected struct{
  Repository string
  Commit string
  WorkflowRun string
+ WorkflowAttempt string
  Episode string
+ SigningKeyID string
+ SigningKeyVersion string
 }
 type FileDigest struct{
  Path string `json:"path"`
@@ -44,7 +48,10 @@ type Manifest struct{
  Repository string `json:"repository"`
  Commit string `json:"commit_sha"`
  WorkflowRun string `json:"workflow_run_id"`
+ WorkflowAttempt string `json:"workflow_run_attempt"`
  Episode string `json:"episode_id"`
+ SigningKeyID string `json:"signing_key_id"`
+ SigningKeyVersion string `json:"signing_key_version"`
  Files []FileDigest `json:"files"`
 }
 type Envelope struct{
@@ -55,14 +62,27 @@ type Envelope struct{
 
 var repoPattern=regexp.MustCompile(`^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$`)
 var hexPattern=regexp.MustCompile(`^[0-9a-f]{40}$`)
+var keyIDPattern=regexp.MustCompile(`^[0-9a-f]{64}$`)
+var keyVersionPattern=regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$`)
 var episodePattern=regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
+// KeyID is SHA256 of canonical X.509 SPKI DER, not an arbitrary label.
+func KeyID(pub ed25519.PublicKey)string{
+ if len(pub)!=ed25519.PublicKeySize{return ""}
+ der,err:=x509.MarshalPKIXPublicKey(pub)
+ if err!=nil{return ""}
+ return digest(der)
+}
 func validExpected(e Expected)error{
  if !repoPattern.MatchString(e.Repository)||strings.Contains(e.Repository,"..")||
-  !hexPattern.MatchString(e.Commit)||!episodePattern.MatchString(e.Episode){
+  !hexPattern.MatchString(e.Commit)||!episodePattern.MatchString(e.Episode)||
+  !keyIDPattern.MatchString(e.SigningKeyID)||
+  !keyVersionPattern.MatchString(e.SigningKeyVersion){
   return errors.New("invalid fixed repository/commit/episode identity")
  }
  n,err:=strconv.ParseUint(e.WorkflowRun,10,64)
  if err!=nil||n==0||strconv.FormatUint(n,10)!=e.WorkflowRun{return errors.New("invalid explicit run ID")}
+ a,err:=strconv.ParseUint(e.WorkflowAttempt,10,32)
+ if err!=nil||a==0||strconv.FormatUint(a,10)!=e.WorkflowAttempt{return errors.New("invalid explicit run attempt")}
  return nil
 }
 func isLocal(path string)bool{
@@ -143,8 +163,10 @@ func strictJSON(raw []byte,out any)error{
  return nil
 }
 func checkManifest(m Manifest)error{
- if m.SchemaVersion!="sre.evidence-manifest/v1"{return errors.New("unexpected manifest schema")}
- if err:=validExpected(Expected{Repository:m.Repository,Commit:m.Commit,WorkflowRun:m.WorkflowRun,Episode:m.Episode});err!=nil{return err}
+ if m.SchemaVersion!="sre.evidence-manifest/v2"{return errors.New("unexpected manifest schema")}
+ if err:=validExpected(Expected{Repository:m.Repository,Commit:m.Commit,WorkflowRun:m.WorkflowRun,
+  WorkflowAttempt:m.WorkflowAttempt,Episode:m.Episode,SigningKeyID:m.SigningKeyID,
+  SigningKeyVersion:m.SigningKeyVersion});err!=nil{return err}
  if len(m.Files)==0||len(m.Files)>maxSources{return errors.New("manifest source count outside budget")}
  previous:=""
  for _,f:=range m.Files{
@@ -164,8 +186,9 @@ func Build(root string,paths []string,expected Expected)([]byte,error){
  if len(paths)==0||len(paths)>maxSources{return nil,errors.New("bad number of paths")}
  sorted:=append([]string(nil),paths...)
  sort.Strings(sorted)
- manifest:=Manifest{SchemaVersion:"sre.evidence-manifest/v1",Repository:expected.Repository,
-  Commit:expected.Commit,WorkflowRun:expected.WorkflowRun,Episode:expected.Episode,
+ manifest:=Manifest{SchemaVersion:"sre.evidence-manifest/v2",Repository:expected.Repository,
+  Commit:expected.Commit,WorkflowRun:expected.WorkflowRun,WorkflowAttempt:expected.WorkflowAttempt,
+  Episode:expected.Episode,SigningKeyID:expected.SigningKeyID,SigningKeyVersion:expected.SigningKeyVersion,
   Files:make([]FileDigest,0,len(sorted))}
  total:=int64(0)
  previous:=""
@@ -200,8 +223,11 @@ func message(payload []byte)[]byte{
 // obtain an authorized private key outside the repository and CI artifacts.
 func Sign(manifest []byte,privateKey ed25519.PrivateKey)([]byte,error){
  if len(privateKey)!=ed25519.PrivateKeySize{return nil,errors.New("missing real Ed25519 private key")}
- if _,err:=parseManifest(manifest);err!=nil{return nil,err}
- envelope:=Envelope{SchemaVersion:"sre.evidence-attestation/v1",
+ m,err:=parseManifest(manifest)
+ if err!=nil{return nil,err}
+ public,ok:=privateKey.Public().(ed25519.PublicKey)
+ if !ok||KeyID(public)!=m.SigningKeyID{return nil,errors.New("signing key does not match signed manifest key fingerprint")}
+ envelope:=Envelope{SchemaVersion:"sre.evidence-attestation/v2",
   PayloadBase64:base64.StdEncoding.EncodeToString(manifest),
   SignatureBase64:base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey,message(manifest)))}
  return json.Marshal(envelope)
@@ -212,9 +238,10 @@ func Verify(root string,envelope []byte,trustedKey ed25519.PublicKey,expected Ex
  var m Manifest
  if err:=validExpected(expected);err!=nil{return m,err}
  if len(trustedKey)!=ed25519.PublicKeySize{return m,errors.New("trusted Ed25519 key must be externally supplied")}
+ if KeyID(trustedKey)!=expected.SigningKeyID{return m,errors.New("trusted public key fingerprint disagrees with independently expected key identity")}
  var attestation Envelope
  if err:=strictJSON(envelope,&attestation);err!=nil{return m,err}
- if attestation.SchemaVersion!="sre.evidence-attestation/v1"{return m,errors.New("invalid envelope schema")}
+ if attestation.SchemaVersion!="sre.evidence-attestation/v2"{return m,errors.New("invalid envelope schema")}
  payload,err:=base64.StdEncoding.Strict().DecodeString(attestation.PayloadBase64)
  if err!=nil{return m,err}
  sig,err:=base64.StdEncoding.Strict().DecodeString(attestation.SignatureBase64)
@@ -223,7 +250,9 @@ func Verify(root string,envelope []byte,trustedKey ed25519.PublicKey,expected Ex
  m,err=parseManifest(payload)
  if err!=nil{return m,err}
  if m.Repository!=expected.Repository||m.Commit!=expected.Commit||
-  m.WorkflowRun!=expected.WorkflowRun||m.Episode!=expected.Episode{
+  m.WorkflowRun!=expected.WorkflowRun||m.WorkflowAttempt!=expected.WorkflowAttempt||
+  m.Episode!=expected.Episode||m.SigningKeyID!=expected.SigningKeyID||
+  m.SigningKeyVersion!=expected.SigningKeyVersion{
   return m,errors.New("signed identity does not match independent expectations")
  }
  total:=int64(0)
