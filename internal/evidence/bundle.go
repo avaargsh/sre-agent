@@ -108,9 +108,12 @@ func Verify(raw []byte) (Result, error) {
  }
  metadata, err := object(root["metadata"], "metadata")
  if err != nil { return Result{}, err }
- schema, err := requiredString(metadata, "schema_version", "metadata")
- if err != nil { return Result{}, err }
- if schema != "aiops.evidence/v1" { return Result{}, errors.New("unsupported metadata.schema_version") }
+ // Legacy Python EvidenceBundle.metadata is free-form; the committed
+ // checkout benchmark has no schema_version. Only reject explicit versions
+ // that claim a contract this v1 migration verifier does not implement.
+ if v, ok := metadata["schema_version"]; ok && v != "aiops.evidence/v1" {
+  return Result{}, errors.New("unsupported metadata.schema_version")
+ }
  items, err := array(root["evidence"], "evidence")
  if err != nil { return Result{}, err }
  ids := make(map[string]bool, len(items))
