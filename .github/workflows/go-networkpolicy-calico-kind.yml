@@ -14,7 +14,22 @@ permissions:
   contents: read
 
 jobs:
+  calico-manifest-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Reject tampered Calico manifest before any kind cluster is created
+        run: |
+          set -euo pipefail
+          curl --retry 3 --retry-delay 2 -fsSL \
+            "https://raw.githubusercontent.com/projectcalico/calico/v3.33.0/manifests/calico.yaml" \
+            -o /tmp/g2i-calico.yaml
+          bash demo/go-networkpolicy/test-pin.sh /tmp/g2i-calico.yaml
   true-calico-deny-and-restore:
+    needs: calico-manifest-integrity
     runs-on: ubuntu-latest
     timeout-minutes: 28
     steps:
@@ -37,6 +52,8 @@ jobs:
             "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_TAG}/manifests/calico.yaml" \
             -o /tmp/g2i-calico.yaml
           test -s /tmp/g2i-calico.yaml
+          # A tag alone does not pin content: fail before kubectl creates resources.
+          bash demo/go-networkpolicy/verify-calico-manifest.sh /tmp/g2i-calico.yaml
           sha256sum /tmp/g2i-calico.yaml | tee /tmp/g2i-calico-sha.txt
           # Fresh cluster; create avoids oversize last-applied-configuration
           # annotation on bundled CRDs.
