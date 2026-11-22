@@ -6,6 +6,7 @@ import (
  "bytes"
  "context"
  "crypto/sha256"
+ "encoding/base64"
  "encoding/hex"
  "encoding/json"
  "errors"
@@ -40,7 +41,7 @@ type Policy struct {
 type SourceEvidence struct {
  Query string `json:"query"`
  ResponseSHA256 string `json:"response_sha256"`
- RawResponse json.RawMessage `json:"raw_response"`
+ RawResponseBase64 string `json:"raw_response_base64"`
  Series int `json:"series"`
  Samples int `json:"samples"`
 }
@@ -137,7 +138,7 @@ func query(ctx context.Context,p Policy,u *url.URL,start,end time.Time,threshold
   }
  }
  digest:=sha256.Sum256(raw)
- return SourceEvidence{Query:name,ResponseSHA256:hex.EncodeToString(digest[:]),RawResponse:json.RawMessage(raw),Series:len(parsed.Data.Result),Samples:samples},allHealthy,nil
+ return SourceEvidence{Query:name,ResponseSHA256:hex.EncodeToString(digest[:]),RawResponseBase64:base64.StdEncoding.EncodeToString(raw),Series:len(parsed.Data.Result),Samples:samples},allHealthy,nil
 }
 // Assess never reads an Agent-generated success statement. HEALTHY means only
 // that the inspected bounded SLI window meets operator-selected constraints.
