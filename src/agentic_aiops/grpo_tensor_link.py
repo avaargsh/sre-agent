@@ -45,8 +45,9 @@ def _saved_name(name: Any) -> str:
     if match is None:
         raise ValueError(f"not a supported LoRA runtime_name: {name[:80]}")
     prefix, kind = match.groups()
-    if not name.endswith(".default.weight"):
-        raise ValueError("LoRA runtime_name must have explicit .default adapter")
+    # PEFT runtime usually includes ".default", whereas exported
+    # checkpoints omit it. Accept either form while requiring a unique
+    # canonical saved slot (aliases may not double-count an A/B tensor).
     return f"{prefix}.lora_{kind}.weight"
 
 
