@@ -80,11 +80,14 @@ def _verified_snapshot(item: Any) -> bytes:
         raise ValueError("invalid base64 snapshot") from exc
     if not 0 < len(raw) <= _MAX_RAW or _digest(raw) != digest:
         raise ValueError("snapshot response_sha256 mismatch or invalid size")
-    # All five G2i artifacts are native JSON sources.
+    # All five G2i artifacts are native JSON *objects*, not arbitrary
+    # JSON literals or arrays that an attacker can hash to look legitimate.
     try:
-        _strict_json(raw.decode("utf-8"))
+        decoded = _strict_json(raw.decode("utf-8"))
     except UnicodeDecodeError as exc:
         raise ValueError("invalid snapshot UTF-8") from exc
+    if type(decoded) is not dict:
+        raise ValueError("snapshot JSON object required")
     return raw
 
 
@@ -171,7 +174,6 @@ def import_networkpolicy_lab_candidate(
     ):
         raise ValueError("lab evaluation status/diagnostic is not accepted")
 
-    frozen_logs: dict[str, bytes] = {}
     service_ips: set[str] = set()
     observations = []
     for phase in _PHASES:
@@ -191,7 +193,7 @@ def import_networkpolicy_lab_candidate(
         # authenticate cluster source or prove CNI causality.
         if admin_raw != observer_raw or original["probe"] != admin_raw:
             raise ValueError(f"{phase} admin and observer log mismatch")
-        raw_obs, diagnosis = _document(
+        _, diagnosis = _document(
             root / f"{phase}-observation.json", 128 * 1024
         )
         diagnosis = _fields(diagnosis, {
@@ -207,7 +209,6 @@ def import_networkpolicy_lab_candidate(
         if diagnosis["host"] != probe["host"] or diagnosis["service_ip"] != probe["service_ip"]:
             raise ValueError("observer diagnosis disagrees with probe identity")
         service_ips.add(probe["service_ip"])
-        frozen_logs[phase] = observer_raw
         # Don't include post-recovery logs: the agent must not peek into
         # the future when explaining the incident under diagnosis.
         if phase in ("before", "during"):
