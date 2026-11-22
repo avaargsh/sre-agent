@@ -89,6 +89,36 @@ func parseJSON(raw []byte) (map[string]any, error) {
  return object(root, "bundle")
 }
 
+// pythonLineSeparators emulates Python's json.dumps(ensure_ascii=False).
+// Go's encoding/json escapes U+2028/U+2029 even with SetEscapeHTML(false).
+// Walk escape pairs rather than blindly replacing byte substrings: literal
+// backslash-u sequences in source strings must not turn into Unicode.
+func pythonLineSeparators(raw []byte) []byte {
+ out := make([]byte, 0, len(raw))
+ for i := 0; i < len(raw); {
+  if raw[i] == '\\' && i+6 <= len(raw) {
+   if string(raw[i+1:i+6]) == "u2028" {
+    out = append(out, 0xe2, 0x80, 0xa8)
+    i += 6
+    continue
+   }
+   if string(raw[i+1:i+6]) == "u2029" {
+    out = append(out, 0xe2, 0x80, 0xa9)
+    i += 6
+    continue
+   }
+  }
+  if raw[i] == '\\' && i+1 < len(raw) {
+   out = append(out, raw[i], raw[i+1])
+   i += 2
+   continue
+  }
+  out = append(out, raw[i])
+  i++
+ }
+ return out
+}
+
 // Verify performs fail-closed structural and digest checks over the serialized
 // Python EvidenceBundle.to_dict() shape. A valid SHA-256 does not authenticate
 // the source, imply evidence correctness, or prove the incident recovered.
@@ -175,7 +205,7 @@ func Verify(raw []byte) (Result, error) {
  encoder := json.NewEncoder(&buf)
  encoder.SetEscapeHTML(false)
  if err := encoder.Encode(clean); err != nil { return Result{}, fmt.Errorf("encode canonical bundle: %w", err) }
- digest := sha256.Sum256(bytes.TrimSuffix(buf.Bytes(), []byte("\n")))
+ digest := sha256.Sum256(pythonLineSeparators(bytes.TrimSuffix(buf.Bytes(), []byte("\n"))))
  sha := hex.EncodeToString(digest[:])
  if expected, ok := metadata["bundle_sha256"]; ok {
   s, ok := expected.(string)
