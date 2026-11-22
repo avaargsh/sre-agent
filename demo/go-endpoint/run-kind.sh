@@ -145,6 +145,21 @@ snapshot() {
   service admin "$dir/$phase-service.json"
   slices admin "$dir/$phase-endpointslices.json"
 }
+# An ordinary fresh LIST may move to a different cluster resourceVersion
+# between the test-admin and observer reads. Do not weaken the Go Oracle
+# equality gate or cherry-pick an alternative "during" sample. The observer
+# reads first; the independent test-admin then re-reads the *same* list using
+# Kubernetes resourceVersionMatch=Exact. Both original files are archived.
+snapshot_during() {
+  local dir="$1" exact_path
+  service observer "$dir/observed-service.json"
+  slices observer "$dir/observed-endpointslices.json"
+  exact_path="$(python3 demo/go-endpoint/pin_during.py "$dir/observed-endpointslices.json")"
+  service admin "$dir/during-service.json"
+  kubectl get --raw "$exact_path" > "$dir/during-endpointslices.json"
+  python3 demo/go-endpoint/pin_during.py --verify \
+    "$dir/observed-endpointslices.json" "$dir/during-endpointslices.json"
+}
 probe() {
   local dir="$1" phase="$2" n code
   : > "$dir/$phase-probes.txt"
@@ -217,9 +232,7 @@ CONTROL="$ROOT/control"
 wait_ready positive "$CONTROL/preflight.json"
 snapshot "$CONTROL" before
 probe "$CONTROL" before
-snapshot "$CONTROL" during
-service observer "$CONTROL/observed-service.json"
-slices observer "$CONTROL/observed-endpointslices.json"
+snapshot_during "$CONTROL"
 probe "$CONTROL" during
 snapshot "$CONTROL" after
 probe "$CONTROL" after
@@ -234,9 +247,7 @@ kubectl -n golden-demo scale deploy/checkout-api --replicas=0
 wait_ready zero "$FAULT/preflight-zero.json"
 wait_zero_pods "$FAULT/zero-pods.json"
 wait_http_failure "$FAULT/convergence-probes.txt"
-snapshot "$FAULT" during
-service observer "$FAULT/observed-service.json"
-slices observer "$FAULT/observed-endpointslices.json"
+snapshot_during "$FAULT"
 probe "$FAULT" during
 kubectl -n golden-demo scale deploy/checkout-api --replicas=2
 kubectl -n golden-demo rollout status deploy/checkout-api --timeout=180s
