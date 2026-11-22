@@ -9,6 +9,7 @@ is not a model provenance attestation or production authorization.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import math
 import re
@@ -18,7 +19,7 @@ import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator, Mapping
 
 from .grpo_import import _verify_pin, _sha
 from .grpo_rollout_capture import _REPO, _SHA40
@@ -268,3 +269,63 @@ def validate_adapter_receipt(
         if receipt[name] is not False:
             raise ValueError(f"unverified adapter cannot claim {name}")
     return receipt
+
+
+def verify_loaded_adapter_weights(
+    frozen: FrozenAdapter, adapter_state_dict: Mapping[str, Any],
+    status: Any, *, tensor_bytes: Callable[[Any], bytes],
+) -> dict[str, Any]:
+    """Compare all *loaded* PEFT LoRA tensor bytes with pinned Safetensors.
+
+    The caller must pass peft.get_peft_model_state_dict(model,
+    adapter_name="default", save_embedding_layers=False). That public API
+    strips the runtime adapter name from keys, matching the save format.
+    Use autocast_adapter_dtype=False during load, or dtype conversion
+    would make a byte-for-byte check meaningless.
+
+    Runtime and model identity are still NOT independently attested.
+    """
+    if not isinstance(frozen, FrozenAdapter):
+        raise ValueError("frozen adapter required")
+    _validate_safetensors(frozen.weights_raw)
+    if (getattr(status, "enabled", None) is not True
+            or getattr(status, "active_adapters", None) != ["default"]
+            or getattr(status, "merged_adapters", None) != []
+            or getattr(status, "peft_types", None) != {"default": "LORA"}
+            or type(getattr(status, "num_adapter_layers", None)) is not int
+            or status.num_adapter_layers < 1
+            or type(getattr(status, "trainable_params", None)) is not int
+            or status.trainable_params != 0):
+        raise ValueError("adapter status not single active unmerged frozen LoRA")
+    if not isinstance(adapter_state_dict, Mapping):
+        raise ValueError("loaded LoRA tensor set must be a mapping")
+    raw = frozen.weights_raw
+    header_size = struct.unpack("<Q", raw[:8])[0]
+    header = _strict_json(raw[8:8+header_size].decode("utf-8"))
+    source_names = {k for k in header if k != "__metadata__"}
+    if set(adapter_state_dict) != source_names:
+        raise ValueError("loaded LoRA tensor set differs from pinned checkpoint")
+    types = {"F16": "torch.float16", "BF16": "torch.bfloat16",
+             "F32": "torch.float32"}
+    for name in sorted(source_names):
+        expected = header[name]
+        actual = adapter_state_dict[name]
+        if str(getattr(actual, "dtype", None)) != types[expected["dtype"]]:
+            raise ValueError(f"loaded LoRA dtype differs for {name}")
+        if tuple(getattr(actual, "shape", ())) != tuple(expected["shape"]):
+            raise ValueError(f"loaded LoRA shape differs for {name}")
+        content = tensor_bytes(actual)
+        start, end = expected["data_offsets"]
+        if type(content) is not bytes or not hmac.compare_digest(
+            content, raw[8+header_size+start:8+header_size+end],
+        ):
+            raise ValueError(f"loaded LoRA weight bytes differ for {name}")
+    return {
+        "schema_version": "sre.grpo.local-loaded-lora/v1",
+        "adapter_weights_sha256": frozen.receipt["adapter_weights_sha256"],
+        "lora_tensors_checked": len(source_names),
+        "local_loaded_weights_equal_pinned": True,
+        "model_runtime_independently_verified": False,
+        "model_attribution_verified": False,
+        "production_eligible": False,
+    }
