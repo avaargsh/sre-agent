@@ -133,7 +133,9 @@ func Diagnose(raw []byte)(Observation,error){
  p,err:=parseProbe(raw)
  if err!=nil{return Observation{},err}
  classification:="UNKNOWN"
- if p.DNSOK&&len(p.DNSAddresses)>0&&p.DNSError==""&&
+ resolvedService:=false
+ for _,addr:=range p.DNSAddresses{if addr==p.ServiceIP{resolvedService=true}}
+ if p.DNSOK&&resolvedService&&p.DNSError==""&&
   p.NameHTTPStatus==200&&p.DirectHTTPStatus==200{
   classification="HEALTHY_NAME_AND_IP"
  }
