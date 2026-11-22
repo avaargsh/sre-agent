@@ -260,6 +260,10 @@ def test_cli_loads_pinned_grpo_adapter_before_any_holdout_inference(tmp_path, mo
     assert state["model_revision"] == state["tokenizer_revision"] == REV
     assert not state["staging_dir"].exists()
     capture = json.loads((tmp_path/"capture.json").read_text())
+    assert capture["schema_version"] == "sre.grpo.holdout-capture/v3"
+    assert capture["local_effect_probe"]["local_forward_effect_observed"] is True
+    assert capture["local_effect_probe"]["normalized_logit_delta"] > 1e-5
+    assert capture["local_effect_probe"]["model_runtime_independently_verified"] is False
     assert capture["checkpoint_role"] == "GRPO"
     assert capture["adapter"]["adapter_weights_sha256"] == pins["expected_adapter_weights_sha256"]
     assert capture["model_runtime_verified"] is False
