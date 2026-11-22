@@ -156,9 +156,13 @@ def _decode_episode(data: Any) -> SREEpisode:
 
 
 def load_episodes(path: str | Path) -> tuple[SREEpisode, ...]:
-    """Read bounded JSONL and reject cross-split fault-family leakage."""
-    raw = Path(path).read_bytes()
-    if not raw or len(raw) > _MAX_FILE_BYTES:
+    """Load a dataset from disk once; caller should pin immutable bytes."""
+    return load_episodes_bytes(Path(path).read_bytes())
+
+
+def load_episodes_bytes(raw: bytes) -> tuple[SREEpisode, ...]:
+    """Parse exactly the bounded bytes checked by the external SHA256 pin."""
+    if type(raw) is not bytes or not raw or len(raw) > _MAX_FILE_BYTES:
         raise ValueError("empty or oversized episode dataset")
     try:
         data = raw.decode("utf-8")
