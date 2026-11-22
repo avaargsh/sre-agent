@@ -181,14 +181,16 @@ def import_networkpolicy_lab_candidate(
                     for key in _SOURCE_FIELDS}
         admin_raw = _read_file(root / f"{phase}-admin.log", 16 * 1024)
         observer_raw = _read_file(root / f"{phase}-observer.log", 16 * 1024)
-        # These admin and observer bytes were separately captured by G2i;
-        # equality alone does NOT authenticate cluster source.
-        if admin_raw != observer_raw or original["probe"] != admin_raw:
-            raise ValueError(f"{phase} admin and observer log mismatch")
+        # Verify the independent expected observer bytes BEFORE comparing
+        # them to admin logs; tampering is attributed to the breached pin.
         approved_hash = hashes[phase]
         if _verify_pin(observer_raw, approved_hash,
                        "observer_log_sha256") != _digest(original["probe"]):
             raise ValueError("observer_log_sha256 does not match snapshot")
+        # These were separately captured by G2i, but equality does NOT
+        # authenticate cluster source or prove CNI causality.
+        if admin_raw != observer_raw or original["probe"] != admin_raw:
+            raise ValueError(f"{phase} admin and observer log mismatch")
         raw_obs, diagnosis = _document(
             root / f"{phase}-observation.json", 128 * 1024
         )
