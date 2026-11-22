@@ -135,7 +135,8 @@ func reviewLinkedEvidence(rawAlert,frozenPlan,bundle []byte,target alertintake.T
  if observedAt==""{
   return AlertEvidenceReview{},fmt.Errorf("read-only observation timestamp missing")
  }
- if _,err:=time.Parse(time.RFC3339Nano,observedAt);err!=nil{
+ observationClock,err:=time.Parse(time.RFC3339Nano,observedAt)
+ if err!=nil{
   return AlertEvidenceReview{},fmt.Errorf("invalid read-only observation timestamp")
  }
  expectedScope:="namespace="+target.Namespace+",deployment="+target.Deployment
@@ -186,6 +187,9 @@ func reviewLinkedEvidence(rawAlert,frozenPlan,bundle []byte,target alertintake.T
     "pod_list_resource_version","observed_at");err!=nil{
     return AlertEvidenceReview{},err
    }
+   if err:=validateEmbeddedPods(attrs);err!=nil{
+    return AlertEvidenceReview{},err
+   }
    if exactText(attrs,"namespace")!=target.Namespace||
      exactText(attrs,"deployment")!=target.Deployment||
      exactText(attrs,"uid")==""||
@@ -195,6 +199,9 @@ func reviewLinkedEvidence(rawAlert,frozenPlan,bundle []byte,target alertintake.T
   case "prometheus":
    if err:=requireOnlyFields(attrs,"Prometheus observation attributes",
     "promql","samples_json","result_type","series_count","observed_at","max_age_seconds");err!=nil{
+    return AlertEvidenceReview{},err
+   }
+   if err:=validateEmbeddedSamples(attrs,observationClock);err!=nil{
     return AlertEvidenceReview{},err
    }
    if expectedQuery==""||len(expectedQuery)>512||
