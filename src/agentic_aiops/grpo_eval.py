@@ -17,8 +17,13 @@ _MAX_PREDICTIONS = 4 * 1024 * 1024
 
 
 def load_predictions(path: str | Path) -> dict[str, str]:
-    raw = Path(path).read_bytes()
-    if not raw or len(raw) > _MAX_PREDICTIONS:
+    """Read once and parse bounded holdout output from those exact bytes."""
+    return load_predictions_bytes(Path(path).read_bytes())
+
+
+def load_predictions_bytes(raw: bytes) -> dict[str, str]:
+    """Parse the exact bytes validated by a trusted external SHA256 digest."""
+    if type(raw) is not bytes or not raw or len(raw) > _MAX_PREDICTIONS:
         raise ValueError("empty or oversized prediction file")
     try:
         lines = raw.decode("utf-8").splitlines()
