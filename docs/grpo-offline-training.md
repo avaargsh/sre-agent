@@ -89,3 +89,78 @@ stack and tokenizer/model revision before reproducible comparisons. Qwen3 inputs
 
 See the [TRL 0.25 GRPO documentation](https://huggingface.co/docs/trl/v0.25.0/grpo_trainer)
 for the custom reward and metadata-column interface.
+
+
+
+## Import from an existing frozen Evidence Bundle (P0 ingestion)
+
+`scripts/import_sre_episode.py` reads the repository's frozen
+`benchmarks/scenarios/checkout-latency.json` scenario format. It uses only
+`bundle.incident.summary` and the frozen `bundle.evidence` records for
+model input. It **never** reads `bundle.hypotheses`,
+`bundle.outcome`, or model predictions as truth labels.
+
+The scenario input is untrusted until its original SHA256 is checked against a
+**separate**, owner-authored approval JSON. Approval JSON has this schema:
+
+```json
+{
+  "schema_version": "sre.grpo.import-approval/v1",
+  "case_id": "checkout-latency-001",
+  "episode_id": "checkout-synthetic-001",
+  "fault_family": "db-pool",
+  "split": "train",
+  "source_sha256": "<64-lowercase-hex-of-the-exact-scenario-file>",
+  "evidence_tools": {
+    "e-metrics-1": "prometheus.query",
+    "e-k8s-1": "kubernetes.get_pods"
+  },
+  "oracle": {
+    "answerable": true,
+    "root_cause_id": "db_pool_saturation",
+    "required_evidence_ids": ["e-metrics-1"]
+  }
+}
+```
+
+For controlled offline development, an independent data reviewer confirms the
+source, tool attribution, split, required evidence and fault-injection Oracle;
+then records the exact **approval-file SHA256 out of band**. A data pipeline
+must never compute an approval's trusted expected SHA from that same untrusted
+approval file at runtime — doing so provides no authorization check.
+
+```bash
+python scripts/import_sre_episode.py \
+  --scenario benchmarks/scenarios/checkout-latency.json \
+  --approval /trusted/reviewed/approval.json \
+  --expected-approval-sha256 "$PINNED_APPROVAL_SHA256" \
+  --output /new/episode-001.jsonl
+
+# For a multi-Episode dataset, assemble each reviewed, non-overwriting
+# JSONL file, then validate all families/splits with load_episodes().
+```
+
+Both original source bytes and approval bytes are SHA-pinned; the output
+receipt carries the exact source/approval/episode SHA256 values. Unknown
+sources, mismatched read-only tool attribution, orphan evidence references,
+duplicate fields, unrecognized schemas and attempts to overwrite output are
+rejected before producing an Episode. This importer **does not** run fault
+injection or live Kubernetes calls.
+
+**Trust limitation:** SHA256 equality proves bytes were not changed relative
+to a separately trusted digest; it does **not** authenticate the reviewer,
+establish that any labels are scientifically correct, or prove that a
+real Kubernetes incident occurred. `independent_issuer_verified=false` and
+`live_fault_injection_verified=false` remain explicit. The existing checkout
+scenario is labelled `synthetic-regression`. No actual G2i/G2m Go proof or
+production causality should be inferred from this conversion.
+
+CLI regression:
+
+```bash
+pytest -q tests/test_grpo_import.py
+```
+
+Next: connect disposable kind fault-injection exports and an external Oracle
+verifier as independently authenticated evidence inputs. Keep unverified
+episodes out of reported real-model accuracy and external release gates.
