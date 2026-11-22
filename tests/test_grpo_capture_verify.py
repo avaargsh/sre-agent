@@ -170,3 +170,18 @@ def test_capture_verify_cli_replays_real_schema_without_model_import(tmp_path):
     bad = subprocess.run(cmd, text=True, capture_output=True, check=False)
     assert bad.returncode == 3
     assert "UNKNOWN" in bad.stderr
+
+
+def test_independent_verifier_ignores_unrelated_files_in_manifest_directory(tmp_path):
+    ds, out, meta, sha, receipt, manifest_sha, _ = binding(tmp_path)
+    # A verifier should only depend on its three explicit inputs, not on
+    # arbitrarily invented "free" output names sharing a parent directory.
+    (tmp_path / (meta.name + ".verify-unwritten-output")).write_text("unrelated")
+    (tmp_path / (meta.name + ".verify-unwritten-manifest")).write_text("unrelated")
+    result = verify_capture_binding(
+        ds, out, meta, expected_dataset_sha256=sha,
+        expected_rollouts_sha256=receipt["rollouts_sha256"],
+        expected_manifest_sha256=manifest_sha,
+        model="Qwen/Qwen3-0.6B", model_revision=REV, group_size=4,
+    )
+    assert result["binding_consistent"] is True
