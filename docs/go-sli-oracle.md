@@ -10,7 +10,7 @@ This is a **narrow, stacked migration slice** on top of G0 and G1. It does not i
 - `UNHEALTHY`: traffic suffices, but at least one latency sample breaches threshold.
 - `UNKNOWN`: no traffic, missing points, a gap, duplicate series, stale/misaligned timestamps, invalid/NaN/Inf/negative values, an HTTP/JSON failure, an invalid query window, or a window predating a supplied trusted barrier. **UNKNOWN must not trigger automatic rollback, approval, or release.**
 
-For each of the two GET requests the JSON result includes the original Prometheus response and `response_sha256` for independent readback. The assessment is written exclusively to a new mode-0600 file (or stdout). The response SHA-256 is a checksum, **not** a signature or proof of source identity; protect and independently pin the artifact in a real evidence store. Prometheus labels may contain sensitive metadata: do not publish raw artifacts without review.
+For each of the two GET requests the JSON result includes a Base64 encoding of the **exact original HTTP response bytes** (`raw_response_base64`) and `response_sha256` for independent readback. The assessment is written exclusively to a new mode-0600 file (or stdout). The response SHA-256 is a checksum, **not** a signature or proof of source identity; protect and independently pin the artifact in a real evidence store. Prometheus labels may contain sensitive metadata: do not publish raw artifacts without review.
 
 ## Manual CLI
 
