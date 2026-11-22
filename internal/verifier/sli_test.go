@@ -13,7 +13,7 @@ import (
 
 var fixtureNow = time.Unix(1795350600, 0).UTC()
 func policy(url string) Policy {
- return Policy{PrometheusURL:url,LatencyQuery:"max(checkout_request_latency_seconds)",TrafficQuery:"sum(rate(checkout_requests_total[30s]))",MaxLatencySeconds:.35,MinTrafficPerSecond:.1,Window:20*time.Second,Step:5*time.Second,Now:func()time.Time{return fixtureNow}}
+ return Policy{PrometheusURL:url,LatencyQuery:"max(checkout_request_latency_seconds)",TrafficQuery:"sum(rate(checkout_requests_total[30s]))",AgeQuery:"max(time()-timestamp(checkout_request_latency_seconds))",MaxSampleAgeSeconds:10,MaxLatencySeconds:.35,MinTrafficPerSecond:.1,Window:20*time.Second,Step:5*time.Second,Now:func()time.Time{return fixtureNow}}
 }
 func rangeResponse(values []string, omit int) string {
  rows:=make([][]any,0)
@@ -24,9 +24,11 @@ func rangeResponse(values []string, omit int) string {
  response,_:=json.Marshal(map[string]any{"status":"success","data":map[string]any{"resultType":"matrix","result":[]any{map[string]any{"metric":map[string]any{"job":"checkout"},"values":rows}}}})
  return string(response)
 }
-func serveRange(t *testing.T, latency,traffic string)(*httptest.Server,*[]string){
+func serveRange(t *testing.T, latency,traffic string,ageOverride ...string)(*httptest.Server,*[]string){
  t.Helper()
  calls:=&[]string{}
+ age:=rangeResponse([]string{"2","2","3","2","2"},-1)
+ if len(ageOverride)>0{age=ageOverride[0]}
  srv:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
   *calls=append(*calls,r.Method+" "+r.URL.Path)
   if r.URL.Path!="/api/v1/query_range"{w.WriteHeader(404);return}
@@ -34,6 +36,7 @@ func serveRange(t *testing.T, latency,traffic string)(*httptest.Server,*[]string
   switch r.URL.Query().Get("query"){
   case "max(checkout_request_latency_seconds)":_,_=fmt.Fprint(w,latency)
   case "sum(rate(checkout_requests_total[30s]))":_,_=fmt.Fprint(w,traffic)
+  case "max(time()-timestamp(checkout_request_latency_seconds))":_,_=fmt.Fprint(w,age)
   default:t.Errorf("unexpected query: %s",r.URL.RawQuery);w.WriteHeader(400)
   }
  }))
@@ -46,8 +49,8 @@ func TestHealthyRequiresSustainedLatencyAndTraffic(t *testing.T){
  srv,calls:=serveRange(t,latency,traffic)
  got:=Assess(context.Background(),policy(srv.URL))
  if got.Status!=Healthy{t.Fatalf("status=%s reason=%s",got.Status,got.Reason)}
- if len(got.Evidence)!=2||got.Evidence[0].ResponseSHA256==""||got.Evidence[0].RawResponseBase64==""{t.Fatalf("source proof missing: %+v",got)}
- if len(*calls)!=2||(*calls)[0]!="GET /api/v1/query_range"||(*calls)[1]!="GET /api/v1/query_range"{t.Fatalf("not exactly two readonly requests: %v",*calls)}
+ if len(got.Evidence)!=3||got.Evidence[0].ResponseSHA256==""||got.Evidence[0].RawResponseBase64==""{t.Fatalf("source proof missing: %+v",got)}
+ if len(*calls)!=3||(*calls)[0]!="GET /api/v1/query_range"||(*calls)[1]!="GET /api/v1/query_range"||(*calls)[2]!="GET /api/v1/query_range"{t.Fatalf("not exactly two readonly requests: %v",*calls)}
 }
 func TestUnhealthyWhenOneLatencySampleBreaches(t *testing.T){
  latency:=rangeResponse([]string{"0.12","0.15","0.6","0.16","0.18"},-1)
@@ -110,4 +113,13 @@ func TestDuplicateSeriesRejectedEvenWhenMetricsHealthy(t *testing.T){
  srv,_:=serveRange(t,string(duplicated),one)
  got:=Assess(context.Background(),policy(srv.URL))
  if got.Status!=Unknown{t.Fatalf("duplicate metric accepted: %+v",got)}
+}
+
+func TestOldScrapeFailsClosedAlthoughQueryTimestampsAreCurrent(t *testing.T){
+ good:=rangeResponse([]string{"0.1","0.1","0.1","0.1","0.1"},-1)
+ traffic:=rangeResponse([]string{"2","2","2","2","2"},-1)
+ aged:=rangeResponse([]string{"30","30","30","30","30"},-1)
+ srv,_:=serveRange(t,good,traffic,aged)
+ got:=Assess(context.Background(),policy(srv.URL))
+ if got.Status!=Unknown{t.Fatalf("accepted stale underlying scrape data: %+v",got)}
 }
