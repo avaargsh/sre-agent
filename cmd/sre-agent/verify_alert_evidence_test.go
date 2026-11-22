@@ -203,3 +203,47 @@ func TestOfflineReviewRejectsValidCanonicalKeysWithAmbiguousAliases(t *testing.T
   })
  }
 }
+
+
+func TestOfflineReviewRejectsRehashedAuthorityClaimsAndInconsistentObservationClock(t *testing.T) {
+ rawPath,planPath,bundlePath:=linkedAlertEvidenceFixture(t)
+ attacks:=map[string]func(map[string]any){
+  "metadata-fabricated-source-auth":func(b map[string]any){
+   b["metadata"].(map[string]any)["source_authenticated"]=true
+  },
+  "metadata-fabricated-execution-permit":func(b map[string]any){
+   b["metadata"].(map[string]any)["authorizes_execution"]=true
+  },
+  "metadata-fabricated-rca":func(b map[string]any){
+   b["metadata"].(map[string]any)["root_cause_verified"]=true
+  },
+  "metadata-fabricated-recovery":func(b map[string]any){
+   b["metadata"].(map[string]any)["recovery_verified"]=true
+  },
+  "metadata-fabricated-approval":func(b map[string]any){
+   b["metadata"].(map[string]any)["release_status"]="APPROVED"
+  },
+  "incident-fabricated-permit":func(b map[string]any){
+   b["incident"].(map[string]any)["authorizes_execution"]=true
+  },
+  "stale-global-observation-clock":func(b map[string]any){
+   b["metadata"].(map[string]any)["observed_at"]="2001-01-01T00:00:00Z"
+  },
+  "different-evidence-timestamp":func(b map[string]any){
+   b["evidence"].([]any)[0].(map[string]any)["timestamp"]="2001-01-01T00:00:00Z"
+  },
+  "different-source-attribute-timestamp":func(b map[string]any){
+   b["evidence"].([]any)[1].(map[string]any)["attributes"].(map[string]any)["observed_at"]="2001-01-01T00:00:00Z"
+  },
+ }
+ for name,change:=range attacks{
+  t.Run(name,func(t *testing.T){
+   forged:=rehashStructurallyValidBundle(t,bundlePath,change)
+   var stdout,stderr bytes.Buffer
+   if code:=run(reviewArgs(rawPath,planPath,forged),&stdout,&stderr);code!=3||
+    stdout.Len()!=0||!strings.Contains(stderr.String(),"UNKNOWN:"){
+    t.Fatalf("accepted SHA-valid authority claim or inconsistent observation clock: exit=%d stdout=%s stderr=%s",code,stdout.String(),stderr.String())
+   }
+  })
+ }
+}
