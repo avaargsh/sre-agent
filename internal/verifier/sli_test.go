@@ -3,6 +3,8 @@ package verifier
 import (
  "context"
  "encoding/json"
+ "encoding/base64"
+ "crypto/sha256"
  "fmt"
  "net/http"
  "net/http/httptest"
@@ -50,7 +52,11 @@ func TestHealthyRequiresSustainedLatencyAndTraffic(t *testing.T){
  got:=Assess(context.Background(),policy(srv.URL))
  if got.Status!=Healthy{t.Fatalf("status=%s reason=%s",got.Status,got.Reason)}
  if len(got.Evidence)!=3||got.Evidence[0].ResponseSHA256==""||got.Evidence[0].RawResponseBase64==""{t.Fatalf("source proof missing: %+v",got)}
- if len(*calls)!=3||(*calls)[0]!="GET /api/v1/query_range"||(*calls)[1]!="GET /api/v1/query_range"||(*calls)[2]!="GET /api/v1/query_range"{t.Fatalf("not exactly two readonly requests: %v",*calls)}
+ if len(*calls)!=3||(*calls)[0]!="GET /api/v1/query_range"||(*calls)[1]!="GET /api/v1/query_range"||(*calls)[2]!="GET /api/v1/query_range"{t.Fatalf("not exactly three readonly requests: %v",*calls)}
+ raw,err:=base64.StdEncoding.DecodeString(got.Evidence[0].RawResponseBase64)
+ if err!=nil{t.Fatal(err)}
+ digest:=sha256.Sum256(raw)
+ if fmt.Sprintf("%x",digest[:])!=got.Evidence[0].ResponseSHA256{t.Fatal("raw evidence digest mismatch")}
 }
 func TestUnhealthyWhenOneLatencySampleBreaches(t *testing.T){
  latency:=rangeResponse([]string{"0.12","0.15","0.6","0.16","0.18"},-1)
