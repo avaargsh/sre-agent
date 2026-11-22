@@ -735,3 +735,58 @@ or independently authenticated model source is asserted.
 
 Official PEFT references: https://huggingface.co/docs/peft/v0.17.0/en/package_reference/peft_model
 and https://huggingface.co/docs/peft/v0.17.0/en/tutorial/peft_model_config .
+
+
+## P0: loaded LoRA **tensor-bit** admission gate (2026-11-23)
+
+The pinned Adapter loader now adds a **post-PEFT-load check** before any
+Holdout generation. The previous path verified that
+`PeftModel.from_pretrained()` was called, but a mistaken runtime loader
+could still return the Base model with missing, inactive, merged or
+incorrectly loaded LoRA tensors. A successful Python function return is
+not proof that the intended Adapter was applied.
+
+For SFT/GRPO runs, the CUDA runner now:
+
+1. Calls `PeftModel.from_pretrained(..., is_trainable=False,
+   local_files_only=True, autocast_adapter_dtype=False)`. Disabling
+   automatic promotion of FP16/BF16 LoRA tensors to FP32 preserves the
+   checkpoint tensor dtype for the subsequent byte-exact check.
+2. Calls the supported `peft.get_peft_model_state_dict(model,
+   adapter_name="default", save_embedding_layers=False)` to read the
+   actually loaded PEFT parameters under their saved checkpoint keys.
+3. Obtains `peft.get_model_status(model)` and requires exactly one active
+   `default` LoRA Adapter, enabled and unmerged, with no trainable
+   parameters in inference mode and at least one Adapter layer.
+4. Compares the **entire exported parameter set**, each key, tensor shape,
+   dtype and exact contiguous raw bytes against the originally pinned,
+   independently SHA-checked Safetensors payload. Any omission, extra
+   tensor, stale/wrong bytes, unexpected type conversion or disabled
+   Adapter aborts before the first prompt is sent to the sampler. No
+   predictions or capture manifest are published on these errors.
+
+The gate is implemented in
+`agentic_aiops.grpo_adapter.verify_loaded_adapter_weights`.
+Its internal local result intentionally remains
+`model_runtime_independently_verified=false`,
+`model_attribution_verified=false` and
+`production_eligible=false`. It is a same-process defensive validation
+against silent Adapter no-op, not a cryptographic attestation of GPU
+execution. A compromised interpreter, malicious shared filesystem or
+changed PEFT source can still fake self-reported state.
+
+**Tests:** `test_grpo_adapter_postload.py` injects missing/extra LoRA
+tensors, wrong tensor bytes, wrong dtype/shape, inactive or merged LoRA
+and falsely trainable state, and requires fail-closed behavior. The
+end-to-end CPU fake loader tests also simulate `from_pretrained`
+returning a model while its exported LoRA state is empty: the runner
+must refuse sampling and leave no final prediction/manifest file.
+These tests do not import actual GPU weights.
+
+This mirrors the published PEFT checkpoint API semantics: saving strips
+the adapter name from the state_dict keys, and the
+`autocast_adapter_dtype` option defaults to true. The exact current
+package release remains **unlocked** in `pyproject.toml`, so a real
+version-pinned CUDA/PEFT smoke run is still required:
+https://huggingface.co/docs/peft/v0.17.0/package_reference/peft_model
+and https://huggingface.co/docs/peft/developer_guides/checkpoint .
