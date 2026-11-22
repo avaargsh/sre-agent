@@ -73,6 +73,8 @@ def main() -> None:
     # GPU/holdout verification exist, the entrypoint has NO promoted mode.
     if not args.lab_only:
         parser.error("--execute requires --lab-only; trusted training admission is not implemented")
+    if args.allow_tiny_lab and len(rows) >= 8:
+        parser.error("--allow-tiny-lab is restricted to fewer than 8 train episodes")
     if not args.allow_tiny_lab and len(rows) < 8:
         parser.error("at least 8 train episodes required without --allow-tiny-lab")
     baseline_audit = None
