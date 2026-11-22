@@ -8,6 +8,7 @@ on:
       - "internal/observe/**"
       - "internal/evidence/**"
       - "demo/k8s/**"
+      - "demo/go-observe/**"
       - "docs/go-readonly-golden.md"
       - ".github/workflows/go-readonly-kind.yml"
 
@@ -29,7 +30,7 @@ jobs:
       - name: Deploy disposable checkout and reader
         run: |
           kubectl apply -f demo/k8s/golden-stack.yaml
-          kubectl apply -f demo/k8s/sre-agent-readonly-rbac.yaml
+          kubectl apply -f demo/go-observe/sre-agent-readonly-rbac.yaml
           kubectl -n golden-demo rollout status deploy/checkout-api --timeout=180s
           kubectl -n golden-demo rollout status deploy/prometheus --timeout=180s
       - name: Prove least privilege

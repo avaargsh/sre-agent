@@ -129,3 +129,26 @@ func TestOldScrapeFailsClosedAlthoughQueryTimestampsAreCurrent(t *testing.T){
  got:=Assess(context.Background(),policy(srv.URL))
  if got.Status!=Unknown{t.Fatalf("accepted stale underlying scrape data: %+v",got)}
 }
+
+
+func TestWarnedOrPartialPrometheusResultFailsClosed(t *testing.T) {
+ // Prometheus-compatible backends may return HTTP 200/status success with
+ // warnings about partial data. The SLI Oracle cannot call this HEALTHY.
+ good:=rangeResponse([]string{"0.1","0.1","0.1","0.1","0.1"},-1)
+ for _,tc:=range []struct{name string;change func(map[string]any)}{
+  {"warnings",func(root map[string]any){root["warnings"]=[]string{"partial response due to unavailable store"}}},
+  {"partial-response",func(root map[string]any){root["isPartial"]=true}},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   var root map[string]any
+   if err:=json.Unmarshal([]byte(good),&root);err!=nil{t.Fatal(err)}
+   tc.change(root)
+   raw,err:=json.Marshal(root);if err!=nil{t.Fatal(err)}
+   srv,_:=serveRange(t,string(raw),good)
+   result:=Assess(context.Background(),policy(srv.URL))
+   if result.Status!=Unknown{
+    t.Fatalf("accepted non-authoritative partial SLI as %s: %+v",result.Status,result)
+   }
+  })
+ }
+}

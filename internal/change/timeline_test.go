@@ -101,3 +101,15 @@ func TestRejectUntrustedScopeWindowTransport(t *testing.T){
   if _,err:=Collect(context.Background(),c);err==nil{t.Fatalf("unsafe configuration accepted: %+v",c)}
  }
 }
+
+
+func TestCollectRejectsDuplicateNestedReplicaSetMetadataKeys(t *testing.T) {
+ raw:=rsJSON("2026-11-22T11:57:00Z")
+ broken:=strings.Replace(raw,`"controller":true`,`"controller":false,"controller":true`,1)
+ if broken==raw{t.Fatal("test setup failed")}
+ server,_:=serve(t,false,false,broken)
+ report,err:=Collect(context.Background(),config(server.URL))
+ if err==nil||report.Status=="OBSERVED"{
+  t.Fatalf("duplicate Kubernetes ownerReference controller key accepted: %+v %v",report,err)
+ }
+}
