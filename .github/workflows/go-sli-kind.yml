@@ -6,6 +6,7 @@ on:
     paths:
       - "cmd/sre-agent/**"
       - "internal/verifier/**"
+      - "internal/sourcejson/**"
       - "demo/k8s/golden-stack.yaml"
       - ".github/workflows/go-sli-kind.yml"
 
