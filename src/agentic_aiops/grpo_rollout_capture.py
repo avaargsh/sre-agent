@@ -24,6 +24,39 @@ _MAX_LINE_BYTES = 128 * 1024
 _MAX_COMPLETION_BYTES = 8192
 
 
+def validate_capture_inputs(
+    dataset: str | Path,
+    *,
+    expected_dataset_sha256: str,
+    model: str,
+    model_revision: str,
+    group_size: int,
+    seed: int,
+    max_new_tokens: int,
+) -> tuple[tuple[SREEpisode, ...], str]:
+    """Validate pinned dataset and bounded sampler config without output paths."""
+    if type(model) is not str or not _REPO.fullmatch(model):
+        raise ValueError("model must be an explicit Qwen/Qwen3-* repository ID")
+    if type(model_revision) is not str or not _SHA40.fullmatch(model_revision):
+        raise ValueError("model_revision must be a pinned lowercase 40-character commit")
+    if type(group_size) is not int or not 2 <= group_size <= 64:
+        raise ValueError("group_size must be in [2,64]")
+    if type(seed) is not int or not 0 <= seed <= 2**31 - 1:
+        raise ValueError("seed must fit a nonnegative 31-bit integer")
+    if type(max_new_tokens) is not int or not 32 <= max_new_tokens <= 192:
+        raise ValueError("max_new_tokens must be in [32,192]")
+    ds = Path(dataset)
+    raw = ds.read_bytes()
+    digest = _verify_pin(raw, expected_dataset_sha256, "dataset_sha256")
+    episodes = load_episodes(ds)
+    selected = tuple(ep for ep in episodes if ep.split == "train")
+    if not 1 <= len(selected) <= _MAX_GROUPS:
+        raise ValueError("train episode count must be in [1,128]")
+    if seed + len(selected) * group_size > 2**31:
+        raise ValueError("seed range overflows")
+    return selected, digest
+
+
 def prepare_capture(
     dataset: str | Path,
     *,
@@ -36,17 +69,7 @@ def prepare_capture(
     output: str | Path,
     manifest: str | Path,
 ) -> tuple[tuple[SREEpisode, ...], str]:
-    """Reject unpinned inputs, overwrite and invalid config *before* GPU load."""
-    if type(model) is not str or not _REPO.fullmatch(model):
-        raise ValueError("model must be an explicit Qwen/Qwen3-* repository ID")
-    if type(model_revision) is not str or not _SHA40.fullmatch(model_revision):
-        raise ValueError("model_revision must be a pinned lowercase 40-character commit")
-    if type(group_size) is not int or not 2 <= group_size <= 64:
-        raise ValueError("group_size must be in [2,64]")
-    if type(seed) is not int or not 0 <= seed <= 2**31 - 1:
-        raise ValueError("seed must fit a nonnegative 31-bit integer")
-    if type(max_new_tokens) is not int or not 32 <= max_new_tokens <= 192:
-        raise ValueError("max_new_tokens must be in [32,192]")
+    """Reject overwrites before GPU model loading; then verify inputs."""
     ds = Path(dataset)
     out = Path(output)
     meta = Path(manifest)
@@ -56,15 +79,11 @@ def prepare_capture(
         raise FileExistsError(f"output already exists: {out}")
     if meta.exists() or meta.is_symlink():
         raise FileExistsError(f"manifest already exists: {meta}")
-    raw = ds.read_bytes()
-    digest = _verify_pin(raw, expected_dataset_sha256, "dataset_sha256")
-    episodes = load_episodes(ds)
-    selected = tuple(ep for ep in episodes if ep.split == "train")
-    if not 1 <= len(selected) <= _MAX_GROUPS:
-        raise ValueError("train episode count must be in [1,128]")
-    if seed + len(selected) * group_size > 2**31:
-        raise ValueError("seed range overflows")
-    return selected, digest
+    return validate_capture_inputs(
+        ds, expected_dataset_sha256=expected_dataset_sha256,
+        model=model, model_revision=model_revision,
+        group_size=group_size, seed=seed, max_new_tokens=max_new_tokens,
+    )
 
 
 def capture_rollout_groups(
