@@ -10,7 +10,10 @@ G1–G2m release/attestation Draft stack and creates no release authorization.
   private Oracle truth; it is not a live Kubernetes command log.
 - The model receives only `alert` and an allowlisted, frozen observation list.
   The `oracle`, `split` and `fault_family` are never included in prompt text.
-- Fault families must not cross train/validation/test, and identical\n  normalized alert + observation content cannot cross splits even if family\n  names or evidence IDs are changed. This does not detect semantic near-duplicates.\n  Duplicate JSON keys,
+- Fault families must not cross train/validation/test, and identical
+  normalized alert + observation content cannot cross splits even if family
+  names or evidence IDs are changed. This does not detect semantic near-duplicates.
+  Duplicate JSON keys,
   unknown fields, invalid IDs, unknown tools, duplicate/forged evidence, and
   bad Oracle references fail closed.
 - Reward is **independent** of model-supplied tool-call count, latency,
@@ -54,20 +57,24 @@ unanswerable holdout; it tests plumbing, not the benefit of GRPO.
 pip install -e ".[train]"
 python scripts/train_sre_grpo.py \
   --dataset /path/to/private-versioned-episodes.jsonl \
-  --execute --model Qwen/Qwen3-0.6B \
+  --execute --lab-only --model Qwen/Qwen3-0.6B \
+  --baseline-rollouts /path/to/complete-baseline-rollouts.jsonl \
+  --expected-dataset-sha256 "$PINNED_DATASET_SHA256" \
+  --expected-rollouts-sha256 "$PINNED_ROLLOUTS_SHA256" \
   --output-dir /path/to/new-runs/sre-grpo-smoke \
   --max-steps 10 --num-generations 4
 ```
 
-The executable path requires a CUDA GPU, explicit model/output-dir, at least
-eight train episodes unless `--allow-tiny-lab` is specified, and uses a
-single-process LoRA GRPO config. It is **not** a GPU acceptance report. The
+The executable path requires a CUDA GPU, explicit `--lab-only`, model/output directory, and at least eight train episodes unless `--allow-tiny-lab` is specified. Non-tiny runs additionally require a complete independently SHA-pinned baseline rollout audit with nonconstant group rewards. Without this the script aborts before importing optional training libraries. This is a **conservative readiness gate**, not a claim that baseline rollouts came from an actual model. The trainer uses a single-process LoRA GRPO config. It is **not** a GPU acceptance report. The
 training script writes a manifest with data SHA, model, seed and actual
 dependency versions; `trainer_returned` is not an independent quality claim.
 
 The declared `.[train]` ranges target the TRL 0.25 interface but are not a
 hash-locked, independently verified environment. Pin the entire Python/PyTorch
-stack and tokenizer/model revision before reproducible comparisons. Qwen3 inputs use the explicit \`enable_thinking=False\` chat template. The\npreflight rejects any dataset whose rendered prompt would be truncated or\nwhose Oracle-backed valid JSON answer exceeds the completion budget. Validate\nthe actual tokenizer/model behavior on GPU before claiming a training result.
+stack and tokenizer/model revision before reproducible comparisons. Qwen3 inputs use the explicit `enable_thinking=False` chat template. The
+preflight rejects any dataset whose rendered prompt would be truncated or
+whose Oracle-backed valid JSON answer exceeds the completion budget. Validate
+the actual tokenizer/model behavior on GPU before claiming a training result.
 
 ## Next acceptance gates
 
@@ -241,3 +248,51 @@ The negative CI cases include mutated observer bytes, changed admin bytes,
 invalid diagnosis classification, changed episode/evaluation digests,
 ambiguous JSON keys, duplicate output, and attempted promotion to a
 model-visible positive Oracle.
+
+
+## GRPO group-variance preflight (P0, no GPU)
+
+`grpo_rollout_audit.py` audits frozen completions as complete **per-episode**
+GRPO groups. Each JSONL line must have exactly `episode_id` and
+`completions` (an array of precisely `--group-size` raw strings).
+Every `train` episode must have exactly one complete group; test/validation
+IDs, duplicate groups, missing train groups and invalid completions are rejected.
+
+For each candidate the audit **reuses the independent Oracle reward**
+(`score_completion`) rather than trusting a model-reported score. It reports
+`constant_reward_groups`, `nonconstant_reward_groups`, all-correct and
+all-incorrect group counts, mean reward and the fraction with nonconstant
+rewards. An all-correct group with rewards `[1,1,1,1]` is not a useful
+GRPO policy gradient signal; neither is `[-1,-1,-1,-1]`. A mixture of
+rewards is necessary for this style of group-relative optimization, but
+**not sufficient to show learning**.
+
+Example (provide actual externally pinned SHA256 digests, not values
+calculated by an untrusted rollout generator):
+
+```bash
+python scripts/audit_sre_grpo_rollouts.py \
+  --dataset /path/to/episodes.jsonl \
+  --rollouts /path/to/baseline-rollouts.jsonl \
+  --expected-dataset-sha256 "$PINNED_DATASET_SHA256" \
+  --expected-rollouts-sha256 "$PINNED_ROLLOUTS_SHA256" \
+  --group-size 4 --min-signal-fraction 0.25 --require-signal
+```
+
+The `--require-signal` CLI returns exit code 3 with `UNKNOWN` on missing
+or inadequate variance. The output intentionally includes
+`model_runtime_verified=false`, `reward_hacking_verified_absent=false`,
+`external_provenance_authenticated=false`. Synthetic or hand-written
+rollouts can test the scorer, but **cannot prove the model sampled them**.
+This command never trains, fetches model weights, reads Kubernetes or
+authorizes an actual deployment.
+
+**Training admission remains closed beyond lab mode.**
+`train_sre_grpo.py --execute` now requires explicit `--lab-only`; the
+separately named `--allow-tiny-lab` bypasses the minimum row count and
+baseline-only gate for a knowingly synthetic one-episode smoke experiment.
+It cannot produce an accepted training or production result. Real training
+admission still requires independent data issuer authentication, an immutable
+dataset provenance registry, frozen model/tokenizer/TRL versions, actual
+GPU-weight-update evidence and blind holdout A/B. A file hash alone is
+not reviewer authorization.
