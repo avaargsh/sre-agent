@@ -41,6 +41,19 @@ paths="$(IFS=,; echo "${sources[*]}")"
   --episode np-calico-egress-001 \
   --out "$ROOT/source-manifest.json"
 
+# This preregistered, bounded readiness preflight is part of the original
+# incident record. Releasing only the three favorable phase logs would omit
+# failed cold-start attempts and permit selective-evidence reporting.
+python3 - "$ROOT/source-manifest.json" <<'PY'
+import json,sys
+m=json.load(open(sys.argv[1],encoding="utf-8"))
+indexed={f["path"] for f in m["files"]}
+required={"preflight-admin.log","preflight-pod.json"}
+assert required.issubset(indexed),(
+  f"FAIL CLOSED: omitted unscored startup evidence: {sorted(required-indexed)}")
+print("PASS: signer index contains complete unscored preflight evidence")
+PY
+
 # This key is a CI test fixture and is never uploaded. Publishing a public
 # key alongside an attestation DOES NOT make it independently trusted.
 openssl genpkey -algorithm Ed25519 -out "$KEY"
