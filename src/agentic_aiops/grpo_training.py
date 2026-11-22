@@ -238,7 +238,11 @@ def score_completion(episode: SREEpisode, completion: Any) -> float:
     """
     if type(completion) is not str:
         return -1.0
-    if len(completion.encode("utf-8")) > _MAX_COMPLETION_BYTES:
+    try:
+        completion_bytes = completion.encode("utf-8")
+    except UnicodeEncodeError:
+        return -1.0
+    if len(completion_bytes) > _MAX_COMPLETION_BYTES:
         return -1.0
     try:
         raw = _fields(_strict_json(completion), {
