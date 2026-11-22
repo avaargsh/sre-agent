@@ -140,3 +140,32 @@ func TestDNSProbeRejectsMalformedOrAmbiguousJSON(t *testing.T){
   if _,err:=Diagnose([]byte(s));err==nil{t.Fatalf("accepted malformed probe %s",s)}
  }
 }
+
+func TestDirectIPRetryHistoryIsAuditableAndConsistent(t *testing.T){
+ e,_,b:=fixture(t)
+ raw,err:=base64.StdEncoding.DecodeString(e.BrokenProbe.RawResponseBase64)
+ if err!=nil{t.Fatal(err)}
+ var probe Probe
+ if err:=json.Unmarshal(raw,&probe);err!=nil{t.Fatal(err)}
+ probe.DirectHTTPAttempts=[]int{0,0,200}
+ probe.DirectHTTPErrors=[]string{"connection refused","timeout",""}
+ replay,_:=json.Marshal(probe)
+ good,err:=Diagnose(replay)
+ if err!=nil||good.Classification!="DNS_FAILURE_WITH_IP_REACHABLE"{
+  t.Fatalf("bounded convergence trace should allow final successful direct IP %+v %v",good,err)
+ }
+ for name,edit:=range map[string]func(*Probe){
+  "inconsistent-final-status":func(p *Probe){p.DirectHTTPAttempts=[]int{0,0}},
+  "overlong-attempt-history":func(p *Probe){p.DirectHTTPAttempts=make([]int,20)},
+  "invalid-intermediate-status":func(p *Probe){p.DirectHTTPAttempts=[]int{999,200}},
+  "inconsistent-errors-length":func(p *Probe){p.DirectHTTPErrors=[]string{"only one"}},
+ }{
+  t.Run(name,func(t *testing.T){
+   test:=probe
+   edit(&test)
+   data,_:=json.Marshal(test)
+   if _,err:=Diagnose(data);err==nil{t.Fatal("accepted malformed convergence history")}
+  })
+ }
+ _=b
+}
