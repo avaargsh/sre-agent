@@ -81,16 +81,28 @@ EOF
   snapshot "$stage"
 }
 
-# Admin baseline: prove the connection is functioning before any policy
-# is present. The first Pod cannot be falsely assumed to be ready.
-make_probe_pod before
-python3 - "$ROOT/before-admin.log" "$SERVICE_IP" <<'PY'
-import json,sys
-d=json.load(open(sys.argv[1]))
-assert d['dns_ok'] is True and sys.argv[2] in d['dns_addresses'],d
-assert d['name_http_status']==200 and d['direct_http_attempts']==[200,200,200],d
-print('PASS: actual healthy DNS and three direct-IP HTTP 200s, before injection')
-PY
+# A Deployment may be Ready before Calico/Service dataplane is fully
+# converged. Require a truly healthy pre-injection control rather than
+# diagnosing transient cluster startup as the NetworkPolicy fault.
+# Only the BEFORE phase can be retried. Failed original Pod/log snapshots
+# are retained, never silently discarded; the final accepted baseline
+# remains the same strict healthy Oracle input. Do not retry during/after.
+for startup_attempt in 1 2 3 4 5; do
+  make_probe_pod before
+  if python3 demo/go-networkpolicy/check_healthy.py "$ROOT/before-admin.log" "$SERVICE_IP"; then
+    echo "PASS: fully healthy pre-fault baseline confirmed at attempt $startup_attempt"
+    break
+  fi
+  cp "$ROOT/before-admin.log" "$ROOT/baseline-startup-rejected-$startup_attempt.log"
+  cp "$ROOT/before-pod.json" "$ROOT/baseline-startup-rejected-$startup_attempt-pod.json"
+  if [[ "$startup_attempt" -eq 5 ]]; then
+    echo "FAIL CLOSED: no fully healthy baseline after bounded startup convergence attempts" >&2
+    exit 1
+  fi
+  echo "INFO: baseline cluster dataplane not ready yet; preserving raw failed attempt $startup_attempt" >&2
+  kubectl -n golden-demo delete pod np-before --wait=true
+  sleep 4
+done
 
 # ONLY the CI test admin mutates NetworkPolicy. DNS TCP/UDP port 53 remains
 # allowed; the Service, EndpointSlices and backend are not modified.
