@@ -51,6 +51,13 @@ jobs:
           kubectl -n kube-system get ds calico-node -o wide
       - name: Verify real NetworkPolicy deny, recovered HTTP, and offline Oracle
         run: bash demo/go-networkpolicy/run-kind.sh
+      # Pull-request GITHUB_SHA can be a synthetic merge commit. The trust
+      # contract indexes the exact PR head, supplied independently by Actions.
+      # This self-issued CI key proves mechanics only, not signer authority.
+      - name: Test lab-only Ed25519 source index and external-trust verifier
+        env:
+          SRE_SOURCE_HEAD: ${${ github.event.pull_request.head.sha || github.sha }}
+        run: bash demo/go-networkpolicy/test-evidence-attestation.sh
       - name: Upload raw Calico + original lab source evidence, including failures
         if: always()
         uses: actions/upload-artifact@v4
