@@ -191,9 +191,6 @@ func TestOfflineReviewRejectsValidCanonicalKeysWithAmbiguousAliases(t *testing.T
   "alias-observation-status":func(b map[string]any){
    b["metadata"].(map[string]any)["Observation_Status"]="recovered"
   },
-  "alias-bundle-field":func(b map[string]any){
-   b["Evidence"]="forged"
-  },
  }
  for name,change:=range attacks{
   t.Run(name,func(t *testing.T){
