@@ -38,12 +38,18 @@ func verifyReadOnlyEvidenceLineage(item map[string]any,source string,attrs map[s
   // These are the exact fields emitted by readKubernetes. An attacker can
   // rehash both evidence_id and bundle digest, so presence and value checks
   // must independently fail closed rather than relying on checksum mismatch.
-  for _,key:=range []string{"generation","observed_generation"}{
-   raw:=exactText(attrs,key)
-   number,err:=strconv.ParseInt(raw,10,64)
-   if err!=nil||number<0||strconv.FormatInt(number,10)!=raw {
-    return fmt.Errorf("invalid Kubernetes %s",key)
-   }
+  generationRaw:=exactText(attrs,"generation")
+  generation,err:=strconv.ParseInt(generationRaw,10,64)
+  if err!=nil||generation<0||strconv.FormatInt(generation,10)!=generationRaw {
+   return fmt.Errorf("invalid Kubernetes generation")
+  }
+  observedRaw:=exactText(attrs,"observed_generation")
+  observed,err:=strconv.ParseInt(observedRaw,10,64)
+  if err!=nil||observed<0||strconv.FormatInt(observed,10)!=observedRaw {
+   return fmt.Errorf("invalid Kubernetes observed_generation")
+  }
+  if observed>generation {
+   return fmt.Errorf("Kubernetes observed_generation exceeds metadata generation")
   }
   if exactText(attrs,"pod_list_resource_version")==""{
    return fmt.Errorf("missing Kubernetes Pod list resource version")
