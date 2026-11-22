@@ -17,6 +17,7 @@ from pathlib import Path
 from agentic_aiops.grpo_training import (
     load_episodes,
     make_trl_reward,
+    qwen3_chat_rows,
     training_rows,
 )
 
@@ -67,6 +68,7 @@ def main() -> None:
         from datasets import Dataset
         from peft import LoraConfig
         from trl import GRPOConfig, GRPOTrainer
+        from transformers import AutoTokenizer
     except ImportError as exc:
         parser.error(f"missing train dependency: {exc}; install .[train]")
     if not torch.cuda.is_available():
@@ -75,6 +77,8 @@ def main() -> None:
     # The reward closure contains TRAIN Oracle records only; no holdout keys.
     training_episodes = tuple(e for e in episodes if e.split == "train")
     reward_fn = make_trl_reward(training_episodes)
+    tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=False)
+    model_rows = qwen3_chat_rows(tokenizer, training_episodes)
     torch.manual_seed(42)
     bf16 = torch.cuda.is_bf16_supported()
 
@@ -97,7 +101,8 @@ def main() -> None:
     trainer = GRPOTrainer(
         model=args.model,
         args=training_args,
-        train_dataset=Dataset.from_list(rows),
+        train_dataset=Dataset.from_list(model_rows),
+        processing_class=tokenizer,
         reward_funcs=reward_fn,
         peft_config=LoraConfig(
             r=8, lora_alpha=16, lora_dropout=0.05,
