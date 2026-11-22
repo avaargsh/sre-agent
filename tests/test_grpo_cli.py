@@ -113,3 +113,41 @@ def test_non_tiny_lab_requires_externally_pinned_baseline(tmp_path):
     assert "--allow-tiny-lab" in bypass.stderr
     assert "fewer than 8" in bypass.stderr
     assert not (tmp_path / "sre-grpo-run-manifest.json").exists()
+
+
+def test_frozen_sha_applies_even_to_inspect_mode():
+    result = invoke(
+        "train_sre_grpo.py", "--dataset", DATASET,
+        "--expected-dataset-sha256", "0" * 64,
+    )
+    assert result.returncode != 0
+    assert "dataset_sha256" in result.stderr
+
+
+def test_cuda_training_refuses_mutable_model_revision_before_dependencies(tmp_path):
+    base = (
+        "--execute", "--lab-only", "--allow-tiny-lab", "--dataset", DATASET,
+        "--model", "Qwen/Qwen3-0.6B", "--output-dir", tmp_path / "experiment",
+    )
+    missing = invoke("train_sre_grpo.py", *base)
+    assert missing.returncode != 0
+    assert "--model-revision" in missing.stderr
+    assert not (tmp_path / "experiment").exists()
+    mutable = invoke("train_sre_grpo.py", *base, "--model-revision", "main")
+    assert mutable.returncode != 0
+    assert "40" in mutable.stderr or "revision" in mutable.stderr.lower()
+    assert not (tmp_path / "experiment").exists()
+
+
+def test_lab_training_cannot_use_existing_output_directory(tmp_path):
+    output = tmp_path / "existing"
+    output.mkdir()
+    (output / "marker").write_text("protected")
+    result = invoke(
+        "train_sre_grpo.py", "--execute", "--lab-only", "--allow-tiny-lab",
+        "--dataset", DATASET, "--model", "Qwen/Qwen3-0.6B",
+        "--model-revision", "a" * 40, "--output-dir", output,
+    )
+    assert result.returncode != 0
+    assert "output" in result.stderr.lower() or "exist" in result.stderr.lower()
+    assert (output / "marker").read_text() == "protected"
