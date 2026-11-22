@@ -18,7 +18,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 28
     steps:
+      # The manifest binds to the exact PR head, so run this evidence
+      # workflow from that exact immutable ref, not pull_request's synthetic
+      # merge ref. Other workflows still exercise merge compatibility.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
