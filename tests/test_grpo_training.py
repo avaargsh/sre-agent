@@ -77,6 +77,14 @@ def test_correct_abstention_when_oracle_unanswerable(tmp_path):
                                         stop="verified")) < 0
 
 
+def test_invalid_unicode_completion_is_negative_reward_not_trainer_exception(tmp_path):
+    ep, = load_episodes(write_jsonl(tmp_path, [episode()]))
+    # Python strings can contain lone surrogate code points even though they
+    # cannot be encoded as UTF-8. A malformed model completion must not abort
+    # the reward callback for the whole GRPO batch.
+    assert score_completion(ep, "\\ud800") == -1.0
+
+
 def test_prompt_never_exposes_oracle_or_split(tmp_path):
     ep, = load_episodes(write_jsonl(tmp_path, [episode()]))
     prompt = build_prompt(ep)
