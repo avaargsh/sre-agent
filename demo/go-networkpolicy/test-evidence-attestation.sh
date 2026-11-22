@@ -64,6 +64,10 @@ verify() {
 }
 verify "$ROOT" "$PUBLIC" "$SRE_SOURCE_HEAD"
 
+# Never permit a verifier to use a public key shipped inside the same
+# evidence bundle as its own trust anchor (a tautological self-signature).
+fail_embedded_key_expected=1
+
 fail_closed() {
   local reason="$1"
   shift
@@ -81,6 +85,7 @@ fail_closed() {
 cp -a "$ROOT/." "$COPIED/"
 printf '\n# tampered client log\n' >> "$COPIED/during-admin.log"
 fail_closed modified-source verify "$COPIED" "$PUBLIC" "$SRE_SOURCE_HEAD"
+fail_closed bundled-self-issued-key verify "$ROOT" "$ROOT/LAB-ONLY-UNTRUSTED-public-key.pem" "$SRE_SOURCE_HEAD"
 
 # Verification must reject a different exact commit, not merely branch name.
 fail_closed incorrect-exact-head verify "$ROOT" "$PUBLIC" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
