@@ -4,6 +4,7 @@ CPU-only synthetic fixtures verify accounting, never real-model identity.
 """
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -292,7 +293,6 @@ def test_pinned_compare_does_not_trust_rehashed_bad_prediction(tmp_path):
 def test_hardlinked_model_predictions_cannot_impersonate_distinct_sources(tmp_path):
     dataset, files, ds_sha, pins = fixture(tmp_path)
     files["SFT"].unlink()
-    import os
     os.link(files["Base"], files["SFT"])
     # A matching caller-supplied SHA must not turn the same inode into
     # two independent model prediction files.
@@ -315,6 +315,21 @@ def test_paired_holdout_rejects_symlinked_source_even_with_valid_sha(
     target.rename(renamed)
     target.symlink_to(renamed)
     with pytest.raises(ValueError, match="symlink"):
+        compare_pinned_holdout(
+            dataset, prediction_files=files,
+            expected_dataset_sha256=ds_sha,
+            expected_prediction_sha256=pins,
+        )
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO requires POSIX")
+def test_paired_holdout_rejects_fifo_before_reading_or_hashing(tmp_path):
+    dataset, files, ds_sha, pins = fixture(tmp_path)
+    files["SFT"].unlink()
+    os.mkfifo(files["SFT"])
+    # A FIFO read would block indefinitely. Preflight must reject it before
+    # invoking the bounded reader.
+    with pytest.raises(ValueError, match="regular files"):
         compare_pinned_holdout(
             dataset, prediction_files=files,
             expected_dataset_sha256=ds_sha,
