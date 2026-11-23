@@ -19,7 +19,9 @@ concurrency:
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.11", "3.12"]
     steps:
@@ -29,4 +31,16 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install -U pip
       - run: pip install -e ".[dev]"
-      - run: pytest -q
+      - name: Exact-commit Python test and evidence manifest
+        run: |
+          python scripts/verify_exact_tree.py \
+            --repo . --expected-sha "${{ github.sha }}" \
+            --scope python --expected-python "${{ matrix.python-version }}" \
+            --out-dir "${{ runner.temp }}/sre-exact-python-${{ matrix.python-version }}"
+      - name: Upload exact-commit Python proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sre-exact-python-${{ matrix.python-version }}-${{ github.sha }}
+          path: ${{ runner.temp }}/sre-exact-python-${{ matrix.python-version }}/
+          if-no-files-found: warn
