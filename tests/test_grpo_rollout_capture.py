@@ -299,7 +299,11 @@ def test_competing_manifest_created_during_sampling_preserved_on_failure(
             model="Qwen/Qwen3-0.6B", model_revision=REV,
         )
     assert manifest.read_bytes() == b"independent-manifest"
-    assert not output.exists()
+    # The publisher cannot atomically link two distinct final files. A
+    # failed second link leaves an unpaired rollout rather than risking
+    # deletion of a concurrent writer after a separate lstat() check.
+    assert output.exists()
+    assert len(json.loads(output.read_text())["completions"]) == 4
     assert not list(tmp_path.glob(".sre-grpo-*.stage"))
 
 def test_capture_rejects_symlink_dataset_before_sampler(tmp_path):
@@ -377,4 +381,40 @@ def test_capture_fsync_error_leaves_no_published_outputs(tmp_path, monkeypatch):
     assert calls, "must exercise a real staging file fsync"
     assert not (tmp_path / "out.jsonl").exists()
     assert not (tmp_path / "capture-manifest.json").exists()
+    assert not list(tmp_path.glob(".sre-grpo-*.stage"))
+
+
+def test_manifest_collision_never_unlinks_any_published_rollout(
+    tmp_path, monkeypatch
+):
+    """An lstat-then-unlink rollback could delete a competing replacement."""
+    dataset, sha = dataset_file(tmp_path)
+    output = tmp_path / "out.jsonl"
+    manifest = tmp_path / "capture.json"
+    original_unlink = Path.unlink
+
+    def forbid_unlink(self, *args, **kwargs):
+        if self == output:
+            raise AssertionError(
+                "never unlink a final rollout after its identity check: "
+                "another writer may have replaced the path"
+            )
+        return original_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", forbid_unlink)
+
+    def competing_sampler(prompt, seed):
+        if not manifest.exists():
+            manifest.write_bytes(b"competing-writer-manifest")
+        return "{}"
+
+    with pytest.raises(FileExistsError):
+        capture_rollout_groups(
+            dataset, expected_dataset_sha256=sha, output=output,
+            manifest=manifest, tokenizer=ToyTokenizer(),
+            sampler=competing_sampler,
+            model="Qwen/Qwen3-0.6B", model_revision=REV,
+        )
+    assert manifest.read_bytes() == b"competing-writer-manifest"
+    assert output.exists(), "orphan rollout is safer than a racy delete"
     assert not list(tmp_path.glob(".sre-grpo-*.stage"))
