@@ -163,6 +163,7 @@ func readKubernetes(ctx context.Context,hc *http.Client,u *url.URL,c Config,when
  path:="/apis/apps/v1/namespaces/"+c.Namespace+"/deployments/"+c.Deployment
  if err:=getJSON(ctx,hc,u,path,c.KubernetesBearerToken,&d);err!=nil{return nil,err}
  if d.Metadata.Name!=c.Deployment||d.Metadata.Namespace!=c.Namespace||d.Metadata.UID==""||d.Metadata.ResourceVersion==""||d.Spec.Replicas==nil||len(d.Spec.Selector.MatchLabels)==0||len(d.Spec.Selector.MatchExpressions)>0{return nil,unknownf("deployment identity or selector missing")}
+ if err:=validateDeploymentCounters(d.Metadata.Generation,d.Status.ObservedGeneration,*d.Spec.Replicas,d.Status.ReadyReplicas);err!=nil{return nil,unknownf("invalid Deployment counters: %v",err)}
  selectors:=make([]string,0,len(d.Spec.Selector.MatchLabels))
  for key,val:=range d.Spec.Selector.MatchLabels{
   if !selectorLabelOK(key,val){return nil,unknownf("unsafe deployment label selector")}
