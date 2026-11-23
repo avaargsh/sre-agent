@@ -4,7 +4,7 @@ Thanks for contributing. These repositories are engineering reference implementa
 
 ## Workflow
 
-1. Open an issue for substantial behavior or architecture changes.
+1. Describe substantial behavior or architecture changes in a focused draft PR (repository Issues may be disabled); include a migration plan and the authority boundary.
 2. Create a focused branch and keep changes small enough to review.
 3. Add or update tests for behavior changes.
 4. Run the repository test suite locally.
