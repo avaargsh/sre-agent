@@ -193,6 +193,33 @@ Combining multiple imported Episodes additionally requires the core
 `load_episodes` split-leakage validation. **No automatic training
 admission, SRE accuracy or production authorization follows from import.**
 
+### Offline three-way Holdout comparison (CPU-only)
+
+`scripts/compare_sre_grpo_holdout.py` re-evaluates the **same** frozen
+test/validation Episode IDs against three separately SHA256-pinned predictions
+files labeled Base, SFT and GRPO. Inputs are read at most 4 MiB + 1 byte
+each, hashed and decoded from the **same bytes**, and any missing/extra
+prediction or cross-split alias fails closed. The report contains matched
+wins/losses/ties and a descriptive paired sign-test value; it does **not**
+trust a model-supplied reward or claimed accuracy.
+
+```bash
+python scripts/compare_sre_grpo_holdout.py \
+  --dataset /reviewed/episodes.jsonl \
+  --expected-dataset-sha256 "$DATASET_SHA256" \
+  --base /captures/base.jsonl --base-sha256 "$BASE_SHA256" \
+  --sft /captures/sft.jsonl --sft-sha256 "$SFT_SHA256" \
+  --grpo /captures/grpo.jsonl --grpo-sha256 "$GRPO_SHA256" \
+  --split test
+```
+
+All pins must come from an independent review process, not be computed
+from an untrusted candidate at admission time. These role labels and pinned
+bytes **do not** authenticate the actual model, checkpoint, training step,
+data issuer, or captured inference runtime. The report always keeps
+`superiority_claim_authorized=false` and `production_eligible=false`.
+Evidence-chain attribution and actual GPU training remain unmerged in #11.
+
 ## Development
 
 ```bash
