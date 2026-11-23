@@ -15,17 +15,24 @@ permissions:
 jobs:
   go-contracts:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - name: Go unit tests with race detector
-        run: go test -race ./...
-      - name: Go static analysis
-        run: go vet ./...
-      - name: Build Go CLI
-        run: go build ./cmd/sre-agent
-      - name: Prove legacy benchmark readability
-        run: go run ./cmd/sre-agent verify-bundle --scenario --file benchmarks/scenarios/checkout-latency.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Exact-commit Go race/vet/build/bundle and evidence
+        run: |
+          python scripts/verify_exact_tree.py \
+            --repo . --expected-sha "${{ github.sha }}" \
+            --scope go --out-dir "${{ runner.temp }}/sre-exact-go"
+      - name: Upload exact-commit Go proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sre-exact-go-${{ github.sha }}
+          path: ${{ runner.temp }}/sre-exact-go/
+          if-no-files-found: warn
