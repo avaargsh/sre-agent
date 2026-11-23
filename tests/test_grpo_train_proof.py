@@ -75,9 +75,9 @@ class Model:
 def capture(changed=False):
     params = [
         ("base.weight", Parameter(b"base", requires_grad=False)),
-        ("model.layers.0.q_proj.lora_A.default.weight", Parameter(b"first")),
+        ("model.layers.0.q_proj.lora_A.default.weight", Parameter(b"first000")),
         ("model.layers.0.q_proj.lora_B.default.weight",
-         Parameter(b"second+" if changed else b"second")),
+         Parameter(b"second01" if changed else b"second00")),
     ]
     return snapshot_lora_parameters(
         Model(params), tensor_bytes=lambda param: param.content,
@@ -115,8 +115,8 @@ def test_no_trainable_lora_weights_or_non_adapter_weights_rejected():
     for params, reason in [
         ([("base.weight", Parameter(b"0", requires_grad=False))], "LoRA"),
         ([("base.weight", Parameter(b"0"))], "non-LoRA"),
-        ([("model.q.lora_A.default.weight", Parameter(b"0")),
-          ("model.q.lora_A.default.weight", Parameter(b"1"))], "duplicate"),
+        ([("model.q.lora_A.default.weight", Parameter(b"00000000")),
+          ("model.q.lora_A.default.weight", Parameter(b"11111111"))], "duplicate"),
     ]:
         with pytest.raises(ValueError, match=reason):
             snapshot_lora_parameters(
@@ -127,8 +127,8 @@ def test_no_trainable_lora_weights_or_non_adapter_weights_rejected():
 def test_different_lora_parameter_names_or_shapes_cannot_fake_delta():
     before = capture()
     params = [
-        ("model.layers.0.q_proj.lora_A.default.weight", Parameter(b"first")),
-        ("model.layers.0.v_proj.lora_B.default.weight", Parameter(b"second+")),
+        ("model.layers.0.q_proj.lora_A.default.weight", Parameter(b"first000")),
+        ("model.layers.0.v_proj.lora_B.default.weight", Parameter(b"second01")),
     ]
     after = snapshot_lora_parameters(
         Model(params), tensor_bytes=lambda param: param.content
@@ -137,7 +137,7 @@ def test_different_lora_parameter_names_or_shapes_cannot_fake_delta():
         verify_local_lora_update(before, after, global_step=1, max_steps=10)
     params = [
         ("model.layers.0.q_proj.lora_A.default.weight", Parameter(b"first", shape=(4, 1))),
-        ("model.layers.0.q_proj.lora_B.default.weight", Parameter(b"second+")),
+        ("model.layers.0.q_proj.lora_B.default.weight", Parameter(b"second01")),
     ]
     after = snapshot_lora_parameters(
         Model(params), tensor_bytes=lambda param: param.content
