@@ -135,6 +135,38 @@ M1 live software acceptance is verified on pinned public mainline commits: the f
 The reference slice intentionally stays narrow: Kubernetes workload degradation and bounded scale remediation. Future experiments can cover GPU/NCCL/RDMA incidents, error-budget burn and change regression without changing the control-plane boundaries demonstrated here.
 
 
+## Experimental CPU-only SRE Episode / Oracle contract
+
+The `agentic_aiops.grpo_training` and `agentic_aiops.grpo_eval` modules
+provide a **read-only, pure-Python lab contract** for frozen Episodes,
+private Oracle labels, evidence-gated diagnostic reward, and independent
+holdout scoring. They add **no** model runtime, GPU training, Kubernetes write
+permission, authenticated evidence issuer, or production release authority.
+
+The Episode parser refuses duplicate JSON keys, invalid or non-UTF8 prompt
+text, cross-split exact evidence leakage, unsupported tools, excessive JSON
+nesting, and oversized files. The public holdout evaluator refuses repeated
+Episode IDs (even across splits), missing/extra predictions and invalid
+candidate JSON. The model prompt intentionally excludes private Oracle truth.
+
+```bash
+pytest -q tests/test_grpo_training.py tests/test_grpo_dataset_unicode.py \
+  tests/test_grpo_json_nesting.py tests/test_grpo_core_holdout.py
+python - <<'PY'
+from agentic_aiops.grpo_training import load_episodes
+from agentic_aiops.grpo_eval import load_predictions, evaluate_holdout
+episodes = load_episodes("benchmarks/grpo/synthetic-episodes.jsonl")
+predictions = load_predictions("benchmarks/grpo/synthetic-predictions.jsonl")
+print(evaluate_holdout(episodes, predictions, split="test"))
+PY
+```
+
+The synthetic fixture contains only one unanswerable holdout example.
+A high score on this fixture tests the **scoring contract**, not GRPO training,
+true root-cause quality, external evidence provenance, Base/SFT/GRPO superiority
+or production suitability. GPU/model training, Adapter evidence and more
+sophisticated holdout validation remain experimental in PR #11.
+
 ## Development
 
 ```bash
