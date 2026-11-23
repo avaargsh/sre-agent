@@ -65,11 +65,42 @@ def _reject_constant(value: str) -> None:
     raise ValueError(f"non-finite JSON value: {value}")
 
 
+_MAX_JSON_DEPTH = 64
+
+
+def _limit_json_nesting(data: str) -> None:
+    """Reject adversarial container depth before Python's recursive decoder.
+
+    The scanner only counts brackets outside quoted JSON strings, including
+    escaped quotes and backslashes. json.loads remains the syntax authority.
+    """
+    depth = 0
+    quoted = False
+    escaped = False
+    for char in data:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+        elif char in "[{":
+            depth += 1
+            if depth > _MAX_JSON_DEPTH:
+                raise ValueError("JSON nesting exceeds 64 levels")
+        elif char in "]}":
+            depth -= 1
+
+
 def _strict_json(data: str) -> Any:
+    _limit_json_nesting(data)
     try:
         return json.loads(data, object_pairs_hook=_object_pairs,
                           parse_constant=_reject_constant)
-    except (json.JSONDecodeError, UnicodeError) as exc:
+    except (json.JSONDecodeError, UnicodeError, RecursionError) as exc:
         raise ValueError("invalid JSON") from exc
 
 
