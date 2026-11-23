@@ -408,6 +408,33 @@ nonzero (`UNKNOWN`). The receipt always keeps
 and `external_provenance_authenticated=false`. This is a data-side
 diagnostic tool only: no GPU training, optimizer attestation, real SRE
 quality proof, or production release authorization is provided.
+### CPU-only LoRA local parameter delta and frozen Episode evidence
+
+`agentic_aiops.grpo_train_proof` provides a bounded, **read-only** contract
+for (1) hashing and parsing the **same** frozen Episode JSONL bytes,
+and (2) capturing a local trainable LoRA parameter snapshot before and
+after an experimental step. External dataset SHA256 pins must be supplied
+for independently reviewed input provenance; generating a digest locally
+does not authenticate the data owner.
+
+The tensor serializer supplied by the caller must produce contiguous
+**exact raw bytes** with `numel × dtype_bytes` size, not rounded values,
+string repr, or a reshaped buffer. Currently accepted dtypes are
+`torch.float16`, `torch.bfloat16` and `torch.float32`. Trainable weight
+names must use valid `.lora_A[.default].weight` /
+`.lora_B[.default].weight` pairs for each LoRA module, with unique saved
+slots. Empty or missing pairs, mismatched bytes, invalid shapes, unknown
+dtypes or fingerprint metadata are rejected. The input source must be
+a regular non-symlink file and is bounded before allocation.
+
+The returned `sre.grpo.local-lora-update/v1` receipt compares names,
+layouts and SHA256 fingerprints and intentionally sets
+`model_runtime_independently_verified=false`,
+`training_admission_authorized=false`, and `production_eligible=false`.
+A self-reported parameter delta **does not establish** a real optimizer
+step, externally attested GPU run, saved Adapter match, improvement on
+blind SRE holdouts or production permission. GPU/PEFT/TRL model execution
+and independent weight provenance stay in Draft PR #11.
 ## Development
 
 ```bash
