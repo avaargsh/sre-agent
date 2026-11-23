@@ -135,6 +135,13 @@ M1 live software acceptance is verified on pinned public mainline commits: the f
 The reference slice intentionally stays narrow: Kubernetes workload degradation and bounded scale remediation. Future experiments can cover GPU/NCCL/RDMA incidents, error-budget burn and change regression without changing the control-plane boundaries demonstrated here.
 
 
+## Experimental SRE GRPO offline training
+
+An opt-in, read-only SRE Episode/Oracle reward and Qwen3 training contract
+lives in [GRPO Offline Training](docs/grpo-offline-training.md).
+It includes a frozen-scenario SHA-pinned importer and independent holdout replay.
+**No real Qwen3 CUDA training or production causality has been accepted.**
+
 ## Development
 
 ```bash
