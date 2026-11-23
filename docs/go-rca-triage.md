@@ -1,6 +1,6 @@
 # G2c — Evidence-linked competing hypothesis triage (preview)
 
-This implementation is an **offline, read-only citation gate**. It does **not** independently establish a root cause, verify an Agent action, authenticate an API source, authorize any write, or declare incident recovery. The PR remains Draft.
+This implementation is an **offline, read-only citation gate**. It does **not** independently establish a root cause, verify an Agent action, authenticate an API source, authorize any write, or declare incident recovery. This Go review component is integrated into the development branch; integration does not mean production RCA or remediation readiness.
 
 ## Contract
 
@@ -27,9 +27,9 @@ A valid SHA-256 detects accidental or uncoordinated changes to raw bytes **but i
 
 ## G2d — Externally pinned review policy
 
-`review-rca` now **requires** both `--policy FILE` and `--policy-sha256 PIN`, independently obtained from the operator's trusted configuration/approval channel. The checker binds exact Deployment namespace/name/UID, the three PromQL strings in their respective latency/traffic/freshness roles, all SLI thresholds, sample step and window duration. A mismatched policy pin, duplicate JSON key, unknown JSON field or inconsistent source query fails closed as `UNKNOWN` (exit 3, no report).
+`review-rca` now **requires** both `--policy FILE` and `--policy-sha256 PIN`, independently obtained from the operator's trusted configuration/approval channel. The checker binds exact Deployment namespace/name/UID, the three PromQL strings in their respective latency/traffic/freshness roles, all SLI thresholds, sample step and window duration. A mismatched policy pin, exact duplicate JSON key, unknown JSON field or inconsistent source query fails closed as `UNKNOWN` (exit 3, no report). **Known gap on the pinned main baseline:** Go's case-insensitive struct decoder may still accept differently cased aliases; [PR #43](https://github.com/avaargsh/sre-agent/pull/43) adds explicit canonical-key rejection and regression tests, pending exact-head verification.
 
-The policy is an explicit flat `sre.rca-policy/v1` JSON object. Example for a particular Deployment UID (replace with a separately observed authoritative UID):
+The policy is an explicit flat `sre.rca-policy/v1` JSON object. The contract requires the **exact lowercase snake_case keys** shown below; differently cased aliases are invalid even when a SHA-256 digest is recomputed over the modified bytes. Until the PR #43 fix is verified and merged, the implementation must not be advertised as enforcing this canonical-key rule. A policy checksum alone does not authenticate the issuing operator. Example for a particular Deployment UID (replace with a separately observed authoritative UID):
 
 ```json
 {

@@ -1,8 +1,8 @@
 # Agentic AIOps
 
-> **Go 重构进度 — G0（进行中）：** 本仓库开始向 Go 原生 Kubernetes SRE Agent 迁移。当前 Go 能力只包括**证据包结构及摘要的只读校验**，不是已经具备真实故障修复能力的 Go SRE Agent。原 Python Golden Incident 保留作为迁移对照基线，具体阶段和验收门槛见 [Go 重构方案](docs/go-rewrite-plan.md)。
+> **Go 重构进度（2026-11-23，开发基线）：** Go CLI 已包含 Alertmanager 告警规划、限定范围的 Kubernetes/Prometheus 只读调查、证据校验、SLI/故障 Oracle、RCA 人审门禁，以及实验室证据签名等独立切片，**不再仅限 G0**。当前仍缺少在同一个最终 `main` 提交上完成的 Python 3.11/3.12、Go 和 kind 全量集成验收。原 Python Golden Incident 仅作为历史对照，不代表 Go 版已具备可投产的自动修复能力。详见 [Go 重构方案](docs/go-rewrite-plan.md) 与 [P0 验收路线](docs/sre-p0-golden-path.md)。
 >
-> Go 示例：`go run ./cmd/sre-agent verify-bundle --scenario --file benchmarks/scenarios/checkout-latency.json`。结果中的 `STRUCTURALLY_VALID` 不代表证据来源可信、RCA 正确或业务恢复已验证。G0 不允许 Go 执行 Kubernetes 写入。
+> Go 只读示例：`go run ./cmd/sre-agent verify-bundle --scenario --file benchmarks/scenarios/checkout-latency.json`。输出的 `STRUCTURALLY_VALID` 不等于证据来源真实、根因成立或故障已恢复。GRPO 的 CPU-only 训练/适配器证据亦不等于实际 GPU 训练。ACP/EngageGuard 授权和 Temporal 恢复链路完成独立验证前，Go 端不得进行生产写入。
 
 
 证据优先（Evidence-first）的 Agentic 事件调研与安全修复参考实现，内含可运行的 **Golden Incident v0.1**，覆盖 Prometheus、Kubernetes、Decision Gateway 和 Temporal 持久审批。
