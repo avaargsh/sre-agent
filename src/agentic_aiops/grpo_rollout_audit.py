@@ -7,11 +7,15 @@ explicit. This never authenticates a model runtime or authorizes training.
 from __future__ import annotations
 
 import math
+import stat
 from pathlib import Path
 from typing import Any
 
 from .grpo_import import _verify_pin
-from .grpo_training import _fields, _id, _strict_json, load_episodes_bytes, score_completion
+from .grpo_training import (
+    _fields, _id, _strict_json, _read_bounded_bytes, _jsonl_lines,
+    load_episodes_bytes, score_completion,
+)
 
 _MAX_ROLLOUT_FILE_BYTES = 4 * 1024 * 1024
 _MAX_ROLLOUT_LINE_BYTES = 128 * 1024
@@ -41,7 +45,24 @@ def audit_rollout_groups(
             or not 0 < min_signal_fraction <= 1):
         raise ValueError("min_signal_fraction must be finite and in (0,1]")
 
-    dataset_raw = Path(dataset_path).read_bytes()
+    inputs = (Path(dataset_path), Path(rollout_path))
+    if inputs[0].resolve() == inputs[1].resolve():
+        raise ValueError("dataset and rollouts must be distinct")
+    identities: set[tuple[int, int]] = set()
+    for path in inputs:
+        info = path.lstat()
+        if stat.S_ISLNK(info.st_mode):
+            raise ValueError("symlinked dataset or rollouts source rejected")
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("dataset and rollouts must be regular files")
+        inode = (info.st_dev, info.st_ino)
+        if inode in identities:
+            raise ValueError("dataset and rollouts inodes must be distinct")
+        identities.add(inode)
+
+    dataset_raw = _read_bounded_bytes(
+        dataset_path, limit=_MAX_ROLLOUT_FILE_BYTES, name="episode dataset",
+    )
     dataset_sha = _verify_pin(dataset_raw, expected_dataset_sha256, "dataset_sha256")
     episodes = load_episodes_bytes(dataset_raw)
     training = {ep.episode_id: ep for ep in episodes if ep.split == "train"}
@@ -50,12 +71,12 @@ def audit_rollout_groups(
     if len(training) > _MAX_GROUPS:
         raise ValueError("too many train groups for bounded audit")
 
-    raw = Path(rollout_path).read_bytes()
-    if not 0 < len(raw) <= _MAX_ROLLOUT_FILE_BYTES:
-        raise ValueError("rollouts file empty or oversized")
+    raw = _read_bounded_bytes(
+        rollout_path, limit=_MAX_ROLLOUT_FILE_BYTES, name="rollouts file",
+    )
     rollout_sha = _verify_pin(raw, expected_rollouts_sha256, "rollouts_sha256")
     try:
-        records = raw.decode("utf-8").splitlines()
+        records = _jsonl_lines(raw.decode("utf-8"))
     except UnicodeDecodeError as exc:
         raise ValueError("rollouts file not valid UTF-8") from exc
 
@@ -78,9 +99,15 @@ def audit_rollout_groups(
         completions = row["completions"]
         if type(completions) is not list or len(completions) != group_size:
             raise ValueError(f"group_size mismatch for {key}")
-        if any(type(item) is not str or len(item.encode("utf-8")) > 8192
-               for item in completions):
-            raise ValueError(f"invalid or oversized completion for {key}")
+        for item in completions:
+            if type(item) is not str:
+                raise ValueError(f"invalid or oversized completion for {key}")
+            try:
+                encoded_length = len(item.encode("utf-8"))
+            except UnicodeEncodeError as exc:
+                raise ValueError(f"invalid Unicode completion for {key}") from exc
+            if encoded_length > 8192:
+                raise ValueError(f"invalid or oversized completion for {key}")
         rewards = [score_completion(training[key], item) for item in completions]
         nonconstant += int(max(rewards) != min(rewards))
         all_correct += int(all(value == 1.0 for value in rewards))
