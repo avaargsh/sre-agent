@@ -19,8 +19,8 @@ from .grpo_holdout_projection import (
 )
 from .grpo_training import _fields, _id, _strict_json, _read_bounded_bytes
 
-_REPO = re.compile(r"Qwen/Qwen3-[A-Za-z0-9._-]+\\Z")
-_SHA40 = re.compile(r"[0-9a-f]{40}\\Z")
+_REPO = re.compile(r"Qwen/Qwen3-[A-Za-z0-9._-]+\Z")
+_SHA40 = re.compile(r"[0-9a-f]{40}\Z")
 _MAX_LINE_BYTES = 128 * 1024
 _MAX_COMPLETION_BYTES = 8192
 
