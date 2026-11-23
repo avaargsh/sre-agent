@@ -82,6 +82,8 @@ def verify(args: argparse.Namespace) -> int:
         "expected_sha": args.expected_sha,
         "actual_sha": None,
         "tracked_tree_clean": False,
+        "post_run_sha": None,
+        "post_run_tree_clean": None,
         "python_version": f"{sys.version_info.major}.{sys.version_info.minor}",
         "started_at_utc": now_utc(),
         "completed_at_utc": None,
@@ -127,7 +129,34 @@ def verify(args: argparse.Namespace) -> int:
             code = 0
     except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
         result["reason"] = str(exc)
+        if result["checks"]:
+            # The repository was verified initially; execution failure or
+            # a subsequent Git inspection error cannot certify that run.
+            result["status"] = "FAIL"
+            code = 1
     finally:
+        # Command success is not an exact-commit proof if that command changed
+        # tracked files, created untracked files, or advanced HEAD afterwards.
+        # Recheck on both PASS and FAIL paths; retain this post-run evidence.
+        if result["checks"]:
+            try:
+                post_sha = git(repo, "rev-parse", "HEAD")
+                post_clean = not bool(git(
+                    repo, "status", "--porcelain", "--untracked-files=normal",
+                ))
+                result["post_run_sha"] = post_sha
+                result["post_run_tree_clean"] = post_clean
+                if post_sha != args.expected_sha or not post_clean:
+                    result["status"] = "FAIL"
+                    result["reason"] = (
+                        "Git HEAD or worktree changed during verification; "
+                        "exact committed bytes are no longer established"
+                    )
+                    code = 1
+            except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
+                result["status"] = "FAIL"
+                result["reason"] = f"post-run Git verification unavailable: {exc}"
+                code = 1
         result["completed_at_utc"] = now_utc()
         (out_dir / "manifest.json").write_text(
             json.dumps(result, indent=2, sort_keys=True) + "\n",
