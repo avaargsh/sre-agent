@@ -257,6 +257,43 @@ authenticate checkpoints, establish real SRE diagnostic improvement or grant
 production remediation permission. The Draft #11 five-file model capture and
 Adapter chain remain separate and **unmerged**.
 
+### Base-only five-file Holdout content-chain audit (CPU-only)
+
+`scripts/verify_sre_grpo_base_holdout.py` independently checks a five-file
+sequence: **frozen private Episode dataset → Oracle-free projected prompts →
+projection manifest → raw candidate predictions → Base capture manifest**.
+It uses the exact three-file replay already in main, plus four-megabyte
+bounded prediction reads and a 32 KiB capture-manifest cap. Every artifact
+must be a different, regular non-symlink file with an externally approved
+SHA256. A changed or re-pinned prediction must still match **every** projected
+Episode ID **in the original order**. Capture metadata must use exact
+`sre.grpo.holdout-capture/v1` Base-only fields and strict JSON types; Adapter
+receipts and any claimed training/production authorization are rejected.
+
+```bash
+python scripts/verify_sre_grpo_base_holdout.py \
+  --dataset /review/episodes.jsonl \
+  --prompts /frozen/prompts.jsonl \
+  --projection-manifest /frozen/projection.json \
+  --predictions /frozen/base-predictions.jsonl \
+  --capture-manifest /frozen/base-capture.json \
+  --expected-dataset-sha256 "$DATASET_SHA256" \
+  --expected-prompts-sha256 "$PROMPTS_SHA256" \
+  --expected-projection-manifest-sha256 "$PROJECTION_MANIFEST_SHA256" \
+  --expected-predictions-sha256 "$PREDICTIONS_SHA256" \
+  --expected-capture-manifest-sha256 "$CAPTURE_MANIFEST_SHA256" \
+  --model Qwen/Qwen3-0.6B --revision "$PINNED_40_HEX_COMMIT"
+```
+
+This verifies **content consistency only**. In particular, the
+`prompt_sha256` for tokenizer-rendered model input is format-checked but
+cannot be independently reconstructed from these five files alone. The
+reported model name/revision, run identity, source publisher and sampler
+are **not authenticated**. The audit always reports
+`model_attribution_verified=false`, `data_issuer_authenticated=false`
+and `production_eligible=false`. No GPU/model sampling, Adapter/LoRA
+verification or write-capable SRE remediation is performed here.
+
 ## Development
 
 ```bash
