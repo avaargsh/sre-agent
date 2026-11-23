@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import stat
 import sys
+import uuid
 from typing import Any
 
 SHA = re.compile(r"[0-9a-f]{40}\Z")
@@ -136,6 +137,36 @@ def check_scope(folder: Path, label: str, scope: str, python_version: str,
             "manifest_sha256": hashlib.sha256(raw).hexdigest(), "steps": logs}
 
 
+def publish_report(target: Path, report: dict[str, Any]) -> None:
+    """Publish only complete, synced bytes under a create-only final name.
+
+    A direct O_EXCL final open prevents overwrites but can leave a truncated
+    "official" report on ENOSPC, write, or fsync failure. Stage a private file
+    in the same directory, sync it, then hard-link it into the final name.
+    The hard link refuses concurrent writers without replacing their files.
+    This assumes an operator-owned parent directory; it is not runner proof.
+    """
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise OSError("secure report staging unavailable")
+    payload = (json.dumps(report, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    stage = target.with_name(".sre-ci-report-" + uuid.uuid4().hex + ".stage")
+    descriptor = os.open(
+        stage, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600,
+    )
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            descriptor = -1
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(stage, target, follow_symlinks=False)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        stage.unlink(missing_ok=True)
+
+
 def verify(args: argparse.Namespace) -> int:
     report: dict[str, Any] = {
         "schema_version": "sre.ci-evidence-consistency/v1",
@@ -161,24 +192,7 @@ def verify(args: argparse.Namespace) -> int:
         report["status"] = "HOLD"
         report["reason"] = str(exc)
     finally:
-        # Never replace a previously published proof or follow an output
-        # symlink. An old report must remain immutable across repeat runs.
-        # O_EXCL also rejects a competing file created at publication time.
-        args.out.parent.mkdir(parents=True, exist_ok=True)
-        if not hasattr(os, "O_NOFOLLOW"):
-            raise OSError("secure report output creation unavailable")
-        descriptor = os.open(
-            args.out, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600,
-        )
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-                descriptor = -1
-                stream.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
-                stream.flush()
-                os.fsync(stream.fileno())
-        finally:
-            if descriptor >= 0:
-                os.close(descriptor)
+        publish_report(args.out, report)
         print(f"{report['status']}: {report['reason']}", file=sys.stderr)
     return code
 
