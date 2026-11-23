@@ -167,6 +167,32 @@ true root-cause quality, external evidence provenance, Base/SFT/GRPO superiority
 or production suitability. GPU/model training, Adapter evidence and more
 sophisticated holdout validation remain experimental in PR #11.
 
+### Frozen scenario → Episode import (CPU-only)
+
+`scripts/import_sre_episode.py` can convert one *already frozen* read-only
+scenario into an Episode using a **separately reviewed** Oracle approval and
+its exact SHA256 obtained out-of-band. The importer checks that approval
+against the original scenario bytes, maps only approved read-only evidence,
+and never imports scenario hypotheses/outcome as ground truth.
+
+```bash
+python scripts/import_sre_episode.py \
+  --scenario benchmarks/scenarios/checkout-latency.json \
+  --approval /reviewer-owned/approval.json \
+  --expected-approval-sha256 "$REVIEWER_PINNED_APPROVAL_SHA256" \
+  --output /new-output/episode.jsonl
+```
+
+The target must not exist. Publication stages complete, fsynced bytes in the
+same directory and then uses an atomic no-replace hard link; interrupted
+writes cannot produce a partially written final Episode path. The importer
+returns only an integrity receipt with issuer and live fault-injection
+verification flags set to **false**. A SHA256 pinned by the same untrusted
+producer is not independent approval or authenticated source provenance.
+Combining multiple imported Episodes additionally requires the core
+`load_episodes` split-leakage validation. **No automatic training
+admission, SRE accuracy or production authorization follows from import.**
+
 ## Development
 
 ```bash
