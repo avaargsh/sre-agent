@@ -24,7 +24,78 @@ import (
 )
 
 var ErrUnknown = errors.New("observation UNKNOWN")
-var dnsLabel = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+var dnsLabel = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?// Package observe collects a bounded, read-only Kubernetes/Prometheus snapshot.
+// It does not authorize remediation or verify operational recovery.
+package observe
+
+import (
+  "bytes"
+  "context"
+  "crypto/sha256"
+  "encoding/hex"
+  "encoding/json"
+  "errors"
+  "fmt"
+  "io"
+  "math"
+  "net"
+  "net/http"
+  "net/url"
+  "regexp"
+  "sort"
+  "strconv"
+  "strings"
+  "time"
+  "github.com/avaargsh/sre-agent/internal/evidence"
+)
+
+var ErrUnknown = errors.New("observation UNKNOWN")
+)
+var labelName = regexp.MustCompile(`^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?// Package observe collects a bounded, read-only Kubernetes/Prometheus snapshot.
+// It does not authorize remediation or verify operational recovery.
+package observe
+
+import (
+  "bytes"
+  "context"
+  "crypto/sha256"
+  "encoding/hex"
+  "encoding/json"
+  "errors"
+  "fmt"
+  "io"
+  "math"
+  "net"
+  "net/http"
+  "net/url"
+  "regexp"
+  "sort"
+  "strconv"
+  "strings"
+  "time"
+  "github.com/avaargsh/sre-agent/internal/evidence"
+)
+
+var ErrUnknown = errors.New("observation UNKNOWN")
+)
+// Kubernetes label keys allow an optional DNS-subdomain prefix followed by '/'.
+// Validate the selector grammar before building a query, rather than rejecting
+// legitimate qualified keys or accepting selector control characters.
+func selectorLabelOK(key, value string) bool {
+ if len(key)==0 || len(key)>317 || len(value)>63 {return false}
+ if strings.Count(key,"/")>1 {return false}
+ name:=key
+ if prefix,suffix,ok:=strings.Cut(key,"/");ok {
+  if len(prefix)==0 || len(prefix)>253 {return false}
+  for _,component:=range strings.Split(prefix,".") {
+   if len(component)==0 || len(component)>63 || !dnsLabel.MatchString(component) {return false}
+  }
+  name=suffix
+ }
+ if len(name)==0 || len(name)>63 || !labelName.MatchString(name) {return false}
+ return value=="" || labelName.MatchString(value)
+}
+
 const maxResponseBytes = 2 << 20
 const maxPods = 100
 const maxSeries = 32
@@ -142,7 +213,7 @@ func readKubernetes(ctx context.Context,hc *http.Client,u *url.URL,c Config,when
  if d.Metadata.Name!=c.Deployment||d.Metadata.Namespace!=c.Namespace||d.Metadata.UID==""||d.Metadata.ResourceVersion==""||d.Spec.Replicas==nil||len(d.Spec.Selector.MatchLabels)==0{return nil,unknownf("deployment identity or selector missing")}
  selectors:=make([]string,0,len(d.Spec.Selector.MatchLabels))
  for key,val:=range d.Spec.Selector.MatchLabels{
-  if key==""||val==""||strings.ContainsAny(key+val," ,/?&"){return nil,unknownf("unsafe deployment label selector")}
+  if !selectorLabelOK(key,val){return nil,unknownf("unsafe deployment label selector")}
   selectors=append(selectors,key+"="+val)
  }
  sort.Strings(selectors)
