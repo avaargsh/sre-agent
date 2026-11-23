@@ -48,12 +48,24 @@ func ParsePinnedPolicy(raw []byte,expectedSHA string)(SourcePolicy,error){
  tokens:=json.NewDecoder(bytes.NewReader(raw))
  first,err:=tokens.Token()
  if err!=nil||first!=json.Delim('{'){return result,errors.New("operator policy must be an object")}
+ // Go's struct decoder accepts case-insensitive aliases of JSON tags.
+ // An exact-byte pin does not make an ambiguous field name canonical.
+ // This allowlist is the security-facing v1 schema, not an advisory hint.
+ canonical:=map[string]struct{}{
+  "schema_version":{}, "namespace":{}, "deployment":{}, "deployment_uid":{},
+  "latency_query":{}, "traffic_query":{}, "age_query":{},
+  "max_latency_seconds":{}, "min_traffic_rps":{},
+  "max_sample_age_seconds":{}, "window_seconds":{}, "step_seconds":{},
+ }
  seen:=map[string]bool{}
  for tokens.More(){
   token,err:=tokens.Token()
   if err!=nil{return result,errors.New("invalid policy object")}
   key,ok:=token.(string)
   if !ok||seen[key]{return result,errors.New("duplicate or nonstring operator policy key")}
+  if _,allowed:=canonical[key];!allowed {
+   return result,errors.New("unknown or noncanonical operator policy field")
+  }
   seen[key]=true
   var value any
   if err:=tokens.Decode(&value);err!=nil{return result,errors.New("invalid operator policy value")}
