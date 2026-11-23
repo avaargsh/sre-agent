@@ -69,8 +69,8 @@ func validateEmbeddedSamples(attrs map[string]any,observedAt time.Time)error{
  if err!=nil||series!=len(samples){return fmt.Errorf("Prometheus series_count disagrees with samples_json")}
  ageText:=exactText(attrs,"max_age_seconds")
  budget,err:=strconv.ParseFloat(ageText,64)
- // investigate-alert accepts up to 10m. A subsecond requested budget is
- // rendered as 0 by the existing observer and cannot be safely replayed here.
+ // investigate-alert accepts at most 10m. The current observer stores
+ // subsecond seconds exactly; pre-fix whole-second receipts remain readable.
  if err!=nil||math.IsNaN(budget)||math.IsInf(budget,0)||budget<=0||budget>600||
   strconv.FormatFloat(budget,'f',-1,64)!=ageText||
   time.Duration(budget*float64(time.Second))<time.Nanosecond{
