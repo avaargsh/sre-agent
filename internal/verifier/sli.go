@@ -18,6 +18,7 @@ import (
  "net/url"
  "strconv"
  "time"
+ "github.com/avaargsh/sre-agent/internal/sourcejson"
 )
 
 type Status string
@@ -115,6 +116,7 @@ func query(ctx context.Context,p Policy,u *url.URL,start,end time.Time,threshold
  if resp.StatusCode!=http.StatusOK{return SourceEvidence{},false,fmt.Errorf("Prometheus HTTP %d",resp.StatusCode)}
  raw,err:=io.ReadAll(io.LimitReader(resp.Body,maxResponseSize+1))
  if err!=nil||len(raw)>maxResponseSize{return SourceEvidence{},false,errors.New("Prometheus response exceeds limit or failed")}
+ if err:=sourcejson.Validate(raw);err!=nil{return SourceEvidence{},false,errors.New("invalid native Prometheus SLI JSON")}
  var parsed response
  dec:=json.NewDecoder(bytes.NewReader(raw))
  if err:=dec.Decode(&parsed);err!=nil{return SourceEvidence{},false,errors.New("invalid Prometheus response JSON")}
