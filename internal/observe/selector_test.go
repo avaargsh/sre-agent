@@ -86,3 +86,22 @@ func TestCollectRejectsSelectorControlCharactersBeforePodList(t *testing.T) {
   })
  }
 }
+
+func TestCollectRejectsIgnoredMatchExpressions(t *testing.T) {
+ var extraReads atomic.Bool
+ server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  if r.URL.Path!="/apis/apps/v1/namespaces/golden-demo/deployments/checkout-api" {
+   extraReads.Store(true)
+   w.WriteHeader(http.StatusInternalServerError)
+   return
+  }
+  // matchExpressions narrows the actual Deployment selector; listing only
+  // matchLabels would collect unrelated Pods and manufacture complete evidence.
+  _,_=fmt.Fprint(w,`{"metadata":{"uid":"deployment-1","name":"checkout-api","namespace":"golden-demo","resourceVersion":"1","generation":1},"spec":{"replicas":1,"selector":{"matchLabels":{"app":"checkout-api"},"matchExpressions":[{"key":"tier","operator":"In","values":["prod"]}]}},"status":{"readyReplicas":1,"observedGeneration":1}}`)
+ }))
+ defer server.Close()
+ raw,err:=Collect(context.Background(),fixture(server.URL))
+ if !errors.Is(err,ErrUnknown)||raw!=nil||extraReads.Load() {
+  t.Fatalf("ignored matchExpressions must fail before Pod GET: raw=%q err=%v extraReads=%v",raw,err,extraReads.Load())
+ }
+}
