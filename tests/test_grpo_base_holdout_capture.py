@@ -266,3 +266,49 @@ def test_real_gpu_cli_requires_explicit_flags_and_preflights_revision(tmp_path):
     assert bad_revision.returncode == 3
     assert "revision" in bad_revision.stderr
     assert not output.exists() and not manifest.exists()
+
+
+@pytest.mark.parametrize("separator", ["\u0085", "\u2028", "\u2029"])
+def test_unicode_projection_to_base_capture_to_five_file_replay(tmp_path, separator):
+    dataset = tmp_path / "unicode-episodes.jsonl"
+    record = {
+        "schema_version": "sre.grpo.episode/v1",
+        "episode_id": "unicode-001", "fault_family": "unicode-alert",
+        "split": "test", "alert": "alert" + separator + "continued",
+        "observations": [{
+            "evidence_id": "event1", "tool": "kubernetes.get_events",
+            "text": "read-only" + separator + "observation",
+        }],
+        "oracle": {
+            "answerable": False, "root_cause_id": "unknown",
+            "required_evidence_ids": [],
+        },
+    }
+    dataset.write_bytes((json.dumps(record, ensure_ascii=False) + "\n").encode())
+    prompts, projected = tmp_path / "prompts.jsonl", tmp_path / "projection.json"
+    project_holdout_prompts(
+        dataset, expected_dataset_sha256=sha(dataset),
+        output=prompts, manifest=projected, split="test",
+    )
+    assert separator in prompts.read_text()
+    predictions, captured = tmp_path / "predictions.jsonl", tmp_path / "capture.json"
+    report = capture_base_holdout_predictions(
+        prompts, expected_prompts_sha256=sha(prompts),
+        output=predictions, manifest=captured,
+        tokenizer=ToyTokenizer(),
+        sampler=lambda *_: "raw" + separator + "invalid",
+        model=MODEL, model_revision=REV,
+    )
+    assert report["cases"] == 1
+    audited = verify_base_holdout_chain(
+        dataset=dataset, prompts=prompts, projection_manifest=projected,
+        predictions=predictions, capture_manifest=captured,
+        expected_dataset_sha256=sha(dataset),
+        expected_prompts_sha256=sha(prompts),
+        expected_projection_manifest_sha256=sha(projected),
+        expected_predictions_sha256=sha(predictions),
+        expected_capture_manifest_sha256=sha(captured),
+        model=MODEL, model_revision=REV,
+    )
+    assert audited["capture_claims_content_consistent"] is True
+    assert audited["model_attribution_verified"] is False
