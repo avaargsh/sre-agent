@@ -318,3 +318,19 @@ def test_fifo_is_rejected_before_any_bounded_read(tmp_path, monkeypatch):
             dataset, rollouts, expected_dataset_sha256=dataset_sha,
             expected_rollouts_sha256=rollouts_sha,
         )
+
+
+def test_invalid_unicode_completion_fails_closed_with_value_error(tmp_path):
+    dataset, rollouts, dataset_sha, _ = setup(tmp_path)
+    row = {"episode_id": "train-1", "completions": [
+        answer(), "\ud800", answer(root="dns_failure"), answer(),
+    ]}
+    # JSON escapes U+D800, which is valid wire JSON but invalid when a model
+    # completion is re-encoded to UTF-8 for the bounded token budget.
+    rollouts.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    pin = hashlib.sha256(rollouts.read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match="invalid Unicode"):
+        audit_rollout_groups(
+            dataset, rollouts, expected_dataset_sha256=dataset_sha,
+            expected_rollouts_sha256=pin,
+        )
