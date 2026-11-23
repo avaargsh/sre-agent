@@ -14,14 +14,14 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .grpo_import import _verify_pin
-from .grpo_training import SREEpisode, load_episodes_bytes
+from .grpo_training import SREEpisode, _MAX_FILE_BYTES, _read_bounded_bytes, load_episodes_bytes
 
 
 def freeze_train_dataset(
     path: str | Path, *, expected_dataset_sha256: str | None = None,
 ) -> tuple[tuple[SREEpisode, ...], str]:
     """Parse only the dataset bytes used for the reported/external digest."""
-    raw = Path(path).read_bytes()
+    raw = _read_bounded_bytes(path, limit=_MAX_FILE_BYTES, name="train dataset")
     digest = hashlib.sha256(raw).hexdigest()
     if expected_dataset_sha256 is not None:
         digest = _verify_pin(raw, expected_dataset_sha256, "dataset_sha256")
