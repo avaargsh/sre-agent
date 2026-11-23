@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import os
+from pathlib import Path
 
 import pytest
 
@@ -218,21 +220,101 @@ def test_reward_audit_scores_exactly_the_verified_dataset_bytes(
     tmp_path, monkeypatch
 ):
     """A mutable dataset must not be reopened after digest validation."""
-    from pathlib import Path
-
     dataset, rollouts, dataset_sha, rollout_sha = setup(tmp_path)
-    original_read = Path.read_bytes
+    original_open = Path.open
     reads = []
 
-    def spy_read(path):
+    def spy_open(path, *args, **kwargs):
         if path == dataset:
-            reads.append(1)
-        return original_read(path)
+            reads.append(args[0] if args else kwargs.get("mode", "r"))
+        return original_open(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_bytes", spy_read)
+    monkeypatch.setattr(Path, "open", spy_open)
     result = audit_rollout_groups(
         dataset, rollouts, expected_dataset_sha256=dataset_sha,
         expected_rollouts_sha256=rollout_sha, group_size=4,
     )
     assert result["groups"] == 1
-    assert len(reads) == 1, "Oracle was reloaded from unpinned mutable bytes"
+    assert reads == ["rb"], "Oracle bytes must be opened once for hash and scoring"
+
+
+
+@pytest.mark.parametrize("source", ["dataset", "rollouts"])
+def test_oversized_source_rejected_before_unbounded_read(tmp_path, monkeypatch, source):
+    dataset, rollouts, dataset_sha, rollouts_sha = setup(tmp_path)
+    target = dataset if source == "dataset" else rollouts
+    with target.open("wb") as output:
+        output.truncate(4 * 1024 * 1024 + 1)
+
+    def forbid_unbounded(_path):
+        raise AssertionError("Path.read_bytes would allocate entire untrusted file")
+
+    monkeypatch.setattr(Path, "read_bytes", forbid_unbounded)
+    with pytest.raises(ValueError, match="oversized"):
+        audit_rollout_groups(
+            dataset, rollouts, expected_dataset_sha256=dataset_sha,
+            expected_rollouts_sha256=rollouts_sha,
+        )
+
+
+def test_unicode_line_separator_inside_jsonl_completion_is_not_new_row(tmp_path):
+    dataset, rollouts, dataset_sha, _ = setup(tmp_path)
+    rows = [{"episode_id": "train-1", "completions": [
+        answer(), "unverified\u2028response", answer(root="dns_failure"), answer(),
+    ]}]
+    rollouts.write_bytes((
+        json.dumps(rows[0], ensure_ascii=False, sort_keys=True) + "\n"
+    ).encode("utf-8"))
+    pin = hashlib.sha256(rollouts.read_bytes()).hexdigest()
+    result = audit_rollout_groups(
+        dataset, rollouts, expected_dataset_sha256=dataset_sha,
+        expected_rollouts_sha256=pin,
+    )
+    assert result["groups"] == 1
+    assert result["nonconstant_reward_groups"] == 1
+    assert result["model_runtime_verified"] is False
+
+
+@pytest.mark.parametrize("source", ["dataset", "rollouts"])
+def test_symlinked_input_is_rejected_despite_correct_external_pin(tmp_path, source):
+    dataset, rollouts, dataset_sha, rollouts_sha = setup(tmp_path)
+    target = dataset if source == "dataset" else rollouts
+    other = target.with_suffix(".frozen")
+    target.rename(other)
+    target.symlink_to(other)
+    with pytest.raises(ValueError, match="symlink"):
+        audit_rollout_groups(
+            dataset, rollouts, expected_dataset_sha256=dataset_sha,
+            expected_rollouts_sha256=rollouts_sha,
+        )
+
+
+def test_same_inode_dataset_and_rollouts_cannot_alias(tmp_path):
+    dataset, rollouts, dataset_sha, _ = setup(tmp_path)
+    rollouts.unlink()
+    os.link(dataset, rollouts)
+    with pytest.raises(ValueError, match="distinct|inode|hardlink"):
+        audit_rollout_groups(
+            dataset, rollouts, expected_dataset_sha256=dataset_sha,
+            expected_rollouts_sha256=dataset_sha,
+        )
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO test requires POSIX")
+def test_fifo_is_rejected_before_any_bounded_read(tmp_path, monkeypatch):
+    dataset, rollouts, dataset_sha, rollouts_sha = setup(tmp_path)
+    rollouts.unlink()
+    os.mkfifo(rollouts)
+    original_open = Path.open
+
+    def reject_fifo_open(path, *args, **kwargs):
+        if path == rollouts:
+            raise AssertionError("attempted blocking FIFO read")
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", reject_fifo_open)
+    with pytest.raises(ValueError, match="regular"):
+        audit_rollout_groups(
+            dataset, rollouts, expected_dataset_sha256=dataset_sha,
+            expected_rollouts_sha256=rollouts_sha,
+        )
