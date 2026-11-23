@@ -10,11 +10,16 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
 import sys
 import time
+
+# Reuse the already-reviewed same-directory staged, fsynced, create-only
+# report publisher. Both entrypoints are executed from scripts/ by CI.
+from verify_ci_evidence_bundle import publish_report
 
 
 def now_utc() -> str:
@@ -46,19 +51,31 @@ def record_command(name: str, argv: list[str], repo: Path,
     start = time.monotonic()
     return_code: int | None = None
     error: str | None = None
-    with log_file.open("wb") as stream:
-        try:
-            result = subprocess.run(
-                argv, cwd=repo, stdout=stream, stderr=subprocess.STDOUT,
-                check=False, timeout=timeout,
-            )
-            return_code = result.returncode
-        except FileNotFoundError as exc:
-            error = f"executable unavailable: {exc.filename}"
-            stream.write((error + "\n").encode("utf-8"))
-        except subprocess.TimeoutExpired:
-            error = f"timeout after {timeout} seconds"
-            stream.write((error + "\n").encode("utf-8"))
+    # The test log is part of the evidence record. Never truncate an
+    # existing proof or follow a supplied symlink to unrelated source data.
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise OSError("secure no-follow log creation unavailable")
+    descriptor = os.open(
+        log_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600,
+    )
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            descriptor = -1
+            try:
+                result = subprocess.run(
+                    argv, cwd=repo, stdout=stream, stderr=subprocess.STDOUT,
+                    check=False, timeout=timeout,
+                )
+                return_code = result.returncode
+            except FileNotFoundError as exc:
+                error = f"executable unavailable: {exc.filename}"
+                stream.write((error + "\n").encode("utf-8"))
+            except subprocess.TimeoutExpired:
+                error = f"timeout after {timeout} seconds"
+                stream.write((error + "\n").encode("utf-8"))
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
     receipt: dict[str, object] = {
         "name": name,
         "argv": argv,
@@ -158,10 +175,10 @@ def verify(args: argparse.Namespace) -> int:
                 result["reason"] = f"post-run Git verification unavailable: {exc}"
                 code = 1
         result["completed_at_utc"] = now_utc()
-        (out_dir / "manifest.json").write_text(
-            json.dumps(result, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        # An exact-tree receipt must never replace another run's artifact.
+        # Stage, fsync and create-only publish using the same guarded
+        # primitive as the three-scope offline consistency summary.
+        publish_report(out_dir / "manifest.json", result)
         print(f"exact-tree {result['status']}: {result['reason']}", file=sys.stderr)
     return code
 
