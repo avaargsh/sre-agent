@@ -114,7 +114,7 @@ func nameOK(s string)bool{return len(s)>0&&len(s)<=63&&dnsLabel.MatchString(s)}
 func validate(c Config)(*url.URL,*url.URL,error){
  if !nameOK(c.Namespace)||!nameOK(c.Deployment){return nil,nil,unknownf("invalid namespace/deployment selector")}
  if strings.TrimSpace(c.IncidentID)==""||strings.TrimSpace(c.Summary)==""||strings.TrimSpace(c.Severity)==""{return nil,nil,unknownf("incident identity, summary and severity are required")}
- if c.MaxMetricAge<0{return nil,nil,unknownf("negative metric freshness budget")}
+ if c.MaxMetricAge<0||c.MaxMetricAge>10*time.Minute{return nil,nil,unknownf("unsupported metric freshness budget")}
  k,err:=endpoint(c.KubernetesURL);if err!=nil{return nil,nil,err}
  p,err:=endpoint(c.PrometheusURL);if err!=nil{return nil,nil,err}
  return k,p,nil
@@ -212,7 +212,7 @@ func readPrometheus(ctx context.Context,hc *http.Client,u *url.URL,c Config,now 
  }
  b,_:=json.Marshal(samples)
  attrs:=map[string]string{"promql":query,"samples_json":string(b),"result_type":"vector","series_count":strconv.Itoa(len(samples)),
-  "observed_at":when,"max_age_seconds":strconv.FormatFloat(maxAge.Seconds(),'f',0,64)}
+  "observed_at":when,"max_age_seconds":strconv.FormatFloat(maxAge.Seconds(),'f',-1,64)}
  return evidenceItem(stableID("prometheus",attrs),"prometheus",fmt.Sprintf("PromQL %s: %d fresh finite series",query,len(samples)),when,attrs),nil
 }
 // Collect gathers observation facts, never marks a hypothesis SUPPORTED or the

@@ -5,6 +5,7 @@ import (
  "fmt"
  "math"
  "strconv"
+ "strings"
  "time"
  "unicode/utf8"
 
@@ -66,12 +67,19 @@ func validateEmbeddedSamples(attrs map[string]any,observedAt time.Time)error{
  if len(samples)==0||len(samples)>32{return fmt.Errorf("invalid embedded Prometheus series count")}
  series,err:=strconv.Atoi(exactText(attrs,"series_count"))
  if err!=nil||series!=len(samples){return fmt.Errorf("Prometheus series_count disagrees with samples_json")}
- budget,err:=strconv.ParseFloat(exactText(attrs,"max_age_seconds"),64)
- // investigate-alert accepts up to 10m. A subsecond requested budget is
- // rendered as 0 by the existing observer and cannot be safely replayed here.
- if err!=nil||math.IsNaN(budget)||math.IsInf(budget,0)||budget<=0||budget>600{
+ ageText:=exactText(attrs,"max_age_seconds")
+ budget,err:=strconv.ParseFloat(ageText,64)
+ // investigate-alert accepts at most 10m. The current observer stores
+ // subsecond seconds exactly; pre-fix whole-second receipts remain readable.
+ if err!=nil||math.IsNaN(budget)||math.IsInf(budget,0)||budget<=0||budget>600||
+  strconv.FormatFloat(budget,'f',-1,64)!=ageText||
+  time.Duration(budget*float64(time.Second))<time.Nanosecond{
   return fmt.Errorf("invalid or unverifiable Prometheus sample age budget")
  }
+ // Preserve the old whole-second rounded receipt representation with up to
+ // 500ms of historical rounding slack. New fractional receipts are exact.
+ maxAllowedAge:=time.Duration(budget*float64(time.Second))
+ if !strings.Contains(ageText,"."){maxAllowedAge+=500*time.Millisecond}
  for _,item:=range samples{
   sample:=exactObject(item)
   if err:=requireOnlyFields(sample,"embedded Prometheus series","metric","timestamp","value");err!=nil{return err}
@@ -92,10 +100,9 @@ func validateEmbeddedSamples(attrs map[string]any,observedAt time.Time)error{
    return fmt.Errorf("non-finite embedded Prometheus value")
   }
   at:=time.Unix(0,int64(timestamp*float64(time.Second))).UTC()
-  // Observer serializes max_age_seconds rounded to integer seconds.
-  // 500ms is the maximum representational discrepancy; no retry or refresh
-  // is performed here. The snapshot is validated against its own clock only.
-  if observedAt.Sub(at)>time.Duration((budget+0.5)*float64(time.Second))||
+  // The snapshot is checked against its own collection clock; neither
+  // this freshness check nor its content digest authenticates the source.
+  if observedAt.Sub(at)>maxAllowedAge||
    at.Sub(observedAt)>5*time.Second{
    return fmt.Errorf("embedded Prometheus sample stale or future-dated against bundle clock")
   }
