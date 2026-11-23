@@ -1,5 +1,7 @@
 // sre-agent is a Go-native entrypoint. The initial command checks frozen
 // evidence only; it never contacts or mutates a cluster.
+// The plan-alert entrypoint creates only an untrusted scoped read-only proposal;
+// it does not authenticate Alertmanager origin or grant an execution permit.
 package main
 
 import (
@@ -13,10 +15,31 @@ import (
 )
 
 func run(args []string, stdout, stderr io.Writer) int {
- if len(args) == 0 || args[0] != "verify-bundle" {
-  fmt.Fprintln(stderr, "usage: sre-agent verify-bundle --file PATH [--scenario]")
+ if len(args) == 0 {
+  fmt.Fprintln(stderr, "usage: sre-agent verify-bundle|plan-alert|investigate-alert|verify-alert-evidence|investigate|verify-sli|collect-changes|review-rca|diagnose-service|evaluate-oracle|diagnose-endpoints|evaluate-endpoints|diagnose-dns|evaluate-dns|evaluate-networkpolicy|index-evidence|sign-evidence|verify-evidence|verify-evidence-authorized|record-release-lab|read-release-lab [options]")
   return 2
  }
+ if args[0] == "plan-alert" { return planAlert(args[1:], stdout, stderr) }
+ if args[0] == "investigate-alert" { return investigateAlert(args[1:], stdout, stderr) }
+ if args[0] == "verify-alert-evidence" { return verifyAlertEvidence(args[1:], stdout, stderr) }
+ if args[0] == "investigate" { return investigate(args[1:], stdout, stderr) }
+ if args[0] == "verify-sli" { return verifySLI(args[1:], stdout, stderr) }
+ if args[0] == "collect-changes" { return collectChanges(args[1:], stdout, stderr) }
+ if args[0] == "review-rca" { return reviewRCA(args[1:], stdout, stderr) }
+ if args[0] == "diagnose-service" { return diagnoseService(args[1:], stdout, stderr) }
+ if args[0] == "evaluate-oracle" { return evaluateOracle(args[1:], stdout, stderr) }
+ if args[0] == "diagnose-endpoints" { return diagnoseEndpoints(args[1:], stdout, stderr) }
+ if args[0] == "evaluate-endpoints" { return evaluateEndpoints(args[1:], stdout, stderr) }
+ if args[0] == "diagnose-dns" { return diagnoseDNS(args[1:], stdout, stderr) }
+ if args[0] == "evaluate-dns" { return evaluateDNS(args[1:], stdout, stderr) }
+ if args[0] == "evaluate-networkpolicy" { return evaluateNetworkPolicy(args[1:], stdout, stderr) }
+ if args[0] == "index-evidence" { return indexEvidence(args[1:], stdout, stderr) }
+ if args[0] == "sign-evidence" { return signEvidence(args[1:], stdout, stderr) }
+ if args[0] == "verify-evidence" { return verifyEvidence(args[1:], stdout, stderr) }
+ if args[0] == "verify-evidence-authorized" { return verifyEvidenceAuthorized(args[1:], stdout, stderr) }
+ if args[0] == "record-release-lab" { return recordReleaseLab(args[1:], stdout, stderr) }
+ if args[0] == "read-release-lab" { return readReleaseLab(args[1:], stdout, stderr) }
+ if args[0] != "verify-bundle" { fmt.Fprintln(stderr, "usage: sre-agent verify-bundle|plan-alert|investigate-alert|verify-alert-evidence|investigate|verify-sli|collect-changes|review-rca|diagnose-service|evaluate-oracle|diagnose-endpoints|evaluate-endpoints|diagnose-dns|evaluate-dns|evaluate-networkpolicy|index-evidence|sign-evidence|verify-evidence|verify-evidence-authorized|record-release-lab|read-release-lab [options]"); return 2 }
  flags := flag.NewFlagSet("verify-bundle", flag.ContinueOnError)
  flags.SetOutput(stderr)
  path := flags.String("file", "", "bundle JSON file (use - for stdin)")

@@ -1,0 +1,92 @@
+name: go-networkpolicy-calico-kind
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "internal/networkpolicyoracle/**"
+      - "cmd/sre-agent/networkpolicy_oracle.go"
+      - "cmd/sre-agent/main.go"
+      - "demo/go-networkpolicy/**"
+      - ".github/workflows/go-networkpolicy-calico-kind.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  calico-manifest-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify checkout is the exact immutable workflow head
+        env:
+          EXPECTED_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_HEAD"
+      - name: Reject tampered Calico manifest before any kind cluster is created
+        run: |
+          set -euo pipefail
+          curl --retry 3 --retry-delay 2 -fsSL \
+            "https://raw.githubusercontent.com/projectcalico/calico/v3.33.0/manifests/calico.yaml" \
+            -o /tmp/g2i-calico.yaml
+          bash demo/go-networkpolicy/test-pin.sh /tmp/g2i-calico.yaml
+  true-calico-deny-and-restore:
+    needs: calico-manifest-integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify checkout is the exact immutable workflow head
+        env:
+          EXPECTED_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_HEAD"
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      # Kindnet does not enforce Kubernetes NetworkPolicy. This new cluster
+      # MUST use a real, policy-enforcing Calico CNI, never Calico-on-kindnet.
+      - uses: helm/kind-action@v1.14.0
+        with:
+          cluster_name: golden-netpol
+          config: demo/go-networkpolicy/kind-calico.yaml
+          wait: 60s
+      - name: Install version-pinned Calico as the ONLY CNI
+        run: |
+          set -euo pipefail
+          CALICO_TAG=v3.33.0
+          curl --retry 3 --retry-delay 2 -fsSL \
+            "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_TAG}/manifests/calico.yaml" \
+            -o /tmp/g2i-calico.yaml
+          test -s /tmp/g2i-calico.yaml
+          # A tag alone does not pin content: fail before kubectl creates resources.
+          bash demo/go-networkpolicy/verify-calico-manifest.sh /tmp/g2i-calico.yaml
+          sha256sum /tmp/g2i-calico.yaml | tee /tmp/g2i-calico-sha.txt
+          # Fresh cluster; create avoids oversize last-applied-configuration
+          # annotation on bundled CRDs.
+          kubectl create -f /tmp/g2i-calico.yaml
+          kubectl -n kube-system rollout status daemonset/calico-node --timeout=360s
+          kubectl -n kube-system rollout status deployment/calico-kube-controllers --timeout=360s
+          kubectl wait nodes --all --for=condition=Ready --timeout=360s
+          kubectl -n kube-system get ds calico-node -o wide
+      - name: Verify real NetworkPolicy deny, recovered HTTP, and offline Oracle
+        run: bash demo/go-networkpolicy/run-kind.sh
+      # A CI-issued ephemeral key proves signature mechanics, not signer authority.
+      - name: Test LAB Ed25519 original-source attestation mechanics
+        env:
+          SRE_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash demo/go-networkpolicy/test-evidence-attestation.sh
+      - name: Upload raw Calico + original lab source evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-networkpolicy-kind-proof
+          path: |
+            /tmp/go-networkpolicy-proof/
+            /tmp/g2i-calico-sha.txt
+          if-no-files-found: warn
