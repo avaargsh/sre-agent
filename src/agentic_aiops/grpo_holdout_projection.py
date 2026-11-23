@@ -222,7 +222,13 @@ def verify_holdout_projection(
         "training_admission_authorized": False,
         "source_classification": "UNVERIFIED_HOLDOUT_PROJECTION",
     }
-    if report != expected_report:
+    # Python equates bool with int (True == 1, False == 0). Enforce the
+    # exact JSON value types as well as the contents, especially authority
+    # booleans and the holdout case count.
+    if any(
+        type(report[name]) is not type(value) or report[name] != value
+        for name, value in expected_report.items()
+    ):
         raise ValueError("projection manifest claims differ from recomputed content")
     return {
         "schema_version": "sre.grpo.projection-replay/v1",
