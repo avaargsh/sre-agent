@@ -1,5 +1,7 @@
 // sre-agent is a Go-native entrypoint. The initial command checks frozen
 // evidence only; it never contacts or mutates a cluster.
+// The plan-alert entrypoint creates only an untrusted scoped read-only proposal;
+// it does not authenticate Alertmanager origin or grant an execution permit.
 package main
 
 import (
