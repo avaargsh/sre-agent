@@ -435,6 +435,30 @@ A self-reported parameter delta **does not establish** a real optimizer
 step, externally attested GPU run, saved Adapter match, improvement on
 blind SRE holdouts or production permission. GPU/PEFT/TRL model execution
 and independent weight provenance stay in Draft PR #11.
+### CPU-only pinned LoRA Adapter Safetensors admission
+
+`agentic_aiops.grpo_adapter` accepts only a local, single-file PEFT LoRA
+Adapter with an externally reviewed lowercase SHA256 pin for both
+`adapter_config.json` and `adapter_model.safetensors`, plus a pinned
+`Qwen/Qwen3-*` model revision. It rejects arbitrary sidecars/pickle,
+symlink inputs, nonregular files, unknown tensor slots, unsupported ranks
+and dtype/shape/offset inconsistencies. Adapter files are opened with
+no-follow descriptor flags and read with explicit byte limits (64 KiB
+config; 256 MiB weights). SHA verification, parsing, staging and
+post-load tensor comparison operate on the frozen in-memory bytes.
+
+`staged_pinned_adapter()` independently rechecks even a caller-constructed
+`FrozenAdapter` object's raw bytes, schema and claimed digest/layout
+before publishing its bytes into a private temporary directory. The
+CPU `verify_loaded_adapter_weights()` contract additionally checks
+exact tensor names, dtype, shape and raw bytes of the loaded PEFT state.
+
+This **does not authenticate** who approved those pins, the real base
+model, the runtime or any GPU inference. No model weights are executed
+or trained by this module, and its receipts set all independent model
+attribution, training admission and production flags to **false**.
+Real CUDA loading and physical model-effect probes remain separate
+work for the Draft GRPO PR #11.
 ## Development
 
 ```bash
