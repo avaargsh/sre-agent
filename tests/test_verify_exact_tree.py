@@ -231,3 +231,68 @@ def test_test_command_creates_untracked_file_so_result_is_not_pass(repo):
     assert receipt['status'] == 'FAIL'
     assert receipt['post_run_tree_clean'] is False
     assert 'during verification' in receipt['reason']
+
+
+# Security regression: evidence artifacts must be create-only. The verifier
+# must not overwrite old CI proof or follow a log/manifest symlink even when
+# the final Git tree check would later mark a run as FAIL.
+def invoke_raw(repo, out, *, sha=None):
+    command = [
+        sys.executable, str(SCRIPT), "--repo", str(repo),
+        "--expected-sha", sha or shell("git", "rev-parse", "HEAD", cwd=repo),
+        "--scope", "python", "--out-dir", str(out),
+    ]
+    return subprocess.run(command, cwd=repo, capture_output=True, text=True)
+
+
+def test_preexisting_python_log_is_not_overwritten(repo):
+    out = repo.parent / "existing-log"
+    out.mkdir()
+    log = out / "python-pytest.log"
+    log.write_bytes(b"independently-preserved-proof")
+    result = invoke_raw(repo, out)
+    assert result.returncode != 0
+    assert log.read_bytes() == b"independently-preserved-proof"
+
+
+def test_symlinked_python_log_cannot_modify_external_source(repo):
+    out = repo.parent / "linked-log"
+    out.mkdir()
+    external = repo.parent / "protected-source.txt"
+    external.write_bytes(b"DO-NOT-MODIFY")
+    (out / "python-pytest.log").symlink_to(external)
+    result = invoke_raw(repo, out)
+    assert result.returncode != 0
+    assert external.read_bytes() == b"DO-NOT-MODIFY"
+
+
+def test_preexisting_manifest_is_not_rewritten(repo):
+    out = repo.parent / "existing-manifest"
+    out.mkdir()
+    manifest = out / "manifest.json"
+    manifest.write_bytes(b"earlier-verified-record")
+    result = invoke_raw(repo, out, sha="not-a-sha")
+    assert result.returncode != 0
+    assert manifest.read_bytes() == b"earlier-verified-record"
+
+
+def test_symlinked_manifest_cannot_modify_external_source(repo):
+    out = repo.parent / "linked-manifest"
+    out.mkdir()
+    external = repo.parent / "protected-manifest-source.txt"
+    external.write_bytes(b"DO-NOT-MODIFY")
+    (out / "manifest.json").symlink_to(external)
+    result = invoke_raw(repo, out, sha="not-a-sha")
+    assert result.returncode != 0
+    assert external.read_bytes() == b"DO-NOT-MODIFY"
+
+
+def test_exact_tree_log_and_manifest_are_private_regular_files(repo):
+    import stat
+
+    proc, receipt, out = invoke(repo)
+    assert proc.returncode == 0, proc.stderr
+    assert stat.S_IMODE((out / "manifest.json").stat().st_mode) == 0o600
+    assert stat.S_IMODE((out / "python-pytest.log").stat().st_mode) == 0o600
+    assert not (out / "manifest.json").is_symlink()
+    assert receipt["status"] == "PASS"
