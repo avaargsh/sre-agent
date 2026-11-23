@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import json
 import math
+import os
 import re
 import stat
 import struct
@@ -22,9 +23,10 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping
 
 from .grpo_import import _verify_pin, _sha
-from .grpo_rollout_capture import _REPO, _SHA40
 from .grpo_training import _strict_json, _fields
 
+_REPO = re.compile(r"Qwen/Qwen3-[A-Za-z0-9._-]+\Z")
+_SHA40 = re.compile(r"[0-9a-f]{40}\Z")
 _MAX_CONFIG = 64 * 1024
 _MAX_WEIGHTS = 256 * 1024 * 1024
 _MAX_HEADER = 1024 * 1024
@@ -40,15 +42,30 @@ class FrozenAdapter:
 
 
 def _read_regular(path: Path, *, limit: int) -> bytes:
+    """Read a single regular file from a no-follow descriptor with a hard cap.
+
+    fstat() inspects the opened inode rather than a pre-open pathname. The
+    bounded read still enforces the cap if the file grows after fstat().
+    """
     if path.is_symlink():
         raise ValueError(f"adapter symlink rejected: {path.name}")
-    info = path.stat()
-    if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= limit:
-        raise ValueError(f"invalid adapter file size or type: {path.name}")
-    raw = path.read_bytes()
-    if not 0 < len(raw) <= limit:
-        raise ValueError(f"invalid adapter file bytes: {path.name}")
-    return raw
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise ValueError("secure no-follow adapter file opening unavailable")
+    flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+    descriptor = os.open(path, flags)
+    try:
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = -1
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= limit:
+                raise ValueError(f"invalid adapter file size or type: {path.name}")
+            raw = stream.read(limit + 1)
+            if not 0 < len(raw) <= limit:
+                raise ValueError(f"invalid or oversized adapter file bytes: {path.name}")
+            return raw
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
 
 
 def _validate_config(raw: bytes, *, base_model: str, base_revision: str) -> dict[str, Any]:
@@ -88,7 +105,8 @@ def _validate_config(raw: bytes, *, base_model: str, base_revision: str) -> dict
         if config.get(field) not in (None, {}, []):
             raise ValueError(f"unsupported adapter {field}")
     for field in ("use_dora", "use_qalora", "lora_bias"):
-        if config.get(field) not in (None, False):
+        value = config.get(field)
+        if value is not None and value is not False:
             raise ValueError(f"unsupported adapter {field}")
     if config.get("bias") not in (None, "none"):
         raise ValueError("unsupported LoRA bias")
@@ -237,6 +255,48 @@ def load_pinned_adapter(
     )
 
 
+def _check_frozen_adapter(frozen: FrozenAdapter) -> None:
+    """Recheck untrusted in-memory bundle against its own restricted receipt.
+
+    This is a local consistency check, not proof that an independent issuer
+    supplied the digests or that an actual model loaded the Adapter.
+    """
+    if not isinstance(frozen, FrozenAdapter):
+        raise ValueError("adapter must be a frozen pinned bundle")
+    if (type(frozen.config_raw) is not bytes
+            or not 0 < len(frozen.config_raw) <= _MAX_CONFIG
+            or type(frozen.weights_raw) is not bytes
+            or not 0 < len(frozen.weights_raw) <= _MAX_WEIGHTS
+            or type(frozen.receipt) is not dict):
+        raise ValueError("invalid frozen adapter bytes or receipt")
+    receipt = frozen.receipt
+    model, revision = receipt.get("base_model"), receipt.get("base_model_revision")
+    if (type(model) is not str or _REPO.fullmatch(model) is None
+            or type(revision) is not str or _SHA40.fullmatch(revision) is None):
+        raise ValueError("invalid frozen adapter model identity")
+    validate_adapter_receipt(receipt, base_model=model, base_revision=revision)
+    config_sha = _verify_pin(
+        frozen.config_raw, receipt["adapter_config_sha256"], "adapter_config_sha256",
+    )
+    weight_sha = _verify_pin(
+        frozen.weights_raw, receipt["adapter_weights_sha256"], "adapter_weights_sha256",
+    )
+    config = _validate_config(frozen.config_raw, base_model=model, base_revision=revision)
+    tensor_count, modules = _validate_safetensors(frozen.weights_raw, config=config)
+    expected = {
+        "adapter_config_sha256": config_sha,
+        "adapter_weights_sha256": weight_sha,
+        "lora_tensor_count": tensor_count,
+        "lora_modules": list(modules),
+        "target_modules": sorted(config["target_modules"]),
+    }
+    if any(
+        type(receipt[key]) is not type(value) or receipt[key] != value
+        for key, value in expected.items()
+    ):
+        raise ValueError("frozen adapter receipt does not match original bytes")
+
+
 @contextmanager
 def staged_pinned_adapter(frozen: FrozenAdapter) -> Iterator[Path]:
     """Copy verified in-memory bytes into a private local PEFT load directory.
@@ -245,8 +305,7 @@ def staged_pinned_adapter(frozen: FrozenAdapter) -> Iterator[Path]:
     PEFT reads. The local temporary directory itself is not attested against
     same-UID modification or malicious host access.
     """
-    if not isinstance(frozen, FrozenAdapter):
-        raise ValueError("adapter must be a frozen pinned bundle")
+    _check_frozen_adapter(frozen)
     with tempfile.TemporaryDirectory(prefix="sre-grpo-lora-") as dirname:
         path = Path(dirname)
         for name, raw in (
@@ -318,9 +377,7 @@ def verify_loaded_adapter_weights(
 
     Runtime and model identity are still NOT independently attested.
     """
-    if not isinstance(frozen, FrozenAdapter):
-        raise ValueError("frozen adapter required")
-    _validate_safetensors(frozen.weights_raw)
+    _check_frozen_adapter(frozen)
     if (getattr(status, "enabled", None) is not True
             or getattr(status, "active_adapters", None) != ["default"]
             or getattr(status, "merged_adapters", None) != []
