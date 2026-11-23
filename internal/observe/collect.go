@@ -120,10 +120,16 @@ func validate(c Config)(*url.URL,*url.URL,error){
  p,err:=endpoint(c.PrometheusURL);if err!=nil{return nil,nil,err}
  return k,p,nil
 }
+// Caller-supplied HTTP clients may keep their custom transport/TLS settings,
+// but may not disable the collector's bounded, read-only source deadline.
+const maxSourceReadTimeout = 30 * time.Second
+
 func client(c Config)*http.Client{
  var copied http.Client
  if c.Client!=nil{copied=*c.Client}else{copied=http.Client{Timeout:10*time.Second}}
- // Never follow redirects across a different authority.
+ if copied.Timeout<=0{copied.Timeout=10*time.Second}
+ if copied.Timeout>maxSourceReadTimeout{copied.Timeout=maxSourceReadTimeout}
+ // Never follow HTTP redirects; the source authority must stay fixed.
  copied.CheckRedirect=func(req *http.Request,via []*http.Request)error{return http.ErrUseLastResponse}
  return &copied
 }
