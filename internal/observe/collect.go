@@ -70,7 +70,10 @@ type deployment struct {
  Metadata metadata `json:"metadata"`
  Spec struct {
   Replicas *int `json:"replicas"`
-  Selector struct{MatchLabels map[string]string `json:"matchLabels"`} `json:"selector"`
+  Selector struct{
+  MatchLabels map[string]string `json:"matchLabels"`
+  MatchExpressions []json.RawMessage `json:"matchExpressions"`
+ } `json:"selector"`
  } `json:"spec"`
  Status struct{ReadyReplicas int `json:"readyReplicas"`; ObservedGeneration int64 `json:"observedGeneration"`} `json:"status"`
 }
@@ -158,7 +161,7 @@ func readKubernetes(ctx context.Context,hc *http.Client,u *url.URL,c Config,when
  var d deployment
  path:="/apis/apps/v1/namespaces/"+c.Namespace+"/deployments/"+c.Deployment
  if err:=getJSON(ctx,hc,u,path,c.KubernetesBearerToken,&d);err!=nil{return nil,err}
- if d.Metadata.Name!=c.Deployment||d.Metadata.Namespace!=c.Namespace||d.Metadata.UID==""||d.Metadata.ResourceVersion==""||d.Spec.Replicas==nil||len(d.Spec.Selector.MatchLabels)==0{return nil,unknownf("deployment identity or selector missing")}
+ if d.Metadata.Name!=c.Deployment||d.Metadata.Namespace!=c.Namespace||d.Metadata.UID==""||d.Metadata.ResourceVersion==""||d.Spec.Replicas==nil||len(d.Spec.Selector.MatchLabels)==0||len(d.Spec.Selector.MatchExpressions)>0{return nil,unknownf("deployment identity or selector missing")}
  selectors:=make([]string,0,len(d.Spec.Selector.MatchLabels))
  for key,val:=range d.Spec.Selector.MatchLabels{
   if !selectorLabelOK(key,val){return nil,unknownf("unsafe deployment label selector")}
