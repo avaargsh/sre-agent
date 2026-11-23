@@ -140,14 +140,15 @@ def test_adapter_files_read_only_once_and_never_reopened_after_pin(tmp_path, mon
         directory/"adapter_config.json", directory/"adapter_model.safetensors",
     }
     calls = {p: 0 for p in watched}
-    original = Path.read_bytes
+    import agentic_aiops.grpo_adapter as adapter_module
+    original = adapter_module.os.open
 
-    def trace(path):
-        if path in calls:
-            calls[path] += 1
-        return original(path)
+    def trace(path, flags, *args, **kwargs):
+        if Path(path) in calls:
+            calls[Path(path)] += 1
+        return original(path, flags, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_bytes", trace)
+    monkeypatch.setattr(adapter_module.os, "open", trace)
     frozen = load(directory, pins)
     with staged_pinned_adapter(frozen) as staged:
         assert (Path(staged)/"adapter_model.safetensors").is_file()
