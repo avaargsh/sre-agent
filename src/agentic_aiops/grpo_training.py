@@ -213,6 +213,19 @@ def load_episodes(path: str | Path) -> tuple[SREEpisode, ...]:
     )
 
 
+def _jsonl_lines(text: str) -> list[str]:
+    """Only the LF wire delimiter separates JSONL records.
+
+    Python str.splitlines() also splits U+0085/U+2028/U+2029, all valid
+    JSON string characters. Keep exactly one optional terminal LF out of
+    the record list; interior blank records still fail closed at admission.
+    """
+    lines = text.split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    return lines
+
+
 def load_episodes_bytes(raw: bytes) -> tuple[SREEpisode, ...]:
     """Parse exactly the bounded bytes checked by the external SHA256 pin."""
     if type(raw) is not bytes or not raw or len(raw) > _MAX_FILE_BYTES:
@@ -225,7 +238,7 @@ def load_episodes_bytes(raw: bytes) -> tuple[SREEpisode, ...]:
     ids: set[str] = set()
     family_splits: dict[str, str] = {}
     content_splits: dict[tuple[str, tuple[tuple[str, str], ...]], str] = {}
-    for line in data.splitlines():
+    for line in _jsonl_lines(data):
         if not line.strip():
             raise ValueError("blank JSONL record")
         if len(line.encode("utf-8")) > _MAX_LINE_BYTES:
