@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 )
 
 // Key canonicalizes one labelset, rejecting an absent metric object or a
@@ -42,4 +43,11 @@ func Unique(labelsets []map[string]string) error {
 		seen[id] = true
 	}
 	return nil
+}
+
+// ValidTimestamp matches the independent replay validator's supported
+// Prometheus Unix-second range. The bound also prevents overflow when the
+// collector converts seconds to int64 nanoseconds before freshness checks.
+func ValidTimestamp(value float64) bool {
+ return !math.IsNaN(value) && !math.IsInf(value,0) && value>0 && value<=9e9
 }
