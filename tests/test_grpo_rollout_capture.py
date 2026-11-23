@@ -334,3 +334,47 @@ def test_capture_artifacts_have_private_file_mode(tmp_path):
         artifact = tmp_path / name
         assert stat.S_IMODE(artifact.stat().st_mode) == 0o600
         assert not artifact.is_symlink()
+
+@pytest.mark.skipif(
+    not hasattr(__import__("os"), "mkfifo") or not hasattr(__import__("os"), "O_NONBLOCK"),
+    reason="requires POSIX nonblocking FIFO",
+)
+def test_capture_rejects_fifo_dataset_without_blocking(tmp_path):
+    import os
+    from agentic_aiops.grpo_rollout_capture import validate_capture_inputs
+    fifo = tmp_path / "dataset-fifo.jsonl"
+    os.mkfifo(fifo)
+    with pytest.raises(ValueError, match="bounded regular file"):
+        validate_capture_inputs(
+            fifo, expected_dataset_sha256="0" * 64,
+            model="Qwen/Qwen3-0.6B", model_revision=REV,
+            group_size=4, seed=42, max_new_tokens=192,
+        )
+
+
+def test_capture_fsync_error_leaves_no_published_outputs(tmp_path, monkeypatch):
+    import os
+    import stat
+    dataset, pinned = dataset_file(tmp_path)
+    actual_fsync = os.fsync
+    calls = []
+
+    def rejected_fsync(fd):
+        if stat.S_ISREG(os.fstat(fd).st_mode):
+            calls.append(1)
+            raise OSError("injected staged fsync failure")
+        return actual_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", rejected_fsync)
+    with pytest.raises(OSError, match="injected staged fsync failure"):
+        capture_rollout_groups(
+            dataset, expected_dataset_sha256=pinned,
+            output=tmp_path / "out.jsonl",
+            manifest=tmp_path / "capture-manifest.json",
+            tokenizer=ToyTokenizer(), sampler=lambda p, seed: "{}",
+            model="Qwen/Qwen3-0.6B", model_revision=REV,
+        )
+    assert calls, "must exercise a real staging file fsync"
+    assert not (tmp_path / "out.jsonl").exists()
+    assert not (tmp_path / "capture-manifest.json").exists()
+    assert not list(tmp_path.glob(".sre-grpo-*.stage"))
