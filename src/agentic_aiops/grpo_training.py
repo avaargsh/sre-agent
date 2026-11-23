@@ -193,9 +193,24 @@ def _decode_episode(data: Any) -> SREEpisode:
     )
 
 
+def _read_bounded_bytes(path: str | Path, *, limit: int, name: str) -> bytes:
+    """Read source bytes once, with the byte cap enforced before allocation.
+
+    Callers must hash and parse these same bytes rather than reopening files.
+    This bounds ordinary files and streams without relying on a racy stat.
+    """
+    with Path(path).open("rb") as stream:
+        raw = stream.read(limit + 1)
+    if not raw or len(raw) > limit:
+        raise ValueError(f"empty or oversized {name}")
+    return raw
+
+
 def load_episodes(path: str | Path) -> tuple[SREEpisode, ...]:
-    """Load a dataset from disk once; caller should pin immutable bytes."""
-    return load_episodes_bytes(Path(path).read_bytes())
+    """Load the same bounded dataset bytes used for any external pin."""
+    return load_episodes_bytes(
+        _read_bounded_bytes(path, limit=_MAX_FILE_BYTES, name="episode dataset")
+    )
 
 
 def load_episodes_bytes(raw: bytes) -> tuple[SREEpisode, ...]:
