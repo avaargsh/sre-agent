@@ -1,11 +1,16 @@
 # Agentic AIOps
 
-> **Go experimental baseline (2026-11-23):** PR #1–#10 are merged into development `main`: Go read-only Kubernetes/Prometheus evidence collection and selected isolated fault Oracles (including real disposable Calico), exact-source integrity, LAB Ed25519 signer-policy mechanics and a single-host LAB receipt journal. These are **not production-authenticated evidence or authorization to modify a real cluster**. Offline Qwen3 SFT/GRPO training is still Draft PR #11; the other hardening and alert-intake PRs #12–#16 remain under review. See [Go rewrite plan](docs/go-rewrite-plan.md) and [evidence-first SRE Golden Incident acceptance plan](docs/sre-p0-golden-path.md).
+> **Go experimental development baseline (2026-11-23):** PR #1–#10, #12 and #14–#16 are merged into `main`. The Go CLI now supports scoped Alertmanager `plan-alert`, real **read-only** Kubernetes/Prometheus `investigate-alert`, and offline `verify-alert-evidence`, along with scoped source JSON/Unicode integrity checks and isolated fault Oracles. The legacy Python Golden Incident is a separate historical demo, **not proof the Go CLI has a production remediation workflow**. See [Go rewrite plan](docs/go-rewrite-plan.md) and [SRE Golden Incident P0 acceptance plan](docs/sre-p0-golden-path.md).
 >
-> Example: `go run ./cmd/sre-agent verify-bundle --scenario --file benchmarks/scenarios/checkout-latency.json`. `STRUCTURALLY_VALID` means structural/digest consistency only, **not** source authentication, RCA correctness, verified operational recovery or permission for a production write.
-
+> These are **development features**, not authenticated alert provenance, independent RCA truth, verified production recovery, or permission to modify a real cluster. #11 SFT/GRPO remains Draft and CPU-only validation does not prove GPU training. The latest merged `main` has **not** yet received a fresh fully integrated Actions run; pre-merge checks from older HEADs must not be called final-`main` certification.
+>
+> Read-only example: `go run ./cmd/sre-agent verify-bundle --scenario --file benchmarks/scenarios/checkout-latency.json`. `STRUCTURALLY_VALID` and `STRUCTURALLY_LINKED` attest only internal consistency, **not source authentication**.
 
 Evidence-first Agentic incident investigation and safe remediation, with a runnable **Golden Incident v0.1** spanning Prometheus, Kubernetes, a Decision Gateway and Temporal durable approval.
+
+## Go read-only investigation baseline
+
+The current Go entrypoints accept original Alertmanager bytes, an operator-pinned cluster/namespace/deployment, and explicit read-only Kubernetes/Prometheus credentials. `plan-alert` produces an untrusted scoped candidate; `investigate-alert` collects a bounded v1 Evidence Bundle; `verify-alert-evidence` independently replays its structural linkage and returns `UNKNOWN` on mismatches. No part of this path approves an execution Permit or makes a production write.
 
 ## Golden Incident v0.1
 
