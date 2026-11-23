@@ -18,6 +18,8 @@ import (
 // AlertEvidenceReview proves only structural linkage among three untrusted
 // local files. It is NOT an authenticated attestation, incident RCA verdict,
 // permit, approval, recovery outcome, or authorization to run a tool.
+// Mainline integration never upgrades STRUCTURALLY_LINKED into source-authenticated
+// evidence; release/promotion policy is a separate external authority.
 type AlertEvidenceReview struct {
  SchemaVersion string `json:"schema_version"`
  Status string `json:"status"`
