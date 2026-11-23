@@ -10,6 +10,7 @@ from .grpo_training import (
     _fields,
     _id,
     _strict_json,
+    _read_bounded_bytes,
     score_completion,
 )
 
@@ -18,7 +19,9 @@ _MAX_PREDICTIONS = 4 * 1024 * 1024
 
 def load_predictions(path: str | Path) -> dict[str, str]:
     """Read once and parse bounded holdout output from those exact bytes."""
-    return load_predictions_bytes(Path(path).read_bytes())
+    return load_predictions_bytes(
+        _read_bounded_bytes(path, limit=_MAX_PREDICTIONS, name="prediction file")
+    )
 
 
 def load_predictions_bytes(raw: bytes) -> dict[str, str]:
