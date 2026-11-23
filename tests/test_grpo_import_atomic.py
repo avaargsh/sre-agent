@@ -19,7 +19,8 @@ def test_import_never_writes_directly_to_final_path(tmp_path, monkeypatch):
     original = Path.open
 
     def forbid_final_open(path, *args, **kwargs):
-        if path == output:
+        mode = args[0] if args else kwargs.get("mode", "r")
+        if path == output and mode in {"x", "xb", "w", "wb", "a", "ab"}:
             raise AssertionError("direct write to final Episode path")
         return original(path, *args, **kwargs)
 
