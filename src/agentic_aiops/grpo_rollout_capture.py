@@ -127,16 +127,6 @@ def _stage_bytes(final: Path, payload: bytes) -> Path:
     return stage
 
 
-def _owned_path(target: Path, stage: Path) -> bool:
-    """Avoid deleting a concurrent replacement on rollback."""
-    try:
-        a = os.lstat(target)
-        b = os.lstat(stage)
-        return (a.st_dev, a.st_ino) == (b.st_dev, b.st_ino)
-    except FileNotFoundError:
-        return False
-
-
 def capture_rollout_groups(
     dataset: str | Path,
     *,
@@ -240,12 +230,11 @@ def capture_rollout_groups(
         stage_out = _stage_bytes(output_path, raw)
         stage_manifest = _stage_bytes(manifest_path, manifest_bytes)
         os.link(stage_out, output_path)
-        try:
-            os.link(stage_manifest, manifest_path)
-        except BaseException:
-            if _owned_path(output_path, stage_out):
-                output_path.unlink()
-            raise
+        # Never unlink the first final pathname if the second link fails.
+        # The old lstat-then-unlink rollback could erase a concurrent writer
+        # that replaces output_path after the inode check. An unpaired raw
+        # rollout is not a successful capture: no matching manifest exists.
+        os.link(stage_manifest, manifest_path)
     finally:
         if stage_out is not None:
             stage_out.unlink(missing_ok=True)
