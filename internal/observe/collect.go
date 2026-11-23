@@ -90,6 +90,7 @@ type podList struct {
 }
 type promResult struct {
  Status string `json:"status"`
+ Warnings []string `json:"warnings"`
  Data struct {
   ResultType string `json:"resultType"`
   Result []struct{
@@ -203,6 +204,7 @@ func readPrometheus(ctx context.Context,hc *http.Client,u *url.URL,c Config,now 
  path:="/api/v1/query?query="+url.QueryEscape(query)
  if err:=getJSON(ctx,hc,u,path,"",&p);err!=nil{return nil,err}
  if p.Status!="success"||p.Data.ResultType!="vector"||len(p.Data.Result)==0||len(p.Data.Result)>maxSeries{return nil,unknownf("missing or invalid Prometheus instant-vector result")}
+ if len(p.Warnings)>0{return nil,unknownf("Prometheus query returned warnings; cannot assert complete observation")}
  maxAge:=c.MaxMetricAge
  if maxAge==0{maxAge=90*time.Second}
  samples:=make([]map[string]any,0,len(p.Data.Result))
