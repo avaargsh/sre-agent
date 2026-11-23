@@ -287,3 +287,36 @@ def test_pinned_compare_does_not_trust_rehashed_bad_prediction(tmp_path):
             expected_dataset_sha256=ds_sha,
             expected_prediction_sha256=shas,
         )
+
+
+def test_hardlinked_model_predictions_cannot_impersonate_distinct_sources(tmp_path):
+    dataset, files, ds_sha, pins = fixture(tmp_path)
+    files["SFT"].unlink()
+    import os
+    os.link(files["Base"], files["SFT"])
+    # A matching caller-supplied SHA must not turn the same inode into
+    # two independent model prediction files.
+    pins["SFT"] = pins["Base"]
+    with pytest.raises(ValueError, match="distinct|hardlink|inode"):
+        compare_pinned_holdout(
+            dataset, prediction_files=files,
+            expected_dataset_sha256=ds_sha,
+            expected_prediction_sha256=pins,
+        )
+
+
+@pytest.mark.parametrize("source", ["dataset", "SFT"])
+def test_paired_holdout_rejects_symlinked_source_even_with_valid_sha(
+    tmp_path, source,
+):
+    dataset, files, ds_sha, pins = fixture(tmp_path)
+    target = dataset if source == "dataset" else files[source]
+    renamed = target.with_name(target.name + ".frozen")
+    target.rename(renamed)
+    target.symlink_to(renamed)
+    with pytest.raises(ValueError, match="symlink"):
+        compare_pinned_holdout(
+            dataset, prediction_files=files,
+            expected_dataset_sha256=ds_sha,
+            expected_prediction_sha256=pins,
+        )
