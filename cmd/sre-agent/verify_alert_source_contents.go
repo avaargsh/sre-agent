@@ -10,6 +10,7 @@ import (
  "unicode/utf8"
 
  "github.com/avaargsh/sre-agent/internal/evidence"
+ "github.com/avaargsh/sre-agent/internal/metricseries"
 )
 
 // The v1 collector embeds bounded pod/sample JSON as strings. A valid outer
@@ -80,15 +81,20 @@ func validateEmbeddedSamples(attrs map[string]any,observedAt time.Time)error{
  // 500ms of historical rounding slack. New fractional receipts are exact.
  maxAllowedAge:=time.Duration(budget*float64(time.Second))
  if !strings.Contains(ageText,"."){maxAllowedAge+=500*time.Millisecond}
+ labelsets:=make([]map[string]string,0,len(samples))
  for _,item:=range samples{
   sample:=exactObject(item)
   if err:=requireOnlyFields(sample,"embedded Prometheus series","metric","timestamp","value");err!=nil{return err}
   labels:=exactObject(sample["metric"])
   if labels==nil{return fmt.Errorf("embedded Prometheus metric missing")}
+  normalized:=make(map[string]string,len(labels))
   for key,label:=range labels{
    if key==""{return fmt.Errorf("embedded metric label key missing")}
-   if _,ok:=label.(string);!ok{return fmt.Errorf("embedded metric label is not a string")}
+   text,ok:=label.(string)
+   if !ok{return fmt.Errorf("embedded metric label is not a string")}
+   normalized[key]=text
   }
+  labelsets=append(labelsets,normalized)
   timestamp,ok:=sample["timestamp"].(float64)
   if !ok||math.IsNaN(timestamp)||math.IsInf(timestamp,0)||timestamp<=0||timestamp>9e9{
    return fmt.Errorf("invalid embedded Prometheus timestamp")
@@ -106,6 +112,9 @@ func validateEmbeddedSamples(attrs map[string]any,observedAt time.Time)error{
    at.Sub(observedAt)>5*time.Second{
    return fmt.Errorf("embedded Prometheus sample stale or future-dated against bundle clock")
   }
+ }
+ if err:=metricseries.Unique(labelsets);err!=nil{
+  return fmt.Errorf("invalid embedded instant-vector labelsets: %w",err)
  }
  return nil
 }

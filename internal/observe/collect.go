@@ -21,6 +21,7 @@ import (
   "strings"
   "time"
   "github.com/avaargsh/sre-agent/internal/evidence"
+  "github.com/avaargsh/sre-agent/internal/metricseries"
 )
 
 var ErrUnknown = errors.New("observation UNKNOWN")
@@ -198,6 +199,7 @@ func readPrometheus(ctx context.Context,hc *http.Client,u *url.URL,c Config,now 
  maxAge:=c.MaxMetricAge
  if maxAge==0{maxAge=90*time.Second}
  samples:=make([]map[string]any,0,len(p.Data.Result))
+ labelsets:=make([]map[string]string,0,len(p.Data.Result))
  for i,series:=range p.Data.Result{
   if len(series.Value)!=2{return nil,unknownf("series %d missing sample",i)}
   var timestamp float64
@@ -208,8 +210,10 @@ func readPrometheus(ctx context.Context,hc *http.Client,u *url.URL,c Config,now 
   if err!=nil||math.IsNaN(number)||math.IsInf(number,0){return nil,unknownf("series %d non-finite value",i)}
   sampleAt:=time.Unix(0,int64(timestamp*float64(time.Second)))
   if now.Sub(sampleAt)>maxAge||sampleAt.Sub(now)>5*time.Second{return nil,unknownf("series %d stale or future-dated",i)}
+  labelsets=append(labelsets,series.Metric)
   samples=append(samples,map[string]any{"metric":series.Metric,"timestamp":timestamp,"value":value})
  }
+ if err:=metricseries.Unique(labelsets);err!=nil{return nil,unknownf("invalid Prometheus instant-vector labelset: %v",err)}
  b,_:=json.Marshal(samples)
  attrs:=map[string]string{"promql":query,"samples_json":string(b),"result_type":"vector","series_count":strconv.Itoa(len(samples)),
   "observed_at":when,"max_age_seconds":strconv.FormatFloat(maxAge.Seconds(),'f',-1,64)}
