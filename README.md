@@ -379,6 +379,35 @@ and permissions, no trusted CI or production acceptance is established.
 The output always has `github_run_identity_verified=false`,
 `source_authenticity_verified=false` and `production_eligible=false`.
 
+### Offline GRPO grouped-rollout reward audit (CPU-only)
+
+`scripts/audit_sre_grpo_rollouts.py` independently re-scores every
+**train-split** Episode's complete group of generated completions using
+private Oracle labels held in the audit process. It refuses missing,
+duplicate, unknown or holdout Episode IDs, malformed JSON, nonuniform
+group sizes, symlink/hardlink aliases, nonregular files, unbounded inputs
+and invalid Unicode. A nonconstant reward group indicates only possible
+advantage signal, not successful GRPO training.
+
+```bash
+python scripts/audit_sre_grpo_rollouts.py \
+  --dataset /reviewed/train-episodes.jsonl \
+  --rollouts /capture/group-rollouts.jsonl \
+  --expected-dataset-sha256 "$REVIEWER_DATASET_SHA256" \
+  --expected-rollouts-sha256 "$REVIEWER_ROLLOUTS_SHA256" \
+  --group-size 4 --min-signal-fraction 0.25 --require-signal
+```
+
+The source bytes must be independently pinned before the experiment.
+Both files are read once at most 4 MiB + 1 byte, then their digests and
+content are evaluated from those same bytes; only LF delimits JSONL
+records, preserving valid U+0085/U+2028/U+2029 string characters.
+With `--require-signal`, a collapsed or insufficient-signal result exits
+nonzero (`UNKNOWN`). The receipt always keeps
+`model_runtime_verified=false`, `reward_hacking_verified_absent=false`
+and `external_provenance_authenticated=false`. This is a data-side
+diagnostic tool only: no GPU training, optimizer attestation, real SRE
+quality proof, or production release authorization is provided.
 ## Development
 
 ```bash
