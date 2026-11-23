@@ -6,6 +6,7 @@ import (
  "fmt"
  "net/http"
  "net/http/httptest"
+ "sync/atomic"
  "testing"
 )
 
@@ -35,13 +36,13 @@ func TestCollectAcceptsQualifiedAndEmptyValueLabelSelectors(t *testing.T) {
   {"empty value","tier","","tier="},
  } {
   t.Run(tc.name,func(t *testing.T) {
-   sawPods:=false
+   var sawPods atomic.Bool
    server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
     switch r.URL.Path {
     case "/apis/apps/v1/namespaces/golden-demo/deployments/checkout-api":
      _,_=fmt.Fprintf(w,`{"metadata":{"uid":"deployment-1","name":"checkout-api","namespace":"golden-demo","resourceVersion":"1","generation":1},"spec":{"replicas":1,"selector":{"matchLabels":{%q:%q}}},"status":{"readyReplicas":1,"observedGeneration":1}}`,tc.key,tc.value)
     case "/api/v1/namespaces/golden-demo/pods":
-     sawPods=true
+     sawPods.Store(true)
      if got:=r.URL.Query().Get("labelSelector");got!=tc.want {
       t.Errorf("wrong Kubernetes selector: %q, want %q",got,tc.want)
      }
@@ -54,8 +55,8 @@ func TestCollectAcceptsQualifiedAndEmptyValueLabelSelectors(t *testing.T) {
    }))
    defer server.Close()
    raw,err:=Collect(context.Background(),fixture(server.URL))
-   if err!=nil || len(raw)==0 || !sawPods {
-    t.Fatalf("legitimate Kubernetes selector failed: err=%v bytes=%d pod_read=%v",err,len(raw),sawPods)
+   if err!=nil || len(raw)==0 || !sawPods.Load() {
+    t.Fatalf("legitimate Kubernetes selector failed: err=%v bytes=%d pod_read=%v",err,len(raw),sawPods.Load())
    }
   })
  }
@@ -68,10 +69,10 @@ func TestCollectRejectsSelectorControlCharactersBeforePodList(t *testing.T) {
   {"app","checkout,prod"},
  } {
   t.Run(tc.key+"-"+tc.value,func(t *testing.T) {
-   readPods:=false
+   var readPods atomic.Bool
    server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
     if r.URL.Path!="/apis/apps/v1/namespaces/golden-demo/deployments/checkout-api"{
-     readPods=true
+     readPods.Store(true)
      w.WriteHeader(http.StatusInternalServerError)
      return
     }
@@ -79,8 +80,8 @@ func TestCollectRejectsSelectorControlCharactersBeforePodList(t *testing.T) {
    }))
    defer server.Close()
    raw,err:=Collect(context.Background(),fixture(server.URL))
-   if !errors.Is(err,ErrUnknown)||raw!=nil||readPods {
-    t.Fatalf("unsafe selector must stop before other source reads: raw=%q err=%v readPods=%v",raw,err,readPods)
+   if !errors.Is(err,ErrUnknown)||raw!=nil||readPods.Load() {
+    t.Fatalf("unsafe selector must stop before other source reads: raw=%q err=%v readPods=%v",raw,err,readPods.Load())
    }
   })
  }
