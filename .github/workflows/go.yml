@@ -34,5 +34,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sre-exact-go-${{ github.sha }}
-          path: ${{ runner.temp }}/sre-exact-go/
+          path: |
+            ${{ runner.temp }}/sre-exact-go/manifest.json
+            ${{ runner.temp }}/sre-exact-go/*.log
           if-no-files-found: warn
