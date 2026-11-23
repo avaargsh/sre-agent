@@ -220,6 +220,43 @@ data issuer, or captured inference runtime. The report always keeps
 `superiority_claim_authorized=false` and `production_eligible=false`.
 Evidence-chain attribution and actual GPU training remain unmerged in #11.
 
+### Oracle-free Holdout projection and independent replay (CPU-only)
+
+The data owner can project a **frozen, externally SHA-pinned** validation/test
+Episode dataset into a distinct `episode_id, prompt` JSONL file. The private
+Oracle, split, fault family and original dataset are not passed to the model
+runner. The projection manifest binds the original dataset SHA256, exact
+projected bytes, selected split and case count. Output uses staged fsynced
+files and no-replace links; it is **not** an atomic two-file transaction, so
+an interruption can leave an orphan prompts file with no valid manifest.
+
+```bash
+python scripts/project_sre_grpo_holdout.py \
+  --dataset /reviewer/episodes.jsonl \
+  --expected-dataset-sha256 "$REVIEWER_DATASET_SHA256" \
+  --split test --output /new/path/prompts.jsonl \
+  --manifest /new/path/projection.json
+
+python scripts/verify_sre_grpo_projection.py \
+  --dataset /reviewer/episodes.jsonl \
+  --prompts /new/path/prompts.jsonl \
+  --manifest /new/path/projection.json \
+  --expected-dataset-sha256 "$REVIEWER_DATASET_SHA256" \
+  --expected-prompts-sha256 "$REVIEWER_PROMPTS_SHA256" \
+  --expected-manifest-sha256 "$REVIEWER_MANIFEST_SHA256"
+```
+
+The independent verifier reads the **original pinned Episode bytes**, rebuilds
+the exact Oracle-free prompts, checks the projection file byte-for-byte and
+validates every manifest field with exact JSON type matching. It refuses
+missing, rehashed-but-tampered, oversized or symlinked artifacts. The required
+external SHA pins do **not** authenticate the issuing data owner or model.
+
+This is a CPU-only input-projection contract; it does not sample a model,
+authenticate checkpoints, establish real SRE diagnostic improvement or grant
+production remediation permission. The Draft #11 five-file model capture and
+Adapter chain remain separate and **unmerged**.
+
 ## Development
 
 ```bash
