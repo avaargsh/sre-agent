@@ -213,7 +213,7 @@ func readPrometheus(ctx context.Context,hc *http.Client,u *url.URL,c Config,now 
   if len(series.Value)!=2{return nil,unknownf("series %d missing sample",i)}
   var timestamp float64
   var value string
-  if err:=json.Unmarshal(series.Value[0],&timestamp);err!=nil||math.IsNaN(timestamp)||math.IsInf(timestamp,0){return nil,unknownf("series %d invalid timestamp",i)}
+  if err:=json.Unmarshal(series.Value[0],&timestamp);err!=nil||!metricseries.ValidTimestamp(timestamp){return nil,unknownf("series %d invalid or non-replayable timestamp",i)}
   if err:=json.Unmarshal(series.Value[1],&value);err!=nil{return nil,unknownf("series %d invalid value encoding",i)}
   number,err:=strconv.ParseFloat(value,64)
   if err!=nil||math.IsNaN(number)||math.IsInf(number,0){return nil,unknownf("series %d non-finite value",i)}

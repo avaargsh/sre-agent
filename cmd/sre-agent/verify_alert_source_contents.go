@@ -96,7 +96,7 @@ func validateEmbeddedSamples(attrs map[string]any,observedAt time.Time)error{
   }
   labelsets=append(labelsets,normalized)
   timestamp,ok:=sample["timestamp"].(float64)
-  if !ok||math.IsNaN(timestamp)||math.IsInf(timestamp,0)||timestamp<=0||timestamp>9e9{
+  if !ok||!metricseries.ValidTimestamp(timestamp){
    return fmt.Errorf("invalid embedded Prometheus timestamp")
   }
   value,ok:=sample["value"].(string)
