@@ -24,6 +24,7 @@ def repo(tmp_path):
     root.mkdir()
     shell('git', 'init', '-q', cwd=root)
     (root / 'pytest.py').write_text('raise SystemExit(0)\n')
+    (root / '.gitignore').write_text('__pycache__/\n*.pyc\n')
     (root / 'demo.txt').write_text('original\n')
     shell('git', 'add', '.', cwd=root)
     shell('git', '-c', 'user.name=Test', '-c', 'user.email=test@example.org', 'commit', '-qm', 'fixture', cwd=root)
@@ -178,3 +179,55 @@ def test_untracked_source_blocks_exact_tree_proof(repo):
     assert receipt['status'] == 'HOLD'
     assert receipt['checks'] == []
     assert 'untracked' in receipt['reason']
+
+
+def test_test_command_mutates_tracked_file_so_result_is_not_pass(repo):
+    (repo / 'pytest.py').write_text(
+        'from pathlib import Path\n'
+        'Path("demo.txt").write_text("changed during tests\\n")\n'
+        'raise SystemExit(0)\n'
+    )
+    shell('git', 'add', '.', cwd=repo)
+    shell('git', '-c', 'user.name=Test', '-c', 'user.email=test@example.org',
+          'commit', '-qm', 'mutating-test', cwd=repo)
+    proc, receipt, _ = invoke(repo)
+    assert proc.returncode != 0
+    assert receipt['status'] == 'FAIL'
+    assert 'during verification' in receipt['reason']
+    assert receipt['post_run_tree_clean'] is False
+    assert receipt['checks'][0]['return_code'] == 0
+
+
+def test_test_command_changes_git_head_so_result_is_not_pass(repo):
+    (repo / 'pytest.py').write_text(
+        'import subprocess\n'
+        'subprocess.run(["git", "-c", "user.name=Test", "-c",'
+        ' "user.email=test@example.org", "commit", "--allow-empty",'
+        ' "-qm", "unexpected-test-commit"], check=True)\n'
+        'raise SystemExit(0)\n'
+    )
+    shell('git', 'add', '.', cwd=repo)
+    shell('git', '-c', 'user.name=Test', '-c', 'user.email=test@example.org',
+          'commit', '-qm', 'head-mutating-test', cwd=repo)
+    proc, receipt, _ = invoke(repo)
+    assert proc.returncode != 0
+    assert receipt['status'] == 'FAIL'
+    assert receipt['actual_sha'] != receipt['post_run_sha']
+    assert 'during verification' in receipt['reason']
+    assert receipt['checks'][0]['return_code'] == 0
+
+
+def test_test_command_creates_untracked_file_so_result_is_not_pass(repo):
+    (repo / 'pytest.py').write_text(
+        'from pathlib import Path\n'
+        'Path("unreviewed.py").write_text("print(1)\\n")\n'
+        'raise SystemExit(0)\n'
+    )
+    shell('git', 'add', '.', cwd=repo)
+    shell('git', '-c', 'user.name=Test', '-c', 'user.email=test@example.org',
+          'commit', '-qm', 'untracked-test', cwd=repo)
+    proc, receipt, _ = invoke(repo)
+    assert proc.returncode != 0
+    assert receipt['status'] == 'FAIL'
+    assert receipt['post_run_tree_clean'] is False
+    assert 'during verification' in receipt['reason']
