@@ -223,3 +223,18 @@ def test_projection_replay_cli_green_and_failclosed_unknown(tmp_path):
     failure = subprocess.run(tampered, cwd=ROOT, capture_output=True, text=True)
     assert failure.returncode == 3
     assert "UNKNOWN" in failure.stderr
+
+
+def test_symlinked_source_is_rejected_before_projection(tmp_path):
+    dataset = tmp_path / "episodes.jsonl"
+    dataset.write_bytes(SAMPLE.read_bytes())
+    alias = tmp_path / "alias.jsonl"
+    alias.symlink_to(dataset)
+    prompts = tmp_path / "prompts.jsonl"
+    manifest = tmp_path / "projection.json"
+    with pytest.raises(ValueError, match="non-symlink"):
+        project_holdout_prompts(
+            alias, expected_dataset_sha256=sha(dataset),
+            output=prompts, manifest=manifest,
+        )
+    assert not prompts.exists() and not manifest.exists()
