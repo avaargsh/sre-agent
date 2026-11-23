@@ -17,7 +17,7 @@ from .grpo_holdout_projection import (
     _MAX_CASES, _MAX_FILE_BYTES, _MAX_PROMPT_BYTES,
     _validate_paths, _encode_jsonl, _publish_pair,
 )
-from .grpo_training import _fields, _id, _strict_json, _read_bounded_bytes
+from .grpo_training import _fields, _id, _strict_json, _read_bounded_bytes, _jsonl_lines
 
 _REPO = re.compile(r"Qwen/Qwen3-[A-Za-z0-9._-]+\Z")
 _SHA40 = re.compile(r"[0-9a-f]{40}\Z")
@@ -56,7 +56,7 @@ def validate_holdout_prompts(
     )
     digest = _verify_pin(raw, expected_prompts_sha256, "prompts_sha256")
     try:
-        lines = raw.decode("utf-8").splitlines()
+        lines = _jsonl_lines(raw.decode("utf-8"))
     except UnicodeDecodeError as exc:
         raise ValueError("prompts not valid UTF-8") from exc
     if not 1 <= len(lines) <= _MAX_CASES:
