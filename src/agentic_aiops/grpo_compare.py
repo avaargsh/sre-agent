@@ -15,7 +15,7 @@ from typing import Any, Mapping
 
 from .grpo_eval import evaluate_holdout, load_predictions_bytes
 from .grpo_import import _verify_pin
-from .grpo_training import load_episodes_bytes, score_completion
+from .grpo_training import _read_bounded_bytes, load_episodes_bytes, score_completion
 
 _MODELS = ("Base", "SFT", "GRPO")
 _MAX_DATA = 4 * 1024 * 1024
@@ -24,9 +24,9 @@ _MAX_HOLDOUT_CASES = 2048
 
 
 def _pinned_file(path: str | Path, expected: str, name: str, limit: int) -> bytes:
-    raw = Path(path).read_bytes()
-    if not 0 < len(raw) <= limit:
-        raise ValueError(f"empty or oversized {name}")
+    # Enforce the byte cap before allocating/parsing untrusted source bytes.
+    # The same single bounded read is subsequently SHA-pinned and decoded.
+    raw = _read_bounded_bytes(path, limit=limit, name=name)
     _verify_pin(raw, expected, name)
     return raw
 
