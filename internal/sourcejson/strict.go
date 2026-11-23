@@ -19,6 +19,11 @@ import (
 
 var errInvalidSourceJSON = errors.New("malformed or contradictory native source JSON")
 
+// Source responses are already byte-bounded. Keep the recursive token walker
+// separately depth-bounded so a tiny deeply nested reply cannot consume an
+// unbounded Go stack before typed decoding has a chance to reject it.
+const maxSourceJSONDepth = 64
+
 func Validate(raw []byte) error {
  if !utf8.Valid(raw) {
   return errInvalidSourceJSON
@@ -28,7 +33,7 @@ func Validate(raw []byte) error {
  }
  decoder := json.NewDecoder(bytes.NewReader(raw))
  decoder.UseNumber()
- if err := readUniqueSourceValue(decoder); err != nil {
+ if err := readUniqueSourceValue(decoder, 0); err != nil {
   return errInvalidSourceJSON
  }
  if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
@@ -95,11 +100,12 @@ func foldedKey(key string) string {
 
 // Walk the decoder token stream before the typed decode; decoding into a map
 // or struct would already have discarded the conflicting original key.
-func readUniqueSourceValue(decoder *json.Decoder) error {
+func readUniqueSourceValue(decoder *json.Decoder, depth int) error {
  token, err := decoder.Token()
  if err != nil { return err }
  delim, ok := token.(json.Delim)
  if !ok { return nil }
+ if depth >= maxSourceJSONDepth { return errInvalidSourceJSON }
  switch delim {
  case '{':
   keys := make(map[string]struct{})
@@ -114,14 +120,14 @@ func readUniqueSourceValue(decoder *json.Decoder) error {
    if _, exists := foldedKeys[folded]; exists { return errInvalidSourceJSON }
    foldedKeys[folded] = struct{}{}
    keys[key] = struct{}{}
-   if err := readUniqueSourceValue(decoder); err != nil { return err }
+   if err := readUniqueSourceValue(decoder, depth+1); err != nil { return err }
   }
   end, err := decoder.Token()
   if err != nil || end != json.Delim('}') { return errInvalidSourceJSON }
   return nil
  case '[':
   for decoder.More() {
-   if err := readUniqueSourceValue(decoder); err != nil { return err }
+   if err := readUniqueSourceValue(decoder, depth+1); err != nil { return err }
   }
   end, err := decoder.Token()
   if err != nil || end != json.Delim(']') { return errInvalidSourceJSON }
