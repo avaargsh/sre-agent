@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import stat
@@ -38,16 +39,30 @@ def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def read_regular(path: Path, limit: int, description: str) -> bytes:
-    if path.is_symlink():
-        raise ValueError(f"symlink not permitted for {description}")
-    info = path.stat()
-    if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
-        raise ValueError(f"invalid or oversized {description}")
-    with path.open("rb") as f:
-        raw = f.read(limit + 1)
-    if len(raw) > limit:
-        raise ValueError(f"oversized {description}")
-    return raw
+    """Bind type, size, and bounded read to one no-follow opened inode.
+
+    A preflight Path.is_symlink/stat followed by Path.open is unsafe: the
+    pathname can be replaced by a symlink or FIFO between those calls.
+    This hardens the final component, not an adversarial mutable parent
+    directory or an untrusted CI issuer.
+    """
+    if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_NONBLOCK"):
+        raise ValueError(f"secure no-follow/nonblocking open unavailable for {description}")
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    descriptor = os.open(path, flags)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
+            raise ValueError(f"invalid or oversized {description}")
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = -1
+            raw = stream.read(limit + 1)
+        if len(raw) > limit:
+            raise ValueError(f"oversized {description}")
+        return raw
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
 
 
 def ensure(condition: bool, reason: str) -> None:
