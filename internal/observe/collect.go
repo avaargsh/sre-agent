@@ -24,60 +24,8 @@ import (
 )
 
 var ErrUnknown = errors.New("observation UNKNOWN")
-var dnsLabel = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?// Package observe collects a bounded, read-only Kubernetes/Prometheus snapshot.
-// It does not authorize remediation or verify operational recovery.
-package observe
-
-import (
-  "bytes"
-  "context"
-  "crypto/sha256"
-  "encoding/hex"
-  "encoding/json"
-  "errors"
-  "fmt"
-  "io"
-  "math"
-  "net"
-  "net/http"
-  "net/url"
-  "regexp"
-  "sort"
-  "strconv"
-  "strings"
-  "time"
-  "github.com/avaargsh/sre-agent/internal/evidence"
-)
-
-var ErrUnknown = errors.New("observation UNKNOWN")
-)
-var labelName = regexp.MustCompile(`^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?// Package observe collects a bounded, read-only Kubernetes/Prometheus snapshot.
-// It does not authorize remediation or verify operational recovery.
-package observe
-
-import (
-  "bytes"
-  "context"
-  "crypto/sha256"
-  "encoding/hex"
-  "encoding/json"
-  "errors"
-  "fmt"
-  "io"
-  "math"
-  "net"
-  "net/http"
-  "net/url"
-  "regexp"
-  "sort"
-  "strconv"
-  "strings"
-  "time"
-  "github.com/avaargsh/sre-agent/internal/evidence"
-)
-
-var ErrUnknown = errors.New("observation UNKNOWN")
-)
+var dnsLabel = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+var labelName = regexp.MustCompile(`^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$`)
 // Kubernetes label keys allow an optional DNS-subdomain prefix followed by '/'.
 // Validate the selector grammar before building a query, rather than rejecting
 // legitimate qualified keys or accepting selector control characters.
