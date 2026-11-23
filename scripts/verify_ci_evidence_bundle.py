@@ -161,8 +161,24 @@ def verify(args: argparse.Namespace) -> int:
         report["status"] = "HOLD"
         report["reason"] = str(exc)
     finally:
+        # Never replace a previously published proof or follow an output
+        # symlink. An old report must remain immutable across repeat runs.
+        # O_EXCL also rejects a competing file created at publication time.
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        if not hasattr(os, "O_NOFOLLOW"):
+            raise OSError("secure report output creation unavailable")
+        descriptor = os.open(
+            args.out, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600,
+        )
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                descriptor = -1
+                stream.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
         print(f"{report['status']}: {report['reason']}", file=sys.stderr)
     return code
 
