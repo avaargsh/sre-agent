@@ -61,6 +61,12 @@ def evaluate_holdout(
 ) -> dict[str, Any]:
     if split not in ("test", "validation"):
         raise ValueError("only independent holdout splits can be scored")
+    # The public evaluator can be called with episodes constructed directly,
+    # not only through load_episodes_bytes. Never silently overwrite an Oracle
+    # or undercount holdout cases when IDs repeat across any split.
+    ids = [ep.episode_id for ep in episodes]
+    if len(set(ids)) != len(ids):
+        raise ValueError("duplicate episode_id in holdout inputs")
     selected = {ep.episode_id: ep for ep in episodes if ep.split == split}
     if not selected:
         raise ValueError("empty holdout split")
