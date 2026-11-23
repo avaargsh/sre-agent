@@ -21,6 +21,7 @@ from .grpo_training import (
     _fields,
     _id,
     _strict_json,
+    _read_bounded_bytes,
     _text,
 )
 
@@ -35,9 +36,7 @@ def _digest(raw: bytes) -> str:
 
 
 def _load_json(path: str | Path, *, name: str) -> tuple[bytes, Any]:
-    raw = Path(path).read_bytes()
-    if not raw or len(raw) > _MAX_BYTES:
-        raise ValueError(f"empty or oversized {name}")
+    raw = _read_bounded_bytes(path, limit=_MAX_BYTES, name=name)
     try:
         data = _strict_json(raw.decode("utf-8"))
     except UnicodeDecodeError as exc:
