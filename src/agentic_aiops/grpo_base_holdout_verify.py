@@ -14,7 +14,7 @@ from typing import Any
 from .grpo_eval import load_predictions_bytes
 from .grpo_holdout_projection import verify_holdout_projection
 from .grpo_import import _verify_pin
-from .grpo_training import _fields, _strict_json, _read_bounded_bytes
+from .grpo_training import _fields, _strict_json, _read_bounded_bytes, _jsonl_lines
 
 _REPO = re.compile(r"Qwen/Qwen3-[A-Za-z0-9._-]+\Z")
 _SHA40 = re.compile(r"[0-9a-f]{40}\Z")
@@ -106,7 +106,7 @@ def verify_base_holdout_chain(
         prompts, expected_prompts_sha256, "prompts_sha256", _MAX_FILE_BYTES,
     )
     try:
-        prompt_lines = prompt_raw.decode("utf-8").splitlines()
+        prompt_lines = _jsonl_lines(prompt_raw.decode("utf-8"))
     except UnicodeDecodeError as exc:
         raise ValueError("invalid UTF-8 projected prompts") from exc
     if len(prompt_lines) != count:
