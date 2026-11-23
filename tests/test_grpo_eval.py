@@ -138,3 +138,33 @@ def test_legacy_holdout_cli_supports_external_byte_pins(tmp_path):
     fail = subprocess.run(bad, text=True, capture_output=True, cwd=root)
     assert fail.returncode == 3
     assert "predictions_sha256" in fail.stderr
+
+
+def test_direct_holdout_api_rejects_duplicate_episode_identity(tmp_path):
+    episodes = fixture(tmp_path)
+    holdout = next(ep for ep in episodes if ep.episode_id == "test-1")
+    predictions = {
+        "test-1": completion("error_spike", ["ev1"], "verified"),
+        "test-2": completion("unknown", [], "insufficient_evidence"),
+    }
+    # The public evaluator must not silently collapse repeated holdout rows.
+    with pytest.raises(ValueError, match="duplicate.*episode_id"):
+        evaluate_holdout((*episodes, holdout), predictions, split="test")
+
+
+def test_direct_holdout_api_rejects_duplicate_cross_split_identity(tmp_path):
+    episodes = fixture(tmp_path)
+    holdout = next(ep for ep in episodes if ep.episode_id == "test-1")
+    train = next(ep for ep in episodes if ep.split == "train")
+    from dataclasses import replace
+
+    # The same ID cannot be rebound to a different Oracle/split.
+    with pytest.raises(ValueError, match="duplicate.*episode_id"):
+        evaluate_holdout(
+            (*episodes, replace(train, episode_id=holdout.episode_id)),
+            {
+                "test-1": completion("error_spike", ["ev1"], "verified"),
+                "test-2": completion("unknown", [], "insufficient_evidence"),
+            },
+            split="test",
+        )
