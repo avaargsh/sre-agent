@@ -11,6 +11,7 @@ from .grpo_training import (
     _id,
     _strict_json,
     _read_bounded_bytes,
+    _jsonl_lines,
     score_completion,
 )
 
@@ -29,7 +30,7 @@ def load_predictions_bytes(raw: bytes) -> dict[str, str]:
     if type(raw) is not bytes or not raw or len(raw) > _MAX_PREDICTIONS:
         raise ValueError("empty or oversized prediction file")
     try:
-        lines = raw.decode("utf-8").splitlines()
+        lines = _jsonl_lines(raw.decode("utf-8"))
     except UnicodeDecodeError as exc:
         raise ValueError("invalid UTF-8 prediction file") from exc
     result: dict[str, str] = {}
