@@ -2,6 +2,17 @@ name: go-readonly-kind
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "cmd/sre-agent/**"
+      - "internal/observe/**"
+      - "internal/sourcejson/**"
+      - "internal/evidence/**"
+      - "demo/k8s/**"
+      - "demo/go-observe/**"
+      - "docs/go-readonly-golden.md"
+      - ".github/workflows/go-readonly-kind.yml"
   pull_request:
     paths:
       - "cmd/sre-agent/**"
