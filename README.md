@@ -354,6 +354,31 @@ an integrated release gate. A missing GitHub Actions run means **unverified**;
 the evidence script does not launch GitHub Actions, certify GPU/GRPO results
 or grant production authorization. The manifest always records
 `production_eligible=false`.
+
+#### Cross-check the three exported CI artifacts
+
+After three **real** Actions jobs finish on the same commit, download their
+artifacts to separate directories and cross-check all manifests, step names,
+command arguments, exit codes, Git pre/post state and log SHA256 digests:
+
+```bash
+SHA="$(git rev-parse HEAD)"
+python3 scripts/verify_ci_evidence_bundle.py \
+  --expected-sha "$SHA" \
+  --python-311 /evidence/python311 \
+  --python-312 /evidence/python312 \
+  --go /evidence/go \
+  --out /evidence/ci-consistency.json
+```
+
+An entirely consistent bundle returns `EVIDENCE_CONSISTENT`. Any missing,
+aliased, tampered, incomplete, or wrong-SHA source returns `HOLD` (nonzero).
+Even a consistent bundle does **not** authenticate its issuer: without
+independently checked GitHub run IDs, runner identity, protected branch status
+and permissions, no trusted CI or production acceptance is established.
+The output always has `github_run_identity_verified=false`,
+`source_authenticity_verified=false` and `production_eligible=false`.
+
 ## Development
 
 ```bash
