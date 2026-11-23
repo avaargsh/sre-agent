@@ -10,7 +10,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +58,32 @@ def _verify_pin(raw: bytes, expected: Any, name: str) -> str:
     if not hmac.compare_digest(actual, approved):
         raise ValueError(f"{name} mismatch")
     return actual
+
+
+def _publish_episode_create_only(output: str | Path, row_bytes: bytes) -> None:
+    """Atomically publish one complete Episode without overwriting prior work.
+
+    A staging write/fsync failure must not create the final dataset path.
+    Hard linking a flushed file publishes it only after all bytes are written,
+    without replacing a concurrent writer's existing destination.
+    """
+    destination = Path(output)
+    if destination.exists() or destination.is_symlink():
+        raise FileExistsError(f"Episode output already exists: {destination}")
+    stage: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb", prefix=".sre-episode-stage-",
+            dir=destination.parent, delete=False,
+        ) as stream:
+            stage = Path(stream.name)
+            stream.write(row_bytes)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(stage, destination)
+    finally:
+        if stage is not None:
+            stage.unlink(missing_ok=True)
 
 
 def import_scenario_episode(
@@ -146,10 +174,10 @@ def import_scenario_episode(
     if len(row_bytes) > 32 * 1024:
         raise ValueError("converted Episode exceeds JSONL record budget")
 
-    # `x` is deliberate: a failed import must not replace a reviewed dataset.
-    # Multi-Episode assembly must separately call load_episodes for leakage checks.
-    with Path(output).open("x", encoding="utf-8", newline="\n") as stream:
-        stream.write(row)
+    # Publish only a complete, fsynced JSONL record. A staging or link
+    # failure cannot leave a partial final path. Multi-Episode assembly must
+    # still use load_episodes for independent split/leakage validation.
+    _publish_episode_create_only(output, row_bytes)
 
     metadata = bundle["metadata"]
     source_classification = "unclassified"
