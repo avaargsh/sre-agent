@@ -16,6 +16,9 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+# Experimental LAB-only CUDA capture dependencies, not an environment lock.
+# An issuer-verified model/runtime and production training gate are not supplied.
+capture = ["torch>=2.6,<3", "transformers>=4.55,<5"]
 temporal = ["cloud-agent-runtime[temporal]>=0.1.0"]
 
 [project.scripts]
