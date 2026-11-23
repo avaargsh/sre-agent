@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import stat
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -90,11 +91,25 @@ def compare_pinned_holdout(
             or type(expected_prediction_sha256) is not dict
             or set(expected_prediction_sha256) != set(_MODELS)):
         raise ValueError("required model labels: Base, SFT, GRPO (exactly)")
-    inputs = [Path(dataset).resolve()] + [
-        Path(prediction_files[name]).resolve() for name in _MODELS
+    inputs = [Path(dataset)] + [
+        Path(prediction_files[name]) for name in _MODELS
     ]
-    if len(set(inputs)) != 4:
+    if len({path.resolve() for path in inputs}) != 4:
         raise ValueError("dataset and Base/SFT/GRPO prediction paths must be distinct")
+    # Different names or resolved paths do not guarantee independent
+    # artifacts: hard links share an inode. Refuse links and special files
+    # before any bounded read or reward/paired-score computation.
+    identities: set[tuple[int, int]] = set()
+    for path in inputs:
+        info = path.lstat()
+        if stat.S_ISLNK(info.st_mode):
+            raise ValueError("dataset and Base/SFT/GRPO sources must not be symlinks")
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("dataset and Base/SFT/GRPO sources must be regular files")
+        identity = (info.st_dev, info.st_ino)
+        if identity in identities:
+            raise ValueError("dataset and Base/SFT/GRPO prediction inodes must be distinct")
+        identities.add(identity)
 
     raw_dataset = _pinned_file(dataset, expected_dataset_sha256,
                                "dataset_sha256", _MAX_DATA)
