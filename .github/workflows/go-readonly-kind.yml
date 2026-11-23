@@ -6,6 +6,7 @@ on:
     paths:
       - "cmd/sre-agent/**"
       - "internal/observe/**"
+      - "internal/sourcejson/**"
       - "internal/evidence/**"
       - "demo/k8s/**"
       - "demo/go-observe/**"
