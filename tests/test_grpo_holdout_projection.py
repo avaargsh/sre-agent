@@ -97,6 +97,10 @@ def test_changed_projection_fails_even_when_all_hashes_recomputed(tmp_path):
     ("training_admission_authorized", True),
     ("source_classification", "PRODUCTION_VERIFIED"),
     ("cases", 999),
+    ("cases", True),  # Python bool compares equal to int 1.
+    ("oracle_in_projection", 0),  # Python 0 compares equal to False.
+    ("model_runtime_verified", 0),
+    ("training_admission_authorized", 0),
 ])
 def test_forged_manifest_fails_even_with_new_sha_pin(tmp_path, field, forged):
     dataset, prompts, manifest, _, pins = fixtures(tmp_path)
