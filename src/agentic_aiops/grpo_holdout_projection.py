@@ -22,8 +22,6 @@ from .grpo_training import (
 _MAX_FILE_BYTES = 4 * 1024 * 1024
 _MAX_CASES = 2048
 _MAX_PROMPT_BYTES = 16 * 1024
-_MAX_LINE_BYTES = 128 * 1024
-_MAX_COMPLETION_BYTES = 8192
 
 
 def _validate_paths(source: str | Path, output: str | Path, manifest: str | Path) -> None:
@@ -110,6 +108,8 @@ def project_holdout_prompts(
     if split not in ("test", "validation"):
         raise ValueError("split must be test or validation, never train")
     _validate_paths(dataset, output, manifest)
+    if Path(dataset).is_symlink() or not Path(dataset).is_file():
+        raise ValueError("holdout projection requires a regular non-symlink dataset")
     raw_dataset = _read_bounded_bytes(
         dataset, limit=_MAX_FILE_BYTES, name="holdout dataset",
     )
