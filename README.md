@@ -294,6 +294,40 @@ are **not authenticated**. The audit always reports
 and `production_eligible=false`. No GPU/model sampling, Adapter/LoRA
 verification or write-capable SRE remediation is performed here.
 
+### Base Qwen3 Holdout capture (LAB-only, GPU required)
+
+After publishing an externally pinned Oracle-free projection, run the
+isolated **Base-only** inference CLI. It takes only the projected prompts
+file: it cannot read the private Episode or Oracle. GPU and Transformers
+imports occur **only after** bounded file, SHA, revision, split and
+create-only output path checks have passed.
+
+```bash
+python scripts/sample_sre_grpo_base_holdout.py \
+  --execute --lab-only \
+  --prompts /frozen/prompts.jsonl \
+  --expected-prompts-sha256 "$REVIEWER_PROMPTS_SHA256" \
+  --model Qwen/Qwen3-0.6B \
+  --revision "$PINNED_40_HEX_MODEL_REVISION" \
+  --output /new/path/base-predictions.jsonl \
+  --manifest /new/path/base-capture.json
+```
+
+Both `--execute` and `--lab-only` are mandatory. The CLI never silently
+falls back to a CPU model. No SFT/GRPO Adapter, arbitrary model repository,
+train split, mutable revision alias or writable SRE tool is accepted.
+Outputs preserve invalid raw candidate responses and are published via
+staged/fsynced create-only hard links. An abrupt kill between links can
+leave an orphan predictions file; the five-file verifier must reject it
+if the capture manifest is missing or mismatched.
+
+The independent reviewer must run the **Base five-file auditor** with
+separately frozen SHA256 pins. Passing checks proves content consistency
+only: tokenizer-rendered prompt bytes, actual CUDA/model execution,
+checkpoint identity and source issuer **are not independently attested**.
+The receipt intentionally keeps `model_runtime_verified=false`,
+`model_attribution_verified=false`, `production_eligible=false` and
+`superiority_claim_authorized=false`. The CPU tests are not a GPU run.
 ## Development
 
 ```bash
