@@ -18,8 +18,8 @@ from typing import Any, Callable
 from .grpo_import import _verify_pin
 from .grpo_training import SREEpisode, _MAX_FILE_BYTES, _read_bounded_bytes, load_episodes_bytes
 
-_LORA_NAME = re.compile(r"(.+)\\.lora_([AB])(?:\\.default)?\\.weight\\Z")
-_SHA256 = re.compile(r"[0-9a-f]{64}\\Z")
+_LORA_NAME = re.compile(r"(.+)\.lora_([AB])(?:\.default)?\.weight\Z")
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _DTYPE_BYTES = {"torch.float16": 2, "torch.bfloat16": 2, "torch.float32": 4}
 _MAX_LORA_TENSORS = 4096
 _SNAPSHOT_FIELDS = {
