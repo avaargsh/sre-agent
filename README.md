@@ -328,6 +328,32 @@ checkpoint identity and source issuer **are not independently attested**.
 The receipt intentionally keeps `model_runtime_verified=false`,
 `model_attribution_verified=false`, `production_eligible=false` and
 `superiority_claim_authorized=false`. The CPU tests are not a GPU run.
+### Exact Git commit contract verification (Python/Go)
+
+GitHub `test.yml` and `go.yml` run `scripts/verify_exact_tree.py` on the
+**checked-out commit SHA**, refusing mismatched HEAD, modified or untracked
+workspace files, incorrect Python matrix versions, missing tools and failed
+commands. Each job writes `manifest.json` with scope, expected/observed SHA,
+step exit codes and SHA256 checksums of verbatim logs, then uploads the proof
+as a GitHub Actions artifact even when the verification step fails.
+
+To reproduce locally in a **clean checkout** with dependencies installed:
+
+```bash
+SHA="$(git rev-parse HEAD)"
+python3 scripts/verify_exact_tree.py --scope python \
+  --expected-sha "$SHA" --out-dir /tmp/sre-exact-python
+python3 scripts/verify_exact_tree.py --scope go \
+  --expected-sha "$SHA" --out-dir /tmp/sre-exact-go
+```
+
+Use the Python 3.11 and 3.12 workflow artifacts *separately*, and the Go
+race/vet/build/bundle artifact, all pointing to the **same exact SHA**.
+A single suite `PASS`, or an old green workflow on another commit, is **not**
+an integrated release gate. A missing GitHub Actions run means **unverified**;
+the evidence script does not launch GitHub Actions, certify GPU/GRPO results
+or grant production authorization. The manifest always records
+`production_eligible=false`.
 ## Development
 
 ```bash
