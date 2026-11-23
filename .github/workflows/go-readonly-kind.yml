@@ -6,6 +6,7 @@ on:
     paths:
       - "cmd/sre-agent/**"
       - "internal/observe/**"
+      - "internal/sourcejson/**"
       - "internal/evidence/**"
       - "demo/k8s/**"
       - "demo/go-observe/**"
@@ -57,6 +58,104 @@ jobs:
           done
           go run ./cmd/sre-agent investigate             --namespace golden-demo --deployment checkout-api             --incident-id inc-checkout-go-001 --summary 'checkout investigation'             --kube-api "$KUBE_API" --ca-file /tmp/sre-agent-ca.pem             --kube-token-file /tmp/sre-agent-reader.token             --prometheus http://127.0.0.1:19090             --out /tmp/sre-agent-checkout-evidence.json
           go run ./cmd/sre-agent verify-bundle --file /tmp/sre-agent-checkout-evidence.json
+          # The alert here is a synthetic, offline webhook fixture; all three
+          # Kubernetes/Prometheus observations below are live disposable-kind reads.
+          # This proves plan/byte/identity linkage, not authenticated alert origin.
+          cat > /tmp/sre-agent-alertmanager.json <<'ALERTJSON'
+          {"status":"firing","groupKey":"golden-aiops:checkout-latency","commonLabels":{"cluster":"golden-aiops","namespace":"golden-demo","deployment":"checkout-api","severity":"sev2","alertname":"CheckoutLatency"},"commonAnnotations":{"summary":"checkout test alert"},"alerts":[{"status":"firing","fingerprint":"0123456789abcdef","labels":{"cluster":"golden-aiops","namespace":"golden-demo","deployment":"checkout-api"}}]}
+          ALERTJSON
+          go build -o /tmp/sre-agent ./cmd/sre-agent
+          /tmp/sre-agent plan-alert \
+            --file /tmp/sre-agent-alertmanager.json --cluster golden-aiops \
+            --namespace golden-demo --deployment checkout-api \
+            --out /tmp/sre-agent-alert-plan.json
+          /tmp/sre-agent investigate-alert \
+            --alert-file /tmp/sre-agent-alertmanager.json \
+            --plan /tmp/sre-agent-alert-plan.json --cluster golden-aiops \
+            --namespace golden-demo --deployment checkout-api \
+            --kube-api "$KUBE_API" --ca-file /tmp/sre-agent-ca.pem \
+            --kube-token-file /tmp/sre-agent-reader.token \
+            --prometheus http://127.0.0.1:19090 \
+            --query 'max(checkout_request_latency_seconds)' \
+            --out /tmp/sre-agent-alert-evidence.json
+          /tmp/sre-agent verify-bundle --file /tmp/sre-agent-alert-evidence.json
+          python - <<'PY'
+          import hashlib, json, pathlib
+          raw = pathlib.Path('/tmp/sre-agent-alertmanager.json').read_bytes()
+          plan = json.loads(pathlib.Path('/tmp/sre-agent-alert-plan.json').read_text())
+          bundle = json.loads(pathlib.Path('/tmp/sre-agent-alert-evidence.json').read_text())
+          assert plan['raw_sha256'] == hashlib.sha256(raw).hexdigest()
+          assert plan['schema_version'] == 'sre.alert-plan/v1'
+          assert plan['status'] == 'READ_ONLY_CANDIDATE'
+          assert plan['source_authenticated'] is False
+          assert plan['authorizes_execution'] is False
+          assert bundle['incident']['incident_id'] == plan['incident_id']
+          assert bundle['incident']['summary'] == plan['summary']
+          assert bundle['incident']['severity'] == plan['severity']
+          assert bundle['metadata']['observation_status'] == 'complete'
+          assert len(bundle['evidence']) == 2 and not bundle['hypotheses']
+          print('alert_readonly_evidence_consistent', plan['incident_id'])
+          PY
+          /tmp/sre-agent verify-alert-evidence \
+            --alert-file /tmp/sre-agent-alertmanager.json \
+            --plan /tmp/sre-agent-alert-plan.json \
+            --bundle /tmp/sre-agent-alert-evidence.json \
+            --cluster golden-aiops --namespace golden-demo \
+            --deployment checkout-api \
+            --expected-query 'max(checkout_request_latency_seconds)' \
+            > /tmp/sre-agent-alert-review.json
+          python - <<'PY'
+          import hashlib, json, pathlib
+          receipt=json.loads(pathlib.Path('/tmp/sre-agent-alert-review.json').read_text())
+          plan=json.loads(pathlib.Path('/tmp/sre-agent-alert-plan.json').read_text())
+          assert receipt['schema_version']=='sre.alert-evidence-review/v1'
+          assert receipt['status']=='STRUCTURALLY_LINKED'
+          assert receipt['incident_id']==plan['incident_id']
+          assert receipt['raw_alert_sha256']==plan['raw_sha256']
+          assert receipt['evidence_count']==2
+          assert all(receipt[k] is False for k in (
+              'source_authenticated','authorizes_execution',
+              'root_cause_verified','recovery_verified'))
+          print('offline alert/evidence review is structural only',receipt['incident_id'])
+          PY
+          set +e
+          /tmp/sre-agent verify-alert-evidence \
+            --alert-file /tmp/sre-agent-alertmanager.json \
+            --plan /tmp/sre-agent-alert-plan.json \
+            --bundle /tmp/sre-agent-alert-evidence.json \
+            --cluster golden-aiops --namespace golden-demo \
+            --deployment checkout-api \
+            --expected-query 'unapproved_query' \
+            > /tmp/sre-agent-bad-review.json 2>/tmp/sre-agent-bad-review-stderr.txt
+          REVIEW_REJECT=$?
+          set -e
+          test "$REVIEW_REJECT" -eq 3
+          test ! -s /tmp/sre-agent-bad-review.json
+          grep -q UNKNOWN /tmp/sre-agent-bad-review-stderr.txt
+          echo "PASS offline triad review and wrong-query UNKNOWN"
+          python - <<'PY'
+          import json
+          path = '/tmp/sre-agent-alert-plan.json'
+          plan = json.load(open(path))
+          plan['authorizes_execution'] = True
+          with open('/tmp/sre-agent-tampered-plan.json', 'w') as f:
+              json.dump(plan, f)
+          PY
+          set +e
+          /tmp/sre-agent investigate-alert \
+            --alert-file /tmp/sre-agent-alertmanager.json \
+            --plan /tmp/sre-agent-tampered-plan.json --cluster golden-aiops \
+            --namespace golden-demo --deployment checkout-api \
+            --kube-api "$KUBE_API" --ca-file /tmp/sre-agent-ca.pem \
+            --kube-token-file /tmp/sre-agent-reader.token \
+            --prometheus http://127.0.0.1:19090 \
+            --query 'max(checkout_request_latency_seconds)' \
+            --out /tmp/sre-agent-invalid-alert-evidence.json
+          FAIL_CLOSED=$?
+          set -e
+          test "$FAIL_CLOSED" -eq 3
+          test ! -e /tmp/sre-agent-invalid-alert-evidence.json
+          echo "PASS synthetic Alertmanager -> real read-only kind evidence / tamper UNKNOWN"
       - name: Upload disposable investigation proof
         if: always()
         uses: actions/upload-artifact@v4
@@ -64,4 +163,8 @@ jobs:
           name: go-readonly-kind-proof
           path: |
             /tmp/sre-agent-checkout-evidence.json
+            /tmp/sre-agent-alertmanager.json
+            /tmp/sre-agent-alert-plan.json
+            /tmp/sre-agent-alert-evidence.json
+            /tmp/sre-agent-alert-review.json
             /tmp/sre-prometheus-pf.log

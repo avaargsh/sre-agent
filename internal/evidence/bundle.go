@@ -13,6 +13,7 @@ import (
  "math"
  "strconv"
  "strings"
+ "unicode/utf8"
 )
 
 const MaxBundleBytes = 8 << 20
@@ -108,8 +109,51 @@ func decodeUniqueJSONValue(decoder *json.Decoder) (any, error) {
   return nil, errors.New("unexpected JSON closing delimiter")
  }
 }
+// validateJSONUnicode rejects byte sequences that encoding/json would silently
+// replace with U+FFFD. That replacement would alter the original evidence
+// before hashing; the legacy Python byte-decoder instead fails on invalid UTF-8.
+// A paired UTF-16 surrogate escape is allowed, as is a literal "\\u" string.
+// JSON grammar validation remains the responsibility of encoding/json.
+func validateJSONUnicode(raw []byte) error {
+ if !utf8.Valid(raw) {
+  return errors.New("bundle contains invalid UTF-8")
+ }
+ inString := false
+ for i := 0; i < len(raw); i++ {
+  if !inString {
+   if raw[i] == '"' { inString = true }
+   continue
+  }
+  if raw[i] == '"' { inString = false; continue }
+  if raw[i] != '\\' { continue }
+  if i+1 >= len(raw) { break } // JSON parser checks truncated escapes.
+  if raw[i+1] != 'u' { i++; continue } // Skip escaped quote/backslash.
+  if i+6 > len(raw) { break }
+  code, err := strconv.ParseUint(string(raw[i+2:i+6]), 16, 16)
+  if err != nil { break } // JSON parser checks invalid hex digits.
+  switch {
+  case code >= 0xd800 && code <= 0xdbff:
+   // A high surrogate must be immediately followed by one low surrogate.
+   if i+12 > len(raw) || raw[i+6] != '\\' || raw[i+7] != 'u' {
+    return errors.New("bundle contains unpaired UTF-16 high surrogate")
+   }
+   low, err := strconv.ParseUint(string(raw[i+8:i+12]), 16, 16)
+   if err != nil || low < 0xdc00 || low > 0xdfff {
+    return errors.New("bundle contains unpaired UTF-16 high surrogate")
+   }
+   i += 11
+  case code >= 0xdc00 && code <= 0xdfff:
+   return errors.New("bundle contains unpaired UTF-16 low surrogate")
+  default:
+   i += 5
+  }
+ }
+ return nil
+}
+
 func parseJSON(raw []byte) (map[string]any, error) {
  if len(raw) > MaxBundleBytes { return nil, fmt.Errorf("bundle exceeds %d bytes", MaxBundleBytes) }
+ if err := validateJSONUnicode(raw); err != nil { return nil, err }
  decoder := json.NewDecoder(bytes.NewReader(raw))
  decoder.UseNumber()
  root, err := decodeUniqueJSONValue(decoder)
@@ -147,15 +191,6 @@ func pythonLineSeparators(raw []byte) []byte {
   i++
  }
  return out
-}
-
-// ValidateUniqueJSONObject validates arbitrary original JSON source bytes
-// without discarding repeated keys in nested objects. This is only syntax
-// disambiguation, not source authentication, provenance or schema validation.
-// It also rejects trailing JSON and enforces the shared input size budget.
-func ValidateUniqueJSONObject(raw []byte) error {
- _,err:=parseJSON(raw)
- return err
 }
 
 // Verify performs fail-closed structural and digest checks over the serialized
