@@ -4,6 +4,9 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Independently validate the merged main tree, not an older PR head.
+  schedule:
+    - cron: '37 3 * * *'
   workflow_dispatch:
 
 permissions:

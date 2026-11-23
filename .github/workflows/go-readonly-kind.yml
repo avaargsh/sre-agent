@@ -2,6 +2,9 @@ name: go-readonly-kind
 
 on:
   workflow_dispatch:
+  # Path filters do not apply to a scheduled full read-only kind replay.
+  schedule:
+    - cron: '7 4 * * *'
   push:
     branches: [main]
     paths:
