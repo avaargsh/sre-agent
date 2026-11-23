@@ -172,22 +172,23 @@ def test_all_models_same_file_or_missing_required_model_rejected(tmp_path):
 
 def test_dataset_sha_verified_against_same_bytes_used_to_parse(tmp_path, monkeypatch):
     dataset, files, ds_sha, shas = fixture(tmp_path)
-    original = Path.read_bytes
+    original = Path.open
     reads = []
 
-    def traced_read(p):
+    def traced_open(p, *args, **kwargs):
         if p == dataset:
-            reads.append(1)
-        return original(p)
+            reads.append(args[0] if args else kwargs.get("mode", "r"))
+        return original(p, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_bytes", traced_read)
+    # Hashing and decoding must reuse the same single, bounded file read.
+    monkeypatch.setattr(Path, "open", traced_open)
     result = compare_pinned_holdout(
         dataset, prediction_files=files,
         expected_dataset_sha256=ds_sha,
         expected_prediction_sha256=shas,
     )
     assert result["cases"] == 4
-    assert len(reads) == 1
+    assert reads == ["rb"]
 
 
 def test_duplicate_oracle_and_identical_predictions_do_not_imply_superiority(tmp_path):
@@ -248,4 +249,41 @@ def test_oversized_holdout_case_count_is_bounded_before_loading_predictions(tmp_
         compare_pinned_holdout(
             dataset, prediction_files=paths,
             expected_dataset_sha256=dataset_sha, expected_prediction_sha256=shas,
+        )
+
+
+@pytest.mark.parametrize("source_name", ["dataset", "Base", "SFT", "GRPO"])
+def test_oversize_inputs_rejected_without_unbounded_read_bytes(
+    tmp_path, monkeypatch, source_name,
+):
+    dataset, files, dataset_sha, pins = fixture(tmp_path)
+    source = dataset if source_name == "dataset" else files[source_name]
+    with source.open("wb") as stream:
+        stream.truncate(4 * 1024 * 1024 + 1)
+
+    # Source paths must be size-gated during the read itself; Path.read_bytes()
+    # would allocate the entire attacker-controlled input before validation.
+    def forbid_read_bytes(_path):
+        raise AssertionError("unbounded Path.read_bytes called")
+
+    monkeypatch.setattr(Path, "read_bytes", forbid_read_bytes)
+    with pytest.raises(ValueError, match="oversized"):
+        compare_pinned_holdout(
+            dataset, prediction_files=files,
+            expected_dataset_sha256=dataset_sha,
+            expected_prediction_sha256=pins,
+        )
+
+
+def test_pinned_compare_does_not_trust_rehashed_bad_prediction(tmp_path):
+    dataset, files, ds_sha, shas = fixture(tmp_path)
+    # Even if a caller supplies the new self-computed SHA, an incomplete
+    # prediction set remains invalid rather than inflating paired success.
+    modified = [{"episode_id": "case-1", "completion": answer("cause_memory")}]
+    shas["GRPO"] = write(files["GRPO"], modified)
+    with pytest.raises(ValueError, match="missing"):
+        compare_pinned_holdout(
+            dataset, prediction_files=files,
+            expected_dataset_sha256=ds_sha,
+            expected_prediction_sha256=shas,
         )
