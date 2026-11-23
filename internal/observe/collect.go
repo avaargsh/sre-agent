@@ -177,6 +177,7 @@ func readKubernetes(ctx context.Context,hc *http.Client,u *url.URL,c Config,when
   if pod.Metadata.UID==""||pod.Metadata.Namespace!=c.Namespace||pod.Metadata.Name==""{return nil,unknownf("invalid pod identity")}
   projected=append(projected,map[string]string{"uid":pod.Metadata.UID,"name":pod.Metadata.Name,"phase":pod.Status.Phase})
  }
+ if err:=validatePodProjection(projected);err!=nil{return nil,unknownf("invalid Pod snapshot: %v",err)}
  b,_:=json.Marshal(projected)
  attrs:=map[string]string{
  "namespace":c.Namespace,"deployment":c.Deployment,"uid":d.Metadata.UID,"resource_version":d.Metadata.ResourceVersion,
