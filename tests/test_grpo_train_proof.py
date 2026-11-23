@@ -24,15 +24,15 @@ def dataset(tmp_path):
 
 def test_data_is_parsed_from_same_pinned_bytes_without_reopening(tmp_path, monkeypatch):
     path, sha = dataset(tmp_path)
-    orig = Path.read_bytes
+    orig = Path.open
     reads = []
 
-    def read_once(p):
+    def open_once(p, *args, **kwargs):
         if p == path:
-            reads.append(p)
-        return orig(p)
+            reads.append(args[0] if args else kwargs.get("mode", "r"))
+        return orig(p, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_bytes", read_once)
+    monkeypatch.setattr(Path, "open", open_once)
     episodes, found_sha = freeze_train_dataset(
         path, expected_dataset_sha256=sha,
     )
@@ -40,6 +40,7 @@ def test_data_is_parsed_from_same_pinned_bytes_without_reopening(tmp_path, monke
     assert len(episodes) == 1
     assert episodes[0].oracle.root_cause_id == "oom_killed"
     assert len(reads) == 1
+    assert reads == ["rb"]
 
 
 def test_bad_external_sha_fails_before_training(tmp_path):
