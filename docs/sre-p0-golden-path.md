@@ -52,18 +52,73 @@ For **each** scenario, record immutable original injector/admin source snapshots
 
 **Abstention:** contradictory/stale/incomplete evidence, multiple plausible causes, and unsupported negative controls must return `UNKNOWN` and escalation, not a model confidence number dressed as certainty.
 
-### P1 — Offline SFT/GRPO backed by real Episodes
+### P0-D — Inkling-first model evaluation (2026-11-24 decision; not implemented)
 
-Reuse Draft [#11](https://github.com/avaargsh/sre-agent/pull/11) offline `sre.grpo.episode/v1`, Oracle reward and holdout audit; do not merge/promote synthetic training contracts as a trained model.
+Run this research lane in parallel with P0-A/B/C; do not bypass the Go evidence/authority gates or imply the Golden Incident is certified. Select the model by independently measured SRE task quality and cost, **not by general coding benchmarks**. Inkling-2-Mini is the first candidate, not an approved default.
 
-Only begin actual Qwen3 training after:
+| Lane | Candidate | Required qualification |
+| --- | --- | --- |
+| Baseline | Deterministic Go investigator; existing pinned Qwen3 Base | Keep their outputs and budgets frozen; compare separately from the Qwen training lineage |
+| Reference | `thinkingmachines/Inkling-2-Mini` original publisher weights | Pin model revision, weight manifest/hash, tokenizer/chat template, tool parser and runtime digest; original weights are not an FP16 quality oracle |
+| Local | `unsloth/Inkling-2-Mini-GGUF`, mainline-compatible GGUF with llama.cpp (start with a supported Q4 variant) | Pin exact file, quantizer/revision and llama.cpp commit; smoke-test loading, multi-turn tool calls and memory; smaller quants are separate candidates |
+| Apple experimental | MLX-compatible conversion | Optional only after exact engine/model compatibility and tool-call parity are demonstrated; unsupported or unavailable = NOT_RUN, never a silent fallback |
+| Serving | vLLM and SGLang on verified hardware | Pin engine image, driver, GPU and kernels; start with speculation OFF, then separate DSpark ON lane where supported; no implied domestic GPU compatibility |
+
+References: [official model card](https://huggingface.co/thinkingmachines/Inkling-2-Mini), [official release](https://thinkingmachines.ai/news/inkling-2-mini/), [Unsloth GGUF](https://huggingface.co/unsloth/Inkling-2-Mini-GGUF), [vLLM recipe](https://recipes.vllm.ai/thinkingmachines/Inkling-2-Mini), [vLLM architecture note](https://vllm.ai/blog/2026-11-20-inkling2-mini), [SGLang support](https://www.sglang.io/blog/inkling-2-small-day0-support). These establish candidate availability and upstream claims, not project-specific results.
+
+#### Reuse the existing evidence and holdout contracts
+
+1. An independent data owner freezes the Episode/Oracle split by fault family, checks exact/near-duplicate leakage, and publishes separately SHA-pinned Oracle-free prompts using the existing projection/replay path. The inference process must not receive the private Oracle or grading rules.
+2. Add an isolated LAB-only **evaluation** adapter that consumes frozen projected prompts and emits the existing raw candidate prediction format plus a versioned backend-specific capture receipt. Preserve every projected ID in original order; preserve invalid raw output and explicit failure events. Reject missing/extra/duplicate IDs; no failed-case filtering. Do not widen the Qwen-only CUDA training/capture allowlist or reinterpret its v1 receipts. Model identity, prompt rendering and engine execution need independent evidence beyond content hashes.
+3. Separate **static diagnosis** (same frozen observations; existing independent scorer) from **interactive read-only tool-use** (same isolated scenario snapshot, allowlisted tool schemas, deterministic replayable responses, step/timeout/output limits). A new interactive transcript scorer is needed; static prompt success does not establish agent tool-use success. Do not grant shell or cluster mutation rights to a model. Tool proposals are parsed and checked outside the model; rejected proposals remain in the transcript.
+4. Independently score frozen captures against private Oracle. Preserve exact model/quantization, template, sampling, seed, prompt and transcript hashes, observation timestamps and raw tool responses, evaluator revision, and all failures. Report actual scope and per-family denominators; synthetic cases test the contract only.
+
+#### Quality and safety measures
+
+- RCA accuracy / root-cause family and per-case causal support (do not substitute semantic similarity).
+- Citation validity (references resolve to immutable observed artifacts), claim-level support precision, and coverage of independently labeled essential evidence. An existing evidence ID alone does not establish that it supports a claim.
+- Tool JSON/schema validity, allowlist and argument/scope correctness, successful calls, redundant calls, budget exhaustion and rejected unsafe proposals; separate syntax from semantic correctness.
+- Appropriate UNKNOWN/abstention under stale, missing, contradictory or out-of-scope evidence; report false confident diagnosis and false abstention separately.
+- End-to-end incident resolution of the **diagnosis** task, not physical recovery or authorized remediation; include tool failures, malformed output and timeouts in the fixed denominator.
+- Negative gates: zero accepted fabricated/dangling evidence, zero unauthorized executions, zero Oracle exposure; evidence tampering, malformed responses and missing independent verification must HOLD/UNKNOWN. An attempted unsafe proposal is a model-quality failure even if the guard blocks execution.
+- Freeze thresholds and sample sizes before blind runs; compare paired per-case results, stratified by fault family, with >=3 seeds/repeats when practical and uncertainty intervals. Do not claim superiority from a single synthetic case or tune on the test split. Model/quant/backend promotion requires independent review and a predeclared quality/cost tradeoff relative to the baselines.
+
+#### Serving and task economics (separate from quality scoring)
+
+Run fixed prompt/output-length microbenchmarks (e.g. 2K/8K/32K prompt, 256 output tokens where supported) and a separate full-task benchmark with identical task/tool/token/time budgets. Use concurrency 1/4/8 where memory permits, explicit cold/warm prefix cache states, speculation OFF then ON on the same backend/model and workload. Record unsupported cells, OOM, timeouts and actual token counts rather than silently changing settings.
+
+| Dimension | Report |
+| --- | --- |
+| Prefill | input tokens/s, prefill time, cache-hit state; TTFT separately includes queue/transport |
+| Decode | output tokens/s per request, inter-token latency, p50/p95; aggregate batch throughput separately |
+| Speculation | OFF/ON, draft configuration, acceptance rate/length, quality regression and resource overhead |
+| Resources | peak VRAM/RAM, weights, KV and convolution-state allocation where instrumented, GPU seconds, OOM/preemption, batch/context sizes; unknown telemetry stays unknown |
+| Task | wall time including tools, completion rate, input/output tokens, tool count, cost per successfully verified diagnosis with failed-task costs included |
+
+Never infer decode speed from prefill throughput, individual speed from batch tokens/s, or cost from active parameter count. On fixed weights, the middle 12 layers run three times (24 physical layers, 48 layer applications); the vLLM implementation maintains distinct KV and convolution state per visit. Weight sharing does not imply state sharing. Cache bytes depend on attention window, cache dtype/layout, batch/context, allocator and draft state; measure rather than multiplying a generic cache formula.
+
+#### Ownership and integration boundary
+
+- **sre-agent** owns task fixtures, scoped observations, quality metrics, raw transcripts and independent diagnostic evidence. It uses a model endpoint/adapter, not an embedded scheduler or inference kernel stack.
+- **XPUlink** research owns backend capability probing, pinned engine compatibility, serving telemetry, quantization/kernel and multi-pass cache tests. Publish measured capabilities: model revision, backend build, device class, physical layers, loop passes, effective layer applications, cache/conv state estimates and observed peak bytes, context/concurrency, speculative mode and measurement receipt. Do not expose dynamic loop control for the fixed-loop release.
+- **Compute Control Panel** consumes a versioned measured serving profile to estimate capacity/admission/cost; allocated GPU seconds and actual usage remain distinct. Unmeasured capabilities are unknown, not zero; unsupported configurations must not be scheduled as validated. No change to CCP admission authority, no new mandatory cross-repo dependency until an API contract is independently verified.
+- **ACP/EngageGuard** remains the only policy/permit authority; the model cannot grant permissions, self-grade or certify recovery. Temporal remains the durable workflow owner.
+
+Prefer a narrow offline evaluation adapter over rewriting the existing Go investigator or training stack around one model. A remote/local OpenAI-compatible adapter is a possible transport, not evidence that its model/parser/runtime identity is genuine. CPU-only contract development and replay can proceed without a GPU; model execution, hardware validation and diagnostic uplift remain NOT_RUN until independently captured.
+
+### P1 — SFT/GRPO only after baseline and gap analysis
+
+Reuse Draft [#11](https://github.com/avaargsh/sre-agent/pull/11) offline `sre.grpo.episode/v1`, Oracle reward and holdout audit; keep existing Qwen3 training lane separate and do not merge/promote synthetic training contracts as a trained model. Training is not a prerequisite for Inkling evaluation.
+
+Only begin training once the independently scored baseline identifies a repeatable gap, and the selected model's trainer/adapter/quantization support is independently qualified. Do not assume Inkling LoRA/GRPO compatibility from Qwen support or upstream serving support. Preserve the existing Qwen-specific safety gates.
+
 - Independently authenticated actual lab episode intake; fault-family split and normalized cross-split duplicate/near-duplicate audit.
-- Reproducible Python 3.12 + pinned/hash-locked Transformers/TRL/PEFT/PyTorch/CUDA stack; explicit GPU/Qwen3 LoRA backward+weight delta proof.
-- Frozen Base vs SFT vs GRPO head-to-head replay with identical fault families, prompts, budgets and >=3 seeds when practical; report per-family root-cause accuracy, evidence-support rate, proper abstention, tool-count and latency/cost.
-- Reward-hacking checks: no Oracle/admin labels in observer context; no model-supplied tool costs or Judge rewards; no shortening workload/hiding failures/early stop treated as success.
-- Independence: Oracle truth, Kev Evidence Judge and risk/probability calibration are separate from observer/policy authority.
+- Reproducible pinned/hash-locked training stack and explicit GPU backward/optimizer/weight-delta proof for the selected checkpoint.
+- Same-lineage Base vs SFT vs GRPO comparison on frozen holdout, identical prompts/budgets and >=3 seeds when practical. Cross-model or cross-quant comparisons are not training uplift.
+- Reward-hacking checks: no Oracle/admin labels in observer context; no model-supplied costs or Judge rewards; no shortening workload, hiding failures or early stop treated as success.
+- Independence: Oracle truth, evidence judging and risk calibration are separate from observer/policy authority.
 
-**Prohibited claims:** self-reported 17 scenarios = official SREGym score; synthetic good rewards = gradient learning; `.[train]` import = verified CUDA training; trained model = production remediator.
+**Prohibited claims:** synthetic rewards = gradient learning; package import = verified GPU training; model benchmark = SRE accuracy; trained model = production remediator.
 
 ### P2 — AI Infrastructure fault families, after Kubernetes P0 is proven
 
