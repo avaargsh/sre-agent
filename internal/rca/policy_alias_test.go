@@ -16,7 +16,7 @@ func TestPinnedPolicyRejectsCaseFoldedFieldAliases(t *testing.T) {
         "alias-only-threshold": strings.Replace(string(raw), `"max_latency_seconds":`, `"MAX_LATENCY_SECONDS":`, 1),
         "alias-only-deployment-uid": strings.Replace(string(raw), `"deployment_uid":`, `"Deployment_UID":`, 1),
         "alias-only-query": strings.Replace(string(raw), `"latency_query":`, `"Latency_Query":`, 1),
-        "escaped-uppercase-namespace": strings.Replace(string(raw), `"namespace":`, `"\\u004eamespace":`, 1),
+        "escaped-uppercase-namespace": strings.Replace(string(raw), `"namespace":`, `"\u004eamespace":`, 1),
         "alias-before-canonical": strings.Replace(string(raw), `"namespace":`, `"Namespace":"evil","namespace":`, 1),
         "canonical-before-alias": strings.Replace(string(raw), `"namespace":`, `"namespace":"evil","Namespace":`, 1),
     }
