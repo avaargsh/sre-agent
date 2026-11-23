@@ -1,8 +1,8 @@
-# SRE Agent — Go-native Migration Plan (2026-11-22)
+# SRE Agent — Go-native Migration Plan (updated 2026-11-23)
 
 ## Repository baseline and migration policy
 
-At assessment time, `avaargsh/sre-agent` `main` is commit `55860e731753225c7d35f77c566f9dc21de71c1c` and mirrors the Python `agentic-aiops` reference implementation, including pytest, frozen scenarios and the four-repository kind/Temporal acceptance flow. The historic M1 evidence is **not** validation of this Go implementation. Python remains in place until each behavior has passed an equivalent Go migration gate. Do not silently update `stack.lock.json` or rewrite historic evidence.
+Pinned development baseline for this update: `avaargsh/sre-agent` `main@6b8898dcb6b1cc7be906192dfa9042484854b5be`. The repository now includes Go read-only alert planning/investigation, source-integrity verification, independent SLI and fault Oracles, RCA review and signed-evidence **lab** contracts, alongside the historic Python `agentic-aiops` reference and CPU-only GRPO evidence utilities. These modules are not equivalent to a validated end-to-end Go product. No exact-head integrated Python 3.11/3.12 + Go + kind result has been observed for that pinned `main` commit. The historic M1 evidence is **not** validation of the Go implementation; Python remains as the compatibility oracle. Do not silently update `stack.lock.json` or rewrite frozen historic evidence.
 
 ## Product ownership
 
@@ -16,12 +16,20 @@ Legacy `agent-control-plane`, `cloud-agent-runtime` and `agent-decision-lab` rem
 
 | Gate | Engineering scope | Required evidence |
 | --- | --- | --- |
-| **G0: Contract parity (this PR)** | Go module, read-only Evidence Bundle verifier CLI, Python-v1 SHA/structural compatibility, Go CI | Frozen Python canonical SHA matches; duplicate IDs/dangling evidence/unsupported claims/digest tampering rejected; `go test -race ./...` and `go vet ./...` pass; no cluster writes |
-| **G1: Observation** | scoped client-go list/get/watch; bounded Prometheus queries, evidence timestamps, topology and change events | disposable kind real read-only proof; no write permissions; missing/stale SLI becomes UNKNOWN |
-| **G2: Independent Verifier** | evidence-v2 schema, source hashes, competing hypotheses, deploy/config change timeline and independent Oracle | tampered evidence rejected; no model self-confirmation; pre/post time-window SLI and credible unknown state |
-| **G3: Durable authority** | ACP API identity/permit+epoch binding; Temporal Go SDK, journal, idempotency and UNKNOWN reconciliation | SIGKILL before/after ACK, revocation, mismatched action/run/evidence, duplicate retries all fail closed |
-| **G4: Controlled remediation** | allowlisted executor, Kubernetes UID/resourceVersion/current-replicas CAS, policy-driven rollback and sustained SLI | exact approval and protected Kubernetes write; drift-safe rollback; no false VERIFIED on stale/missing series |
-| **G5: Product and evaluation** | installable CLI/Helm, audit export, continuous multi-incident replay and SRE benchmarking | exact-HEAD reproducible kind Golden Incident, independent release gate, regression suite |
+| **G0: Contract parity (development-integrated)** | Go module, read-only Evidence Bundle verifier CLI, Python-v1 SHA/structural compatibility, Go CI | Frozen Python canonical SHA matches; duplicate IDs/dangling evidence/unsupported claims/digest tampering rejected; `go test -race ./...` and `go vet ./...` pass; no cluster writes |
+| **G1: Observation (development-integrated slice)** | scoped client-go list/get/watch; bounded Prometheus queries, evidence timestamps, topology and change events | disposable kind real read-only proof; no write permissions; missing/stale SLI becomes UNKNOWN |
+| **G2: Independent Verifier (partial / lab)** | evidence-v2 schema, source hashes, competing hypotheses, deploy/config change timeline and independent Oracle | tampered evidence rejected; no model self-confirmation; pre/post time-window SLI and credible unknown state |
+| **G3: Durable authority (not complete in Go)** | ACP API identity/permit+epoch binding; Temporal Go SDK, journal, idempotency and UNKNOWN reconciliation | SIGKILL before/after ACK, revocation, mismatched action/run/evidence, duplicate retries all fail closed |
+| **G4: Controlled remediation (not authorized)** | allowlisted executor, Kubernetes UID/resourceVersion/current-replicas CAS, policy-driven rollback and sustained SLI | exact approval and protected Kubernetes write; drift-safe rollback; no false VERIFIED on stale/missing series |
+| **G5: Product and evaluation (not certified)** | installable CLI/Helm, audit export, continuous multi-incident replay and SRE benchmarking | exact-HEAD reproducible kind Golden Incident, independent release gate, regression suite |
+
+## Current migration risk and release gates
+
+- **Go functionality vs historical Python demo:** The Go CLI implements multiple read-only analysis and lab-verification commands beyond G0. The Python/Temporal Golden Incident still demonstrates a different reference path; neither its approval flow nor its scale operation is an authorization of new Go remediation.
+- **RCA policy admission:** The pinned `sre.rca-policy/v1` verifier must reject JSON key casing aliases and same-logical-field collisions before Go's case-insensitive typed decoder. Checksums bind the bytes provided by a caller; they do not authenticate who issued the policy. See [RCA triage contract](go-rca-triage.md).
+- **Offline GRPO:** CPU-only Episode/Oracle, Holdout, Safetensors and local LoRA receipt contracts are not CUDA Qwen3/TRL/PEFT runtime evidence. Draft [#11](https://github.com/avaargsh/sre-agent/pull/11) must be decomposed and reconciled rather than merged wholesale; no diagnostic quality uplift or production claims are authorized.
+- **Required graduation evidence:** run exact-current-main Python 3.11 and 3.12 pytest, Go `test -race` / `vet` / build, and the applicable disposable-kind Golden Incident. Preserve complete logs, Git SHA and post-run clean-tree checks; require independent review of security-critical authority/provenance contracts. No PR-head or old-main green run substitutes for a final-main certification.
+- **Authorization:** ACP/EngageGuard owns identity, permit and revocation authority; Temporal owns durable workflow and recovery. The Go SRE investigator must not duplicate those authorities or activate writes without an independently verified integration.
 
 ## G0 contract and limitations
 
