@@ -107,3 +107,13 @@ def test_pinned_frozen_adapter_stage_stays_exact_and_private(tmp_path):
         assert not (path/"README.md").exists()
         assert (path.stat().st_mode & 0o777) == 0o700
     assert not path.exists()
+
+
+def test_loaded_adapter_audit_rejects_forged_inmemory_receipt(tmp_path):
+    from test_grpo_adapter_postload import setup, check
+    frozen, tensors, status = setup(tmp_path)
+    forged = replace(
+        frozen, receipt={**frozen.receipt, "adapter_weights_sha256": "0" * 64},
+    )
+    with pytest.raises(ValueError, match="sha256|mismatch|receipt"):
+        check(forged, tensors, status)
