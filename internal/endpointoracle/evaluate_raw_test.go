@@ -4,6 +4,7 @@ import (
  "crypto/sha256"
  "encoding/hex"
  "encoding/json"
+ "strings"
  "testing"
 )
 
@@ -35,6 +36,22 @@ func TestEvaluateRawRejectsAmbiguousEnvelopes(t *testing.T) {
  }
 }
 
+func TestEvaluateRawRejectsUnconsumedFields(t *testing.T) {
+ e,p:=episode(t,false)
+ episodeRaw,err:=json.Marshal(e);if err!=nil{t.Fatal(err)}
+ predictionRaw,err:=json.Marshal(p);if err!=nil{t.Fatal(err)}
+ cases:=[]struct{name string;episode,prediction []byte}{
+  {"unknown episode field",[]byte(strings.TrimSuffix(string(episodeRaw),"}")+`,"operator_approval":true}`),predictionRaw},
+  {"unknown nested phase field",[]byte(strings.Replace(string(episodeRaw),`"probes":[200,200,200]}`,`"probes":[200,200,200],"sampled_at":"2026-11-24T00:00:00Z"}`,1)),predictionRaw},
+  {"unknown prediction field",episodeRaw,[]byte(strings.TrimSuffix(string(predictionRaw),"}")+`,"evidence_attestation":"signed"}`)},
+  {"noncanonical field alias",[]byte(strings.TrimSuffix(string(episodeRaw),"}")+`,"SchemaVersion":"sre.endpoint-oracle/v1"}`),predictionRaw},
+ }
+ for _,tc:=range cases{
+  t.Run(tc.name,func(t *testing.T){
+   if _,err:=EvaluateRaw(tc.episode,tc.prediction);err==nil{t.Fatal("unconsumed envelope field accepted")}
+  })
+ }
+}
 func TestEvaluateRawEnforcesEnvelopeByteBudgets(t *testing.T) {
  if _,err:=EvaluateRaw(make([]byte,(12<<20)+1),[]byte(`{}`));err==nil{t.Fatal("oversized episode accepted")}
  if _,err:=EvaluateRaw([]byte(`{}`),make([]byte,(6<<20)+1));err==nil{t.Fatal("oversized prediction accepted")}
