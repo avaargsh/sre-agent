@@ -35,6 +35,17 @@ func investigate(args []string,stdout,stderr io.Writer)int{
    fmt.Fprintln(stderr,"invalid investigate arguments; require --kube-api --prometheus --namespace --deployment --incident-id --summary --out and bounded timeouts")
    return 2
  }
+ // Fast-path only: a competing process may publish after this check.
+ // The create-only publisher below is the authoritative collision guard.
+ if *outfile!="-" {
+  if _,err:=os.Lstat(*outfile);err==nil{
+   fmt.Fprintln(stderr,"cannot overwrite an existing evidence artifact")
+   return 1
+  }else if !os.IsNotExist(err){
+   fmt.Fprintln(stderr,"cannot inspect evidence output")
+   return 1
+  }
+ }
  token:=""
  if *tokenPath!=""{
   b,err:=os.ReadFile(*tokenPath)
@@ -62,13 +73,10 @@ func investigate(args []string,stdout,stderr io.Writer)int{
  }
  raw=append(raw,'\n')
  if *outfile=="-"{if _,err:=stdout.Write(raw);err!=nil{fmt.Fprintln(stderr,err);return 1};return 0}
- file,err:=os.OpenFile(*outfile,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
- if err!=nil{fmt.Fprintln(stderr,"cannot create new evidence file:",err);return 1}
- n,writeErr:=file.Write(raw)
- if writeErr==nil&&n!=len(raw){writeErr=io.ErrShortWrite}
- if writeErr==nil{writeErr=file.Sync()}
- closeErr:=file.Close()
- if writeErr!=nil||closeErr!=nil{_ = os.Remove(*outfile);fmt.Fprintln(stderr,"cannot finish evidence file");return 1}
+ if err:=publishAlertPlan(*outfile,raw);err!=nil{
+  fmt.Fprintln(stderr,"cannot publish new evidence file:",err)
+  return 1
+ }
  fmt.Fprintln(stdout,*outfile)
  return 0
 }
