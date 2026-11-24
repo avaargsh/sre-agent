@@ -16,6 +16,7 @@ import (
  "strings"
  "reflect"
  "github.com/avaargsh/sre-agent/internal/evidence"
+ "github.com/avaargsh/sre-agent/internal/sourcejson"
 )
 
 type Snapshot struct {
@@ -89,6 +90,8 @@ type parsed struct{
 func parse(raw []byte)(parsed,error){
  var v service
  if len(raw)==0||len(raw)>maxSnapshot{return parsed{},errors.New("Service JSON too large or empty")}
+ if err:=sourcejson.Validate(raw);err!=nil{return parsed{},errors.New("malformed or ambiguous Service JSON")}
+ if err:=sourcejson.ValidateCanonicalFields(raw,&v);err!=nil{return parsed{},errors.New("non-canonical Service field name")}
  if err:=evidence.ValidateUniqueJSONObject(raw);err!=nil{return parsed{},errors.New("ambiguous Service JSON keys")}
  d:=json.NewDecoder(bytes.NewReader(raw))
  if err:=d.Decode(&v);err!=nil{return parsed{},errors.New("invalid Service JSON")}
