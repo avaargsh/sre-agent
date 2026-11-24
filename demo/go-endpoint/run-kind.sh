@@ -46,10 +46,10 @@ trap restore EXIT
 kubectl --kubeconfig="$OBS" proxy --address=127.0.0.1 --port=18001 >/tmp/go-endpoint-kube-proxy.log 2>&1 &
 PROXY_PID=$!
 for attempt in $(seq 1 30); do
-  if curl --noproxy '*' -fsS http://127.0.0.1:18001/version >/dev/null; then break; fi
+  if curl --noproxy '*' -fsS http://127.0.0.1:18001/api/v1/namespaces/golden-demo/services/checkout-api >/dev/null; then break; fi
   sleep 1
 done
-curl --noproxy '*' -fsS http://127.0.0.1:18001/version >/dev/null || {
+curl --noproxy '*' -fsS http://127.0.0.1:18001/api/v1/namespaces/golden-demo/services/checkout-api >/dev/null || {
   cat /tmp/go-endpoint-kube-proxy.log >&2
   exit 1
 }
