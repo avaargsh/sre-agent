@@ -133,7 +133,11 @@ func TestReplayServiceEndpointsObservationValidatesReadAndRawEvidenceBinding(t *
 		},
 		"raw-endpoint-source-tampered": func(capture *ServiceEndpointsObservation) {
 			capture.EndpointSlicesRaw = append([]byte(nil), capture.EndpointSlicesRaw...)
-			capture.EndpointSlicesRaw = []byte(strings.Replace(string(capture.EndpointSlicesRaw), `"ready":true`, `"ready":false`, 1))
+			changed := strings.Replace(string(capture.EndpointSlicesRaw), `"ready":true`, `"ready":false`, 1)
+			if changed == string(capture.EndpointSlicesRaw) {
+				t.Fatal("raw source mutation did not apply")
+			}
+			capture.EndpointSlicesRaw = []byte(changed)
 		},
 	}
 	for name, mutate := range cases {
@@ -183,6 +187,9 @@ func TestCollectServiceEndpointsFailsClosedWhenPinnedListVersionExpires(t *testi
 
 func TestCollectServiceEndpointsRejectsZeroServiceResourceVersionBeforeList(t *testing.T) {
 	zeroVersion := strings.Replace(serviceEndpointsService, `"resourceVersion":"19"`, `"resourceVersion":"0"`, 1)
+	if zeroVersion == serviceEndpointsService {
+		t.Fatal("zero-RV fixture mutation did not apply")
+	}
 	var calls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
