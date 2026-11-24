@@ -111,6 +111,26 @@ func TestReplayServiceEndpointsRecomputesSourceOnlyPrediction(t *testing.T) {
 	}
 }
 
+func TestReplayServiceEndpointsRejectsInvalidOrOversizedSourceJSON(t *testing.T) {
+	valid := []byte(serviceEndpointsService)
+	validSlices := []byte(serviceEndpointsSlices)
+	target := ServiceTarget{Namespace: "demo", Name: "checkout-api", UID: "service-uid-1"}
+	selector := map[string]string{"app": "checkout-api"}
+	cases := map[string][][]byte{
+		"invalid-service-utf8": {[]byte{0xff}, validSlices, valid},
+		"invalid-slices-utf8": {valid, []byte{0xff}, valid},
+		"duplicate-service-key": {[]byte(`{"metadata":{},"Metadata":{}}`), validSlices, valid},
+		"oversized-slices": {valid, make([]byte, maxResponseBytes+1), valid},
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ReplayServiceEndpoints(target, 8080, selector, raw[0], raw[1], raw[2]); !errors.Is(err, ErrUnknown) {
+				t.Fatalf("invalid source JSON admitted: %v", err)
+			}
+		})
+	}
+}
+
 func TestCollectServiceEndpointsReportsNoReadyEndpointsWithoutRootCauseClaim(t *testing.T) {
 	empty := `{"kind":"EndpointSliceList","metadata":{"resourceVersion":"26","continue":""},"items":[]}`
 	srv, _ := serviceEndpointsServer(t, serviceEndpointsService, empty, serviceEndpointsService)
