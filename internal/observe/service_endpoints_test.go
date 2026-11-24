@@ -75,7 +75,7 @@ func TestCollectServiceEndpointsPreservesExactReadOnlyEvidence(t *testing.T) {
 	if r.SchemaVersion != "sre.service-endpoints/v1" || r.Target != (ServiceTarget{Namespace: "demo", Name: "checkout-api", UID: "service-uid-1"}) ||
 		r.ServiceResourceVersion != "19" || r.EndpointSliceListResourceVersion != "25" ||
 		r.ReadyEndpoints != 1 || r.Classification != "READY_ENDPOINTS_OBSERVED" ||
-		r.ExpectedTargetPort != 8080 || r.SourceAuthenticated {
+		r.ExpectedTargetPort != 8080 || r.ExpectedSelector["app"] != "checkout-api" || r.SourceAuthenticated {
 		t.Fatalf("wrong report: %+v", r)
 	}
 	if r.ServiceBeforeSHA256 != fmt.Sprintf("%x", sha256.Sum256(got.ServiceBeforeRaw)) ||
