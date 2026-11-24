@@ -207,3 +207,30 @@ func TestCollectServiceEndpointsRejectsZeroServiceResourceVersionBeforeList(t *t
 		t.Fatalf("zero RV must not weaken the cross-resource snapshot fence: %+v err=%v calls=%d", observation, err, calls.Load())
 	}
 }
+
+func TestCollectServiceEndpointsRejectsOversizedServiceResourceVersionBeforeList(t *testing.T) {
+	oversizedVersion := strings.Repeat("x", 257)
+	oversizedService := strings.Replace(
+		serviceEndpointsService,
+		`"resourceVersion":"19"`,
+		`"resourceVersion":"`+oversizedVersion+`"`,
+		1,
+	)
+	if oversizedService == serviceEndpointsService {
+		t.Fatal("oversized resourceVersion fixture mutation did not apply")
+	}
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = fmt.Fprint(w, oversizedService)
+	}))
+	defer server.Close()
+
+	observation, err := CollectServiceEndpoints(context.Background(), serviceEndpointsConfig(server.URL))
+	if !errors.Is(err, ErrUnknown) ||
+		observation.ServiceBeforeRaw != nil ||
+		observation.EndpointSlicesRaw != nil ||
+		calls.Load() != 1 {
+		t.Fatalf("oversized resourceVersion must not be used in a LIST request: %+v err=%v calls=%d", observation, err, calls.Load())
+	}
+}
