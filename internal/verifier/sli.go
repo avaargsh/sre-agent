@@ -20,6 +20,7 @@ import (
  "strings"
  "time"
  "github.com/avaargsh/sre-agent/internal/sourcejson"
+ "github.com/avaargsh/sre-agent/internal/metricseries"
 )
 
 type Status string
@@ -78,6 +79,8 @@ func checkPolicy(p Policy)(*url.URL,time.Time,time.Time,error){
  now:=p.Now().UTC()
  end:=now.Truncate(p.Step)
  start:=end.Add(-p.Window)
+ // Enforce the same Unix-second domain as the instant-vector collector.
+ if !metricseries.ValidTimestamp(float64(start.Unix()))||!metricseries.ValidTimestamp(float64(end.Unix())){return nil,time.Time{},time.Time{},errors.New("SLI window outside supported timestamp range")}
  if end.After(now)||(!p.NotBefore.IsZero()&&start.Before(p.NotBefore.UTC())){return nil,time.Time{},time.Time{},errors.New("SLI window predates trusted barrier")}
  return u,start,end,nil
 }
@@ -147,7 +150,7 @@ func query(ctx context.Context,p Policy,u *url.URL,start,end time.Time,threshold
    if len(point)!=2{return SourceEvidence{},false,errors.New("invalid Prometheus point")}
    var timestamp float64
    var value string
-   if err:=json.Unmarshal(point[0],&timestamp);err!=nil||!finite(timestamp){return SourceEvidence{},false,errors.New("invalid sample timestamp")}
+   if err:=json.Unmarshal(point[0],&timestamp);err!=nil||!metricseries.ValidTimestamp(timestamp){return SourceEvidence{},false,errors.New("invalid sample timestamp")}
    if math.Abs(timestamp-float64(start.Add(time.Duration(i)*p.Step).Unix()))>0.001{return SourceEvidence{},false,errors.New("misaligned or missing Prometheus sample")}
    if err:=json.Unmarshal(point[1],&value);err!=nil{return SourceEvidence{},false,errors.New("invalid sample encoding")}
    // Go accepts hexadecimal floats and underscore separators; neither is
