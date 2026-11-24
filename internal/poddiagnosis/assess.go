@@ -7,11 +7,7 @@ import (
  "strings"
 )
 
-var containerNamePattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?// Package poddiagnosis interprets normalized, untrusted container status snapshots.
-// It never authenticates a source, establishes causality, or verifies recovery.
-package poddiagnosis
-
-)
+var containerNamePattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
 type Target struct { Namespace, Name, UID string }
 type ContainerStatus struct {
