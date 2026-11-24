@@ -207,9 +207,11 @@ decoded complete LIST with the observer's list before running the unchanged
 Go Oracle. The helper treats the resourceVersion as an opaque UTF-8 string
 bounded to 256 bytes and URL-encodes it; it does not require decimal digits or
 perform numeric ordering. It rejects unpaired UTF-16 surrogates anywhere in
-the decoded EndpointSlice JSON, not only in the resourceVersion field, so
-malformed Unicode cannot pass through an unrelated annotation or label.
-Both original source files and their SHA-256 digests are retained.
+the decoded EndpointSlice JSON, not only in the resourceVersion field, and
+bounds decoded JSON nesting to 64 levels (including a fail-closed parser
+recursion guard). Malformed Unicode or adversarial nesting cannot pass through
+an unrelated annotation or label. Both original source files and their
+SHA-256 digests are retained.
 Unparseable, duplicated-key, paginated or drifting snapshots return UNKNOWN
 without a success verdict. There is no retry that silently selects a
 favorable sample; a 410/expired resourceVersion fails closed.
