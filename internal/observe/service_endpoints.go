@@ -189,7 +189,7 @@ func ReplayServiceEndpointsObservation(target ServiceTarget, expectedTargetPort 
 	if err := validateServiceEndpointsSelection(target, expectedTargetPort, expectedSelector); err != nil {
 		return endpointoracle.Prediction{}, err
 	}
-	if report.SchemaVersion != "sre.service-endpoints/v1" ||
+	if report.SchemaVersion != "sre.service-endpoints/v2" ||
 		report.Target != target ||
 		report.ExpectedTargetPort != expectedTargetPort ||
 		!reflect.DeepEqual(report.ExpectedSelector, expectedSelector) ||
@@ -351,7 +351,7 @@ func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (Ser
 
 	selector := cloneSelector(c.ExpectedSelector)
 	report := ServiceEndpointsReport{
-		SchemaVersion: "sre.service-endpoints/v1",
+		SchemaVersion: "sre.service-endpoints/v2",
 		Target: c.Target,
 		ExpectedTargetPort: c.ExpectedTargetPort,
 		ExpectedSelector: selector,
