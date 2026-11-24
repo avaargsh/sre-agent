@@ -23,3 +23,14 @@ Next acceptance: CLI capture/replay, least-privilege named Pod access in disposa
 The dedicated `go-pod-kind` workflow creates a disposable `sre-pod-diagnosis` cluster and runs `demo/go-observe/pod-kind.sh` at the checked-out workflow SHA. The admin fixture injector independently waits for a Ready healthy Pod and a CrashLoopBackOff Pod and obtains their UIDs. A separate short-lived actual ServiceAccount token is used by a loopback kubectl proxy; its Role grants only get on the two named Pods. RBAC checks and denied HTTP GETs are required, along with capture/replay for both Pods, wrong UID and changed raw digest rejection. No raw Pod snapshots or credentials are uploaded; temporary private files are removed. The SHA computed from the captured file is a lab consistency pin only, not independent production source attestation. Expected healthy result remains UNKNOWN without findings. No automatic remediation or recovery certification.
 
 For manual use only in the disposable test environment with kind, Docker, kubectl, Go and Python installed: create a fresh kind cluster named `sre-pod-diagnosis`, check out the candidate, then run `EXPECTED_SHA="$(git rev-parse HEAD)" bash demo/go-observe/pod-kind.sh`. The script refuses a different current context or a missing expected kind cluster and refuses to reuse an existing lab namespace. The CI job runs focused race tests first. This is not proof of a successful execution until actual workflow run/job records and logs for the checked SHA are available.
+
+## Independent receipt verification CLI
+
+After capture and replay, a separate verifier can check the submitted JSON report without contacting Kubernetes:
+
+```sh
+sre-agent verify-pod-report --namespace "$NS" --pod "$POD" --uid "$EXPECTED_UID" \
+  --sha256 "$INDEPENDENT_SNAPSHOT_SHA256" --report "$REPORT_FILE" < "$RAW_POD_FILE"
+```
+
+The expected UID and digest must come from a separate trusted record; do not derive them from the claim. Exit 0 and `STRUCTURALLY_LINKED` mean structural/content consistency only. Invalid data yields exit 3 with no stdout; malformed CLI arguments yield 2. The report file must be operator-owned and trusted; stdin is an explicitly supplied finite stream. **Merge dependency:** land #57 shared boundedAlertFile regular-file/no-follow/nonblocking hardening first, rebase and test #60 on the resulting main, including FIFO/symlink rejection for the report path. Until then the existing named-file helper is byte-bounded but can follow symlinks or block on special files. Do not treat this branch as ready for hostile file paths. No source authentication, freshness, RCA, recovery or execution authority.
