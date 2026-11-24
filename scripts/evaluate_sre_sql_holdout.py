@@ -51,7 +51,9 @@ def main():
         seen = set()
         case = _pinned(a.case, a.case_sha256, seen)
         pred = _pinned(a.prediction, a.prediction_sha256, seen)
-        if type(pred) is not dict or set(pred) != {"case_id", "sql"} or pred["case_id"] != case["case_id"]:
+        if (type(case) is not dict or type(case.get("case_id")) is not str
+                or type(pred) is not dict or set(pred) != {"case_id", "sql"}
+                or type(pred["case_id"]) is not str or pred["case_id"] != case["case_id"]):
             raise ValueError("case identity mismatch")
         result = evaluate_sql_case(case, pred["sql"])
     except (OSError, ValueError, TypeError, RecursionError, UnicodeError):
