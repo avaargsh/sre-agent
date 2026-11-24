@@ -91,9 +91,9 @@ classification. The EndpointSlice LIST is requested with the first Service
 resourceVersion and `resourceVersionMatch=NotOlderThan`, retaining the bounded
 `limit=129`. The pre/post Service GET fence still requires the same UID,
 resourceVersion and exact bytes; the LIST freshness lower bound uses that
-stable Service object's resourceVersion. The opaque Service and collection
-resourceVersions must be nonzero and at most 256 bytes; they are never parsed
-or compared numerically. Freshness is taken from the EndpointSlice collection
+stable Service object's resourceVersion. The collector rejects the zero sentinel and applies a conservative 256-byte
+bound to opaque Service and collection resourceVersions; it never parses or
+compares them numerically. Freshness is taken from the EndpointSlice collection
 `metadata.resourceVersion`, not individual item resourceVersions (which track
 when each item was last updated). The API server's collection resourceVersion
 is therefore required to be no older than the Service snapshot; an expired version (HTTP 410) fails
