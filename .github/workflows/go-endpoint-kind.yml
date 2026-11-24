@@ -6,6 +6,10 @@ on:
   # has also passed the live disposable-kind incident.
   push:
     branches: [main]
+  # Fallback for bot/app-created commits that may not emit workflow-triggering
+  # push events. Scheduled workflows run the latest default-branch commit.
+  schedule:
+    - cron: '43 4 * * *'
   pull_request:
     paths:
       - "internal/endpointoracle/**"
