@@ -80,38 +80,7 @@ capture_observer() {
   uid="$(kubectl -n golden-demo get svc checkout-api -o jsonpath='{.metadata.uid}')"
   capture="$dir/observer-capture.json"
   /tmp/sre-agent-g2g capture-service-endpoints --namespace golden-demo --service checkout-api --uid "$uid" --kube-api http://127.0.0.1:18001 --expected-target-port 8080 --expected-selector app=checkout-api --timeout 15s > "$capture"
-  python3 - "$capture" "$dir" <<'PY'
-import base64,datetime,json,pathlib,sys
-capture=json.loads(pathlib.Path(sys.argv[1]).read_text())
-assert capture.get("schema_version")=="sre.service-endpoints-capture/v1"
-report=capture["report"]
-assert report["schema_version"] == "sre.service-endpoints/v3"
-assert report["source_authenticated"] is False
-reads=report["read_timeline"]
-assert [r["name"] for r in reads] == ["service_get_before","endpoint_slice_list","service_get_after"]
-assert reads[1].get("request_resource_version", "") == ""
-assert reads[1].get("request_resource_version_match", "") == ""
-assert reads[1]["request_consistency"] == "MOST_RECENT"
-assert reads[1]["request_label_selector"] == "kubernetes.io/service-name=checkout-api"
-assert reads[1]["request_limit"] == 129
-assert reads[1]["response_resource_version"] == report["endpoint_slice_list_resource_version"]
-parse_time=lambda value: datetime.datetime.fromisoformat(value.replace("Z","+00:00"))
-assert parse_time(report["collection_started_at"]) <= parse_time(reads[0]["started_at"]) <= parse_time(reads[0]["completed_at"])
-assert parse_time(reads[0]["completed_at"]) <= parse_time(reads[1]["started_at"]) <= parse_time(reads[1]["completed_at"])
-assert parse_time(reads[1]["completed_at"]) <= parse_time(reads[2]["started_at"]) <= parse_time(reads[2]["completed_at"])
-assert parse_time(reads[2]["completed_at"]) <= parse_time(report["observed_at"])
-assert report["classification"] in ("READY_ENDPOINTS_OBSERVED","NO_READY_ENDPOINTS_OBSERVED","UNKNOWN")
-for field,name in (
-  ("service_before_raw","observed-service.json"),
-  ("endpoint_slices_raw","observed-endpointslices.json"),
-  ("service_after_raw","observed-service-after.json"),
-):
-  raw=base64.b64decode(capture[field],validate=True)
-  assert 0<len(raw)<=2*1024*1024
-  pathlib.Path(sys.argv[2],name).write_bytes(raw)
-pathlib.Path(sys.argv[2],"observer-report.json").write_text(json.dumps(report,sort_keys=True,indent=2)+"\n")
-print("PASS: live Service/EndpointSlice collector",report["classification"],"ready endpoints",report["ready_endpoints"])
-PY
+  python3 demo/go-endpoint/verify_capture.py "$capture" "$dir" "$uid"
 }
 
 ready_count() {
