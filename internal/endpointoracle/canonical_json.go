@@ -43,7 +43,7 @@ func validateCanonicalJSONFields(raw []byte, typ reflect.Type) error {
 						return fmt.Errorf("non-canonical field %q; expected %q", name, canonical)
 					}
 				}
-				continue // DisallowUnknownFields rejects genuinely unknown fields.
+				continue // Unknown fields are left to the caller's typed decoder policy.
 			}
 			if err := validateCanonicalJSONFields(value, fieldType); err != nil {
 				return fmt.Errorf("%s: %w", name, err)
