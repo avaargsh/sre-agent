@@ -12,6 +12,7 @@ import (
  "errors"
  "fmt"
  "io"
+ "net/netip"
  "reflect"
  "strings"
 
@@ -144,6 +145,9 @@ func inspect(raw []byte,namespace,service,serviceUID string)(observation,error){
    if endpoint.Conditions.Ready==nil||len(endpoint.Addresses)==0||len(endpoint.Addresses)>16{
     return observation{},errors.New("ambiguous endpoint readiness or address")
    }
+   for _,address:=range endpoint.Addresses{
+    if !validEndpointAddress(item.AddressType,address){return observation{},errors.New("invalid EndpointSlice address or address family")}
+   }
    if *endpoint.Conditions.Ready{ready++}
   }
  }
@@ -228,4 +232,25 @@ func Evaluate(e Episode,p Prediction)(Result,error){
  return Result{SchemaVersion:"sre.endpoint-evaluation/v1",EpisodeID:e.ID,Scenario:e.Scenario,
   Prediction:p.Classification,Verdict:verdict,ProductionCausalityVerified:false,
   Explanation:"Observed EndpointSlice readiness and actual HTTP probes in disposable kind. Empty endpoints are not proof of backend root cause; operator truth and source identity are not signed."},nil
+}
+
+// Validate syntax and the declared family, without resolving or contacting endpoints.
+func validEndpointAddress(family,address string)bool{
+ if family=="IPv4"||family=="IPv6"{
+  ip,err:=netip.ParseAddr(address)
+  if err!=nil||ip.Zone()!=""{return false}
+  if family=="IPv4"{return ip.Is4()}
+  return ip.Is6()&&!ip.Is4In6()
+ }
+ if family!="FQDN"{return false}
+ name:=strings.TrimSuffix(address,".")
+ if len(name)>253||!strings.Contains(name,"."){return false}
+ if _,err:=netip.ParseAddr(name);err==nil{return false}
+ for _,label:=range strings.Split(name,"."){
+  if len(label)==0||len(label)>63||label[0]=='-'||label[len(label)-1]=='-'{return false}
+  for _,c:=range label{
+   if !(c>='a'&&c<='z'||c>='A'&&c<='Z'||c>='0'&&c<='9'||c=='-'){return false}
+  }
+ }
+ return true
 }
