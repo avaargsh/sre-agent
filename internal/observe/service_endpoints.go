@@ -19,6 +19,8 @@ import (
 // ServiceTarget is an independently selected Kubernetes Service identity.
 // The UID is required because a Service can be deleted and recreated under
 // the same namespace/name.
+const maxServiceResourceVersionBytes = 256
+
 type ServiceTarget struct {
 	Namespace string `json:"namespace"`
 	Name      string `json:"name"`
@@ -126,7 +128,7 @@ func serviceIdentity(raw []byte, target ServiceTarget, expectedPort int, selecto
 	if err != nil {
 		return oracle.Prediction{}, unknownf("invalid or incomplete Service response")
 	}
-	if got.Namespace != target.Namespace || got.Service != target.Name || got.ServiceUID != target.UID || got.ResourceVersion == "" || got.ResourceVersion == "0" || len(got.ResourceVersion) > 256 {
+	if got.Namespace != target.Namespace || got.Service != target.Name || got.ServiceUID != target.UID || got.ResourceVersion == "" || got.ResourceVersion == "0" || len(got.ResourceVersion) > maxServiceResourceVersionBytes {
 		return oracle.Prediction{}, unknownf("Service response does not match independently selected identity")
 	}
 	return got, nil
