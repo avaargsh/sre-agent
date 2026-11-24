@@ -16,6 +16,7 @@ import (
 func TestCollectServiceEndpointsPinsListAtOrAfterServiceResourceVersion(t *testing.T) {
 	listQueryCh := make(chan url.Values, 1)
 	var serviceReads atomic.Int32
+	var listReads atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Errorf("unexpected method %s", r.Method)
@@ -25,7 +26,12 @@ func TestCollectServiceEndpointsPinsListAtOrAfterServiceResourceVersion(t *testi
 			serviceReads.Add(1)
 			_, _ = fmt.Fprint(w, serviceEndpointsService)
 		case "/apis/discovery.k8s.io/v1/namespaces/demo/endpointslices":
-			listQueryCh <- r.URL.Query()
+			listReads.Add(1)
+			select {
+			case listQueryCh <- r.URL.Query():
+			default:
+				t.Errorf("unexpected repeated EndpointSlice LIST")
+			}
 			_, _ = fmt.Fprint(w, serviceEndpointsSlices)
 		default:
 			t.Errorf("unexpected path %s", r.URL.Path)
@@ -38,8 +44,8 @@ func TestCollectServiceEndpointsPinsListAtOrAfterServiceResourceVersion(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if serviceReads.Load() != 2 {
-		t.Fatalf("expected two Service fences, got %d", serviceReads.Load())
+	if serviceReads.Load() != 2 || listReads.Load() != 1 {
+		t.Fatalf("expected two Service fences and one EndpointSlice LIST, got service=%d list=%d", serviceReads.Load(), listReads.Load())
 	}
 	listQuery := <-listQueryCh
 	if listQuery.Get("resourceVersion") != "19" ||
@@ -281,6 +287,7 @@ func TestCollectServiceEndpointsSupportsOpaqueResourceVersions(t *testing.T) {
 	}
 
 	listQueryCh := make(chan url.Values, 1)
+	var listReads atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Errorf("unexpected method %s", r.Method)
@@ -289,7 +296,12 @@ func TestCollectServiceEndpointsSupportsOpaqueResourceVersions(t *testing.T) {
 		case "/api/v1/namespaces/demo/services/checkout-api":
 			_, _ = fmt.Fprint(w, service)
 		case "/apis/discovery.k8s.io/v1/namespaces/demo/endpointslices":
-			listQueryCh <- r.URL.Query()
+			listReads.Add(1)
+			select {
+			case listQueryCh <- r.URL.Query():
+			default:
+				t.Errorf("unexpected repeated EndpointSlice LIST")
+			}
 			_, _ = fmt.Fprint(w, slices)
 		default:
 			t.Errorf("unexpected path %s", r.URL.Path)
@@ -301,6 +313,9 @@ func TestCollectServiceEndpointsSupportsOpaqueResourceVersions(t *testing.T) {
 	observation, err := CollectServiceEndpoints(context.Background(), serviceEndpointsConfig(server.URL))
 	if err != nil {
 		t.Fatalf("opaque resourceVersions should be preserved as strings: %v", err)
+	}
+	if listReads.Load() != 1 {
+		t.Fatalf("expected exactly one EndpointSlice LIST, got %d", listReads.Load())
 	}
 	listQuery := <-listQueryCh
 	if listQuery.Get("resourceVersion") != serviceVersion ||
