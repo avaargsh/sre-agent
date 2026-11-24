@@ -16,8 +16,9 @@ from typing import Any
 
 from .grpo_import import _verify_pin
 from .grpo_training import (
-    _fields, _strict_json, _read_bounded_bytes, build_prompt, load_episodes_bytes,
+    _fields, _strict_json, build_prompt, load_episodes_bytes,
 )
+from .secure_file import read_pinned_regular
 
 _MAX_FILE_BYTES = 4 * 1024 * 1024
 _MAX_CASES = 2048
@@ -108,10 +109,8 @@ def project_holdout_prompts(
     if split not in ("test", "validation"):
         raise ValueError("split must be test or validation, never train")
     _validate_paths(dataset, output, manifest)
-    if Path(dataset).is_symlink() or not Path(dataset).is_file():
-        raise ValueError("holdout projection requires a regular non-symlink dataset")
-    raw_dataset = _read_bounded_bytes(
-        dataset, limit=_MAX_FILE_BYTES, name="holdout dataset",
+    raw_dataset, _dataset_identity = read_pinned_regular(
+        dataset, limit=_MAX_FILE_BYTES, label="holdout dataset",
     )
     dataset_sha = _verify_pin(
         raw_dataset, expected_dataset_sha256, "dataset_sha256"
@@ -165,25 +164,27 @@ def verify_holdout_projection(
     artifacts, but does not call a sampler or import GPU/Adapter dependencies.
     All claim fields are exact-match validated; model/issuer proof stays false.
     """
-    paths = [Path(p) for p in (dataset, prompts, manifest)]
-    if any(path.is_symlink() or not path.is_file() for path in paths):
-        raise ValueError("projection audit requires regular non-symlink files")
-    if len({path.resolve() for path in paths}) != 3:
-        raise ValueError("projection audit paths must be distinct")
-    raw_dataset = _read_bounded_bytes(
-        dataset, limit=_MAX_FILE_BYTES, name="holdout dataset",
+    # Open each artifact once through component-pinned directory descriptors.
+    # Distinct path strings are insufficient: reject parent symlinks, final
+    # symlinks, special files and hard-link aliases before parsing any bytes.
+    identities: set[tuple[int, int]] = set()
+    raw_dataset, _ = read_pinned_regular(
+        dataset, limit=_MAX_FILE_BYTES, label="holdout dataset",
+        identities=identities,
     )
     dataset_sha = _verify_pin(
         raw_dataset, expected_dataset_sha256, "dataset_sha256",
     )
-    raw_prompts = _read_bounded_bytes(
-        prompts, limit=_MAX_FILE_BYTES, name="holdout prompts",
+    raw_prompts, _ = read_pinned_regular(
+        prompts, limit=_MAX_FILE_BYTES, label="holdout prompts",
+        identities=identities,
     )
     prompts_sha = _verify_pin(
         raw_prompts, expected_prompts_sha256, "prompts_sha256",
     )
-    raw_manifest = _read_bounded_bytes(
-        manifest, limit=32 * 1024, name="projection manifest",
+    raw_manifest, _ = read_pinned_regular(
+        manifest, limit=32 * 1024, label="projection manifest",
+        identities=identities,
     )
     manifest_sha = _verify_pin(
         raw_manifest, expected_manifest_sha256, "manifest_sha256",
