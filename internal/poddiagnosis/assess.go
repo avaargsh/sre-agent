@@ -2,7 +2,12 @@
 // It never authenticates a source, establishes causality, or verifies recovery.
 package poddiagnosis
 
-import "strings"
+import (
+ "regexp"
+ "strings"
+)
+
+var containerNamePattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
 type Target struct { Namespace, Name, UID string }
 type ContainerStatus struct {
@@ -45,7 +50,7 @@ func Assess(expected Target, s Snapshot) Report {
  }
  names:=make(map[string]bool,len(s.Containers))
  for _,name:=range s.Containers {
-  if strings.TrimSpace(name)=="" || names[name] {return r}
+  if len(name)>63 || !containerNamePattern.MatchString(name) || names[name] {return r}
   names[name]=true
  }
  for _,c:=range s.Statuses {
