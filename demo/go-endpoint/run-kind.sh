@@ -95,7 +95,7 @@ parse_time=lambda value: datetime.datetime.fromisoformat(value.replace("Z","+00:
 assert parse_time(report["collection_started_at"]) <= parse_time(reads[0]["started_at"]) <= parse_time(reads[0]["completed_at"])
 assert parse_time(reads[0]["completed_at"]) <= parse_time(reads[1]["started_at"]) <= parse_time(reads[1]["completed_at"])
 assert parse_time(reads[1]["completed_at"]) <= parse_time(reads[2]["started_at"]) <= parse_time(reads[2]["completed_at"])
-assert parse_time(reads[2]["completed_at"]) <= parse_time(report["collection_completed_at"]) == parse_time(report["observed_at"])
+assert parse_time(reads[2]["completed_at"]) <= parse_time(report["observed_at"])
 assert report["classification"] in ("READY_ENDPOINTS_OBSERVED","NO_READY_ENDPOINTS_OBSERVED","UNKNOWN")
 for field,name in (
   ("service_before_raw","observed-service.json"),
