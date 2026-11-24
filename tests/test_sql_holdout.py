@@ -201,3 +201,31 @@ def test_fixture_preserves_declared_cell_type(column_type, cell):
     report = evaluate_sql_case(case, "SELECT value FROM incidents")
     assert report["execution_status"] == "COMPLETED"
     assert report["exact_result_match"] is True
+
+
+@pytest.mark.parametrize("field", ["fixture", "oracle", "query"])
+@pytest.mark.parametrize("bad", ["\ud800", "\udfff"])
+def test_invalid_unicode_fails_before_scoring(field, bad):
+    f = fixture()
+    f["tables"][0]["columns"] = [{"name": "message", "type": "TEXT"}]
+    f["tables"][0]["rows"] = [["故障🚨"]]
+    f["expected_rows"] = [["故障🚨"]]
+    q = "SELECT message FROM incidents"
+    if field == "fixture":
+        f["tables"][0]["rows"] = [[bad]]
+    elif field == "oracle":
+        f["expected_rows"] = [[bad]]
+    else:
+        q += " -- " + bad
+    with pytest.raises(ValueError, match="invalid (bounded SQL rows|expected SQL results|candidate query)"):
+        evaluate_sql_case(f, q)
+
+
+def test_valid_unicode_preserved():
+    f = fixture()
+    f["tables"][0]["columns"] = [{"name": "message", "type": "TEXT"}]
+    f["tables"][0]["rows"] = [["故障🚨"]]
+    f["expected_rows"] = [["故障🚨"]]
+    report = evaluate_sql_case(f, "SELECT message FROM incidents WHERE message='故障🚨'")
+    assert report["execution_status"] == "COMPLETED"
+    assert report["exact_result_match"] is True
