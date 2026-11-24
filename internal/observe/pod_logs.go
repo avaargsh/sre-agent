@@ -23,17 +23,19 @@ const (
  maxPodLogTailLines = 200
 )
 
+// PodLogsConfig selects one regular container and a bounded tail from a Pod.
 type PodLogsConfig struct {
  PodConfig
  Container string
  TailLines int
 }
 
+// PodLogsReport records the Pod identity fence and exact log-byte digest.
 type PodLogsReport struct {
  SchemaVersion string `json:"schema_version"`
  Target poddiagnosis.Target `json:"target"`
  Container string `json:"container"`
- TailLines int `json:"tail_lines"`
+ RequestedTailLines int `json:"requested_tail_lines"`
  MaxBytes int `json:"max_bytes"`
  Timestamps bool `json:"timestamps"`
  BeforeResourceVersion string `json:"before_resource_version"`
@@ -158,7 +160,7 @@ func CollectPodLogs(ctx context.Context,c PodLogsConfig)(PodLogsObservation,erro
  digest:=sha256.Sum256(raw)
  report:=PodLogsReport{
   SchemaVersion:"sre.pod-logs/v1",Target:target,Container:c.Container,
-  TailLines:c.TailLines,MaxBytes:maxPodLogBytes,Timestamps:true,
+  RequestedTailLines:c.TailLines,MaxBytes:maxPodLogBytes,Timestamps:true,
   BeforeResourceVersion:before.Report.ResourceVersion,
   AfterResourceVersion:after.Report.ResourceVersion,
   BeforePodSHA256:before.Report.RawSHA256,
