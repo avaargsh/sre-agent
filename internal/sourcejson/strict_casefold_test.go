@@ -37,3 +37,29 @@ func TestDistinctCaseFoldedKeysInSeparateObjectsRemainValid(t *testing.T) {
   })
  }
 }
+
+
+// Kubernetes label maps are case-sensitive data, not struct field names.
+// Likewise, json.RawMessage carries opaque source data. A global Unicode
+// case-fold collision check must not reject distinct map keys before the
+// typed schema validator can distinguish those data boundaries.
+func TestValidateAllowsCaseFoldedKeysInsideDataMaps(t *testing.T) {
+ raw := []byte(`{
+  "metadata":{"resourceVersion":"rv1"},
+  "labels":{"app":"checkout","App":"legacy"},
+  "raw":{"status":"old","Status":"new"}
+ }`)
+ if err := Validate(raw); err != nil {
+  t.Fatalf("case-sensitive map keys and opaque RawMessage keys must remain data: %v", err)
+ }
+ if err := ValidateCanonicalFields(raw, &schemaFieldEnvelope{}); err != nil {
+  t.Fatalf("typed schema validation must not reinterpret map/RawMessage keys as struct fields: %v", err)
+ }
+}
+
+func TestValidateStillRejectsExactDuplicateKeysInsideDataMaps(t *testing.T) {
+ raw := []byte(`{"labels":{"app":"checkout","app":"legacy"}}`)
+ if err := Validate(raw); err == nil {
+  t.Fatal("exact duplicate JSON object keys must remain rejected")
+ }
+}
