@@ -86,8 +86,9 @@ def test_reject_duplicate_metadata_fields_before_pinning(tmp_path):
 def test_verify_admin_re_read_exact_snapshot(tmp_path):
     observer = tmp_path / "observer.json"
     admin = tmp_path / "admin.json"
-    observer.write_text(json.dumps(example()), encoding="utf-8")
-    admin.write_text(json.dumps(example()), encoding="utf-8")
+    opaque = "opaque/β?x=1&y=2"
+    observer.write_text(json.dumps(example(rv=opaque)), encoding="utf-8")
+    admin.write_text(json.dumps(example(rv=opaque)), encoding="utf-8")
     match = call(tmp_path, "--verify", observer, admin)
     assert match.returncode == 0, match.stderr
     drift = example()
