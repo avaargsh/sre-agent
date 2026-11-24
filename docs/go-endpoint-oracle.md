@@ -187,3 +187,24 @@ transaction, authenticate who queried Kubernetes, or establish arbitrary
 incident causality. Regression tests:
 `tests/test_endpoint_snapshot_pin.py`. The change is scoped to G2g and
 does not resolve the historical four-repository acceptance/approval gates.
+
+
+### Evaluation result input binding
+
+The `evaluate-endpoints` command validates the raw Episode and Prediction
+envelopes, replays their typed contents, and writes SHA-256 digests of the
+**exact original input bytes** into the successful result:
+
+- `episode_sha256`
+- `prediction_sha256`
+
+Whitespace or key-order changes therefore produce different input digests,
+even when the decoded JSON values are semantically equivalent. Recompute the
+digests against the archived input files to confirm which bytes were evaluated.
+The result is not a signature: SHA-256 does not authenticate the API server,
+observer, test administrator, file custody, or evaluation binary.
+
+The raw evaluator enforces the CLI's 12 MiB Episode and 6 MiB Prediction
+budgets and rejects duplicate/case-fold-conflicting keys, invalid UTF-8,
+unpaired surrogates, and trailing JSON before typed decoding. The disposable
+kind harness independently recomputes both digests from the archived inputs.
