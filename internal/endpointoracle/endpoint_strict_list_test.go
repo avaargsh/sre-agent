@@ -70,7 +70,7 @@ func TestRejectMalformedUTF8AndCaseFoldConflicts(t *testing.T) {
 func TestRejectEndpointSliceListWithZeroResourceVersion(t *testing.T) {
 	raw := []byte(`{"kind":"EndpointSliceList","metadata":{"resourceVersion":"0"},"items":[]}`)
 	if _, err := inspect(raw, "golden-demo", "checkout-api", "svc-1"); err == nil {
-		t.Fatal("accepted zero resourceVersion, which cannot serve as a cross-resource snapshot")
+		t.Fatal("accepted zero resourceVersion, which cannot serve as an exact-version replay token")
 	}
 }
 
@@ -81,7 +81,7 @@ func TestRejectEndpointSliceListWithOversizedResourceVersion(t *testing.T) {
 	}
 }
 
-func TestDiagnoseRejectsServiceResourceVersionsOutsideSnapshotBudget(t *testing.T) {
+func TestDiagnoseRejectsServiceResourceVersionsOutsideMetadataBudget(t *testing.T) {
 	_, _, service, endpointSlices := fixture(t, 1)
 	cases := map[string]string{
 		"zero": "0",
@@ -102,7 +102,7 @@ func TestDiagnoseRejectsServiceResourceVersionsOutsideSnapshotBudget(t *testing.
 				[]byte(changed), endpointSlices, 8080,
 				map[string]string{"app": "checkout-api"},
 			); err == nil {
-				t.Fatal("accepted Service resourceVersion outside the cross-resource snapshot budget")
+				t.Fatal("accepted Service resourceVersion outside the bounded Service metadata budget")
 			}
 		})
 	}
