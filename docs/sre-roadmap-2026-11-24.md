@@ -1,6 +1,6 @@
 # SRE Agent delivery roadmap — 2026-11-24
 
-Coordination plan, not a release certificate. Observed main: `064ea714615cdc08ed515ab0187ef849f7b96a5a` (#51). The older [migration plan](go-rewrite-plan.md) and [Golden Incident plan](sre-p0-golden-path.md) remain valid as historical baselines. #50/#51 added LAB raw Rollout capture and publication race hardening, not verified CUDA training. #11 is open Draft and dirty; extract small missing slices, do not merge wholesale.
+Coordination plan, not a release certificate. Observed base main: `5de0398bf3c8b56da653731bef92846771b57304` (#101). PR #102 adds a version-fenced Service/EndpointSlice observation candidate and remains Draft/HOLD until exact-head Python 3.11/3.12, Go race/vet/build, and live disposable-kind evidence pass. The older [migration plan](go-rewrite-plan.md) and [Golden Incident plan](sre-p0-golden-path.md) remain historical baselines. #50/#51 added LAB raw Rollout capture and publication race hardening, not verified CUDA training. #11 remains Draft; extract small missing slices rather than merging it wholesale.
 
 ## Ordered P0 delivery
 
