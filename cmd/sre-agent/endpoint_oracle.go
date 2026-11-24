@@ -1,7 +1,6 @@
 package main
 
 import (
- "bytes"
  "encoding/json"
  "flag"
  "fmt"
@@ -9,6 +8,7 @@ import (
  "strings"
 
  "github.com/avaargsh/sre-agent/internal/endpointoracle"
+ "github.com/avaargsh/sre-agent/internal/sourcejson"
 )
 func diagnoseEndpoints(args []string,stdout,stderr io.Writer)int{
  f:=flag.NewFlagSet("diagnose-endpoints",flag.ContinueOnError)
@@ -32,6 +32,11 @@ func diagnoseEndpoints(args []string,stdout,stderr io.Writer)int{
  if err:=writeNewJSON(*out,prediction,stdout);err!=nil{fmt.Fprintln(stderr,"cannot write prediction:",err);return 1}
  return 0
 }
+func decodeStrictEndpointEnvelope(raw []byte, dst any) error {
+ if err:=sourcejson.Validate(raw);err!=nil{return err}
+ return json.Unmarshal(raw,dst)
+}
+
 func evaluateEndpoints(args []string,stdout,stderr io.Writer)int{
  f:=flag.NewFlagSet("evaluate-endpoints",flag.ContinueOnError)
  f.SetOutput(stderr)
@@ -49,8 +54,8 @@ func evaluateEndpoints(args []string,stdout,stderr io.Writer)int{
  if err!=nil{fmt.Fprintln(stderr,"UNKNOWN: missing Prediction");return 3}
  var e endpointoracle.Episode
  var p endpointoracle.Prediction
- if err:=json.NewDecoder(bytes.NewReader(b)).Decode(&e);err!=nil{fmt.Fprintln(stderr,"UNKNOWN: malformed Episode");return 3}
- if err:=json.NewDecoder(bytes.NewReader(c)).Decode(&p);err!=nil{fmt.Fprintln(stderr,"UNKNOWN: malformed Prediction");return 3}
+ if err:=decodeStrictEndpointEnvelope(b,&e);err!=nil{fmt.Fprintln(stderr,"UNKNOWN: malformed or ambiguous Episode");return 3}
+ if err:=decodeStrictEndpointEnvelope(c,&p);err!=nil{fmt.Fprintln(stderr,"UNKNOWN: malformed or ambiguous Prediction");return 3}
  result,err:=endpointoracle.Evaluate(e,p)
  if err!=nil{fmt.Fprintln(stderr,"UNKNOWN: EndpointSlice Oracle evidence invalid:",err);return 3}
  if err:=writeNewJSON(*out,result,stdout);err!=nil{fmt.Fprintln(stderr,"could not save evaluation:",err);return 1}
