@@ -94,7 +94,8 @@ PY
     sleep 2
   done
   test "$captured" = 1
-  echo "PASS $pod capture and replay"
+  test "$("$work/sre-agent" verify-pod-report --namespace "$ns" --pod "$pod" --uid "$uid" --sha256 "$pin" --report "$work/$pod.report" < "$work/$pod.raw")" = STRUCTURALLY_LINKED
+  echo "PASS $pod capture, replay and independent report verification"
 done
 reject() { local rc=0; "$@" > "$work/rejected" 2> "$work/rejected.err" || rc=$?; test "$rc" = 3; test ! -s "$work/rejected"; }
 reject "$work/sre-agent" capture-pod --kube-api "$api" --namespace "$ns" --pod healthy --uid "$crash_uid"
@@ -103,3 +104,20 @@ cp "$work/crash.raw" "$work/tampered.raw"
 printf ' ' >> "$work/tampered.raw"
 reject "$work/sre-agent" replay-pod --namespace "$ns" --pod crash --uid "$crash_uid" --sha256 "$pin" < "$work/tampered.raw"
 echo "PASS wrong UID and tampered raw rejection; no RCA or recovery proof"
+# Acceptance requires #57's safe boundedAlertFile implementation.
+# Use an independently selected UID and the original pinned raw bytes.
+python3 - "$work/crash.report" "$work/forged.report" <<'PY'
+import json, pathlib, sys
+report = json.loads(pathlib.Path(sys.argv[1]).read_text())
+report["source_authenticated"] = True
+pathlib.Path(sys.argv[2]).write_text(json.dumps(report))
+PY
+verify_crash() {
+  timeout 5s "$work/sre-agent" verify-pod-report --namespace "$ns" --pod crash --uid "$crash_uid" --sha256 "$pin" --report "$1" < "$work/crash.raw"
+}
+reject verify_crash "$work/forged.report"
+ln -s "$work/crash.report" "$work/aliased.report"
+mkfifo "$work/blocked.report"
+reject verify_crash "$work/aliased.report"
+reject verify_crash "$work/blocked.report"
+echo "PASS forged receipt, symlink and FIFO rejection; timeout is a failure"
