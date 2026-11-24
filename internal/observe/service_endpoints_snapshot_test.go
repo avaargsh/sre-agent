@@ -243,3 +243,19 @@ func TestCollectServiceEndpointsRejectsOversizedServiceResourceVersionBeforeList
 		t.Fatalf("oversized resourceVersion must not be used in a LIST request: %+v err=%v calls=%d", observation, err, calls.Load())
 	}
 }
+
+func TestReplayServiceEndpointsObservationRejectsLegacyReportSchema(t *testing.T) {
+	server, _ := serviceEndpointsServer(t, serviceEndpointsService, serviceEndpointsSlices, serviceEndpointsService)
+	defer server.Close()
+	observation, err := CollectServiceEndpoints(context.Background(), serviceEndpointsConfig(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation.Report.SchemaVersion = "sre.service-endpoints/v1"
+	if _, err := ReplayServiceEndpointsObservation(
+		ServiceTarget{Namespace: "demo", Name: "checkout-api", UID: "service-uid-1"},
+		8080, map[string]string{"app": "checkout-api"}, observation,
+	); !errors.Is(err, ErrUnknown) {
+		t.Fatalf("legacy report without the required version-fenced timeline must fail closed: %v", err)
+	}
+}
