@@ -110,30 +110,30 @@ def test_malformed_usage_fails_without_publishing(tmp_path, usage):
     assert not (tmp_path / "capture.json").exists()
 
 
-def test_manifest_collision_never_unlinks_concurrent_prediction(tmp_path, monkeypatch):
+def test_manifest_collision_leaves_only_untrusted_orphan_prediction(
+    tmp_path, monkeypatch
+):
     import os
+
     output = tmp_path / "predictions.jsonl"
     manifest = tmp_path / "capture.json"
-    original_link = os.link
-    original_unlink = Path.unlink
-    attempted_final_unlink = []
+    original_open = os.open
 
-    def link(source, target, *args, **kwargs):
-        if Path(target) == manifest:
-            # Simulate competing manifest publication after the first link.
-            manifest.write_text("competing manifest")
+    def open_with_competing_manifest(path, flags, *args, **kwargs):
+        # Simulate another writer winning the create-only manifest name after
+        # the prediction has been durably published.
+        if (os.fspath(path) == manifest.name
+                and flags & os.O_CREAT and flags & os.O_EXCL):
+            descriptor = original_open(path, flags, *args, **kwargs)
+            try:
+                os.write(descriptor, b"competing manifest")
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
             raise FileExistsError("competing manifest")
-        return original_link(source, target, *args, **kwargs)
+        return original_open(path, flags, *args, **kwargs)
 
-    def unlink(path, *args, **kwargs):
-        if path == output:
-            attempted_final_unlink.append(path)
-            original_unlink(path)
-            path.write_text("concurrent replacement")
-        return original_unlink(path, *args, **kwargs)
-
-    monkeypatch.setattr(os, "link", link)
-    monkeypatch.setattr(Path, "unlink", unlink)
+    monkeypatch.setattr(os, "open", open_with_competing_manifest)
 
     def sample(payload):
         return {"model": payload["model"], "choices": [{"finish_reason": "stop",
@@ -141,10 +141,9 @@ def test_manifest_collision_never_unlinks_concurrent_prediction(tmp_path, monkey
 
     with pytest.raises(FileExistsError):
         capture(tmp_path, sample)
-    assert attempted_final_unlink == []
-    assert output.exists()  # orphan is not an admitted capture
-    assert manifest.read_text() == "competing manifest"
-    assert not list(tmp_path.glob(".sre-grpo-*.stage"))
+    assert output.is_file()  # orphan is not an admitted capture
+    assert output.stat().st_mode & 0o777 == 0o600
+    assert manifest.read_bytes() == b"competing manifest"
 
 
 @pytest.mark.parametrize("finish,extra", [
