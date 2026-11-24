@@ -90,6 +90,8 @@ reads=report["read_timeline"]
 assert [r["name"] for r in reads] == ["service_get_before","endpoint_slice_list","service_get_after"]
 assert reads[1]["request_resource_version"] == report["service_resource_version"]
 assert reads[1]["request_resource_version_match"] == "NotOlderThan"
+assert reads[1]["request_label_selector"] == "kubernetes.io/service-name=checkout-api"
+assert reads[1]["request_limit"] == 129
 assert reads[1]["response_resource_version"] == report["endpoint_slice_list_resource_version"]
 parse_time=lambda value: datetime.datetime.fromisoformat(value.replace("Z","+00:00"))
 assert parse_time(report["collection_started_at"]) <= parse_time(reads[0]["started_at"]) <= parse_time(reads[0]["completed_at"])
