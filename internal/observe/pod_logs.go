@@ -58,7 +58,7 @@ type PodLogsObservation struct {
 
 func validTimestampedLogTail(raw []byte, maxLines int) bool {
  if len(raw)==0||maxLines<1{return false}
- lines:=bytes.Split(raw,[]byte{'\\n'})
+ lines:=bytes.Split(raw,[]byte{10})
  if len(lines)>0&&len(lines[len(lines)-1])==0{lines=lines[:len(lines)-1]}
  if len(lines)==0||len(lines)>maxLines{return false}
  for _,line:=range lines{
