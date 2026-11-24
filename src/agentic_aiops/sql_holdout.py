@@ -112,10 +112,14 @@ def evaluate_sql_case(fixture: Any, candidate: Any) -> dict[str, Any]:
                 params = ",".join("?" for _ in table["columns"])
                 conn.executemany('INSERT INTO "' + name + '" VALUES (' + params + ')', table["rows"])
         conn.execute("PRAGMA query_only=ON")
-        if hasattr(conn, "setlimit"):
-            conn.setlimit(sqlite3.SQLITE_LIMIT_SQL_LENGTH, 4096)
-            conn.setlimit(sqlite3.SQLITE_LIMIT_EXPR_DEPTH, 64)
-            conn.setlimit(sqlite3.SQLITE_LIMIT_COLUMN, 12)
+        if not hasattr(conn, "setlimit"):
+            return report
+        # Bound intermediate SQLite strings/blobs and encoded rows, not only
+        # final Python result cells. The opcode budget alone cannot do this.
+        conn.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 64 * 1024)
+        conn.setlimit(sqlite3.SQLITE_LIMIT_SQL_LENGTH, 4096)
+        conn.setlimit(sqlite3.SQLITE_LIMIT_EXPR_DEPTH, 64)
+        conn.setlimit(sqlite3.SQLITE_LIMIT_COLUMN, 12)
         def authorizer(action, arg1, arg2, _db_name, _source):
             if action == sqlite3.SQLITE_SELECT:
                 return sqlite3.SQLITE_OK
