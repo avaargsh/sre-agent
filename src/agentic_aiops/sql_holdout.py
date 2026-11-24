@@ -63,7 +63,13 @@ def _fixture(value: Any):
             if col_name.casefold() in names:
                 raise ValueError("duplicate column")
             names.add(col_name.casefold())
-        _rows(table["rows"], len(columns), 128)
+        rows = _rows(table["rows"], len(columns), 128)
+        # Do not let SQLite affinity silently rewrite the pinned fixture.
+        cell_types = {"INTEGER": int, "REAL": float, "TEXT": str}
+        for row in rows:
+            for cell, column in zip(row, columns):
+                if cell is not None and type(cell) is not cell_types[column["type"]]:
+                    raise ValueError("invalid fixture cell type")
         allowed[name.casefold()] = names
     expected = value["expected_rows"]
     if (type(expected) is not list or len(expected) > _MAX_ROWS
