@@ -5,7 +5,11 @@ on:
   pull_request:
     paths:
       - "internal/endpointoracle/**"
+      - "internal/observe/service_endpoints.go"
+      - "internal/observe/service_endpoints_test.go"
       - "cmd/sre-agent/endpoint_oracle.go"
+      - "cmd/sre-agent/service_endpoints_cli.go"
+      - "cmd/sre-agent/service_endpoints_cli_test.go"
       - "cmd/sre-agent/main.go"
       - "demo/go-endpoint/**"
       - ".github/workflows/go-endpoint-kind.yml"
