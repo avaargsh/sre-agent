@@ -6,9 +6,9 @@ identity, grant writes, or establish root cause in arbitrary production incident
 """
 import json
 import sys
-from urllib.parse import urlencode
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlencode
 
 MAX_RESPONSE_BYTES = 2 << 20
 ENDPOINT_LIST_PATH = (
