@@ -35,6 +35,17 @@ def git(repo: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
+def hidden_index_entries(repo: Path) -> bool:
+    """Reject index flags that can suppress tracked worktree changes.
+
+    git ls-files -v uses lowercase tags for assume-unchanged entries
+    and S for skip-worktree. NUL separation preserves unusual filenames.
+    """
+    entries = git(repo, "ls-files", "-v", "-z").split("\0")
+    return any(entry and (entry[0].islower() or entry[0] == "S")
+               for entry in entries)
+
+
 def file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -116,6 +127,8 @@ def verify(args: argparse.Namespace) -> int:
         result["actual_sha"] = actual
         if actual != args.expected_sha:
             raise ValueError("Git HEAD SHA differs from the requested exact SHA")
+        if hidden_index_entries(repo):
+            raise ValueError("Git index contains assume-unchanged or skip-worktree entries; cannot certify exact committed bytes")
         if git(repo, "status", "--porcelain", "--untracked-files=normal"):
             raise ValueError("dirty Git worktree or untracked files; cannot certify exact committed bytes")
         result["tracked_tree_clean"] = True
@@ -157,7 +170,7 @@ def verify(args: argparse.Namespace) -> int:
         if result["checks"]:
             try:
                 post_sha = git(repo, "rev-parse", "HEAD")
-                post_clean = not bool(git(
+                post_clean = not hidden_index_entries(repo) and not bool(git(
                     repo, "status", "--porcelain", "--untracked-files=normal",
                 ))
                 result["post_run_sha"] = post_sha
