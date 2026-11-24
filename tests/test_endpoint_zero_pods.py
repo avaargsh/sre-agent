@@ -13,6 +13,15 @@ POD_LIST = {"apiVersion": "v1", "kind": "PodList",
 
 @pytest.mark.parametrize("payload,expected", [
     (POD_LIST, 0),
+    ('{"apiVersion":"v1","kind":"PodList","metadata":{"resourceVersion":"123"},"items":[],"items":[]}', 1),
+    ('{"apiVersion":"v1","kind":"PodList","metadata":{"resourceVersion":"123","resourceVersion":"123"},"items":[]}', 1),
+    ({**POD_LIST, "Items": []}, 1),
+    ({**POD_LIST, "metadata": {"resourceVersion": "123", "Continue": ""}}, 1),
+    ({**POD_LIST, "metadata": {"resourceVersion": "123", "RemainingItemCount": 0}}, 1),
+    ({**POD_LIST, "metadata": {"resourceVersion": "x" * 257}}, 1),
+    ({**POD_LIST, "metadata": {"resourceVersion": "β" * 129}}, 1),
+    ({**POD_LIST, "metadata": {"resourceVersion": "opaque/β?cursor=1"}}, 0),
+    ({**POD_LIST, "metadata": {"resourceVersion": "123", "annotations": {"app": "one", "App": "two"}}}, 0),
     ({**POD_LIST, "items": [{}]}, 1),
     ({key: value for key, value in POD_LIST.items() if key != "items"}, 1),
     ({**POD_LIST, "items": {}}, 1),
@@ -30,7 +39,7 @@ def test_zero_pods_requires_complete_native_list(tmp_path, payload, expected):
     source = SCRIPT.read_text(encoding="utf-8")
     function = source[source.index("wait_zero_pods() {"):source.index("# Keep *all* warm-up probes")]
     fixture = tmp_path / "source.json"
-    fixture.write_text(json.dumps(payload), encoding="utf-8")
+    fixture.write_text(payload if isinstance(payload, str) else json.dumps(payload), encoding="utf-8")
     env = dict(os.environ, SOURCE=str(fixture), OUTPUT=str(tmp_path / "zero.json"))
     harness = '''set -euo pipefail
 kubectl() { cat "$SOURCE"; }
