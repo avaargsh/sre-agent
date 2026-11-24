@@ -19,6 +19,7 @@ ENDPOINT_LIST_QUERY = {
     "limit": "129",
 }
 MAX_RESOURCE_VERSION_BYTES = 256
+MAX_JSON_DEPTH = 64
 
 
 @dataclass(frozen=True)
@@ -41,19 +42,23 @@ def unique_object(pairs):
 
 
 def validate_unicode(value):
-    """Reject unpaired UTF-16 surrogates anywhere in decoded JSON evidence."""
-    if isinstance(value, str):
-        try:
-            value.encode("utf-8")
-        except UnicodeEncodeError as exc:
-            raise ValueError("invalid Unicode scalar value in EndpointSlice JSON") from exc
-    elif isinstance(value, dict):
-        for key, item in value.items():
-            validate_unicode(key)
-            validate_unicode(item)
-    elif isinstance(value, list):
-        for item in value:
-            validate_unicode(item)
+    """Reject unpaired surrogates and excessive nesting in decoded JSON evidence."""
+    pending = [(value, 0)]
+    while pending:
+        current, depth = pending.pop()
+        if depth > MAX_JSON_DEPTH:
+            raise ValueError("EndpointSlice JSON nesting exceeds the safe depth limit")
+        if isinstance(current, str):
+            try:
+                current.encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise ValueError("invalid Unicode scalar value in EndpointSlice JSON") from exc
+        elif isinstance(current, dict):
+            for key, item in current.items():
+                pending.append((key, depth + 1))
+                pending.append((item, depth + 1))
+        elif isinstance(current, list):
+            pending.extend((item, depth + 1) for item in current)
 
 
 def read_list(path):
@@ -63,11 +68,14 @@ def read_list(path):
     raw = source.read_bytes()
     if not raw or len(raw) > MAX_RESPONSE_BYTES:
         raise ValueError("empty or oversized EndpointSlice response")
-    data = json.loads(
-        raw.decode("utf-8"), object_pairs_hook=unique_object,
-        parse_int=NumberToken, parse_float=NumberToken,
-        parse_constant=reject_nonfinite,
-    )
+    try:
+        data = json.loads(
+            raw.decode("utf-8"), object_pairs_hook=unique_object,
+            parse_int=NumberToken, parse_float=NumberToken,
+            parse_constant=reject_nonfinite,
+        )
+    except RecursionError as exc:
+        raise ValueError("EndpointSlice JSON nesting exceeds the parser limit") from exc
     validate_unicode(data)
     if not isinstance(data, dict) or data.get("kind") != "EndpointSliceList":
         raise ValueError("expected a Kubernetes EndpointSliceList")
