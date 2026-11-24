@@ -60,6 +60,8 @@ func TestCollectServiceEndpointsPinsListAtOrAfterServiceResourceVersion(t *testi
 	if report.ReadTimeline[0].ResponseResourceVersion != "19" ||
 		report.ReadTimeline[1].RequestResourceVersion != "19" ||
 		report.ReadTimeline[1].RequestResourceVersionMatch != "NotOlderThan" ||
+		report.ReadTimeline[1].RequestLabelSelector != "kubernetes.io/service-name=checkout-api" ||
+		report.ReadTimeline[1].RequestLimit != 129 ||
 		report.ReadTimeline[1].ResponseResourceVersion != "25" ||
 		report.ReadTimeline[2].ResponseResourceVersion != "19" {
 		t.Fatalf("read timeline lost cross-resource version association: %+v", report.ReadTimeline)
@@ -121,6 +123,12 @@ func TestReplayServiceEndpointsObservationValidatesReadAndRawEvidenceBinding(t *
 		},
 		"request-match-weakened": func(capture *ServiceEndpointsObservation) {
 			capture.Report.ReadTimeline[1].RequestResourceVersionMatch = "Exact"
+		},
+		"request-label-selector-forged": func(capture *ServiceEndpointsObservation) {
+			capture.Report.ReadTimeline[1].RequestLabelSelector = "kubernetes.io/service-name=other"
+		},
+		"request-limit-weakened": func(capture *ServiceEndpointsObservation) {
+			capture.Report.ReadTimeline[1].RequestLimit = 128
 		},
 		"response-digest-forged": func(capture *ServiceEndpointsObservation) {
 			capture.Report.ReadTimeline[1].ResponseSHA256 = strings.Repeat("0", 64)
