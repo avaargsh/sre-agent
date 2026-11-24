@@ -81,7 +81,7 @@ capture_observer() {
   capture="$dir/observer-capture.json"
   /tmp/sre-agent-g2g capture-service-endpoints --namespace golden-demo --service checkout-api --uid "$uid" --kube-api http://127.0.0.1:18001 --expected-target-port 8080 --expected-selector app=checkout-api --timeout 15s > "$capture"
   python3 - "$capture" "$dir" <<'PY'
-import base64,json,pathlib,sys
+import base64,datetime,json,pathlib,sys
 capture=json.loads(pathlib.Path(sys.argv[1]).read_text())
 assert capture.get("schema_version")=="sre.service-endpoints-capture/v1"
 report=capture["report"]
@@ -91,10 +91,11 @@ assert [r["name"] for r in reads] == ["service_get_before","endpoint_slice_list"
 assert reads[1]["request_resource_version"] == report["service_resource_version"]
 assert reads[1]["request_resource_version_match"] == "NotOlderThan"
 assert reads[1]["response_resource_version"] == report["endpoint_slice_list_resource_version"]
-assert report["collection_started_at"] <= reads[0]["started_at"] <= reads[0]["completed_at"]
-assert reads[0]["completed_at"] <= reads[1]["started_at"] <= reads[1]["completed_at"]
-assert reads[1]["completed_at"] <= reads[2]["started_at"] <= reads[2]["completed_at"]
-assert reads[2]["completed_at"] <= report["collection_completed_at"] == report["observed_at"]
+parse_time=lambda value: datetime.datetime.fromisoformat(value.replace("Z","+00:00"))
+assert parse_time(report["collection_started_at"]) <= parse_time(reads[0]["started_at"]) <= parse_time(reads[0]["completed_at"])
+assert parse_time(reads[0]["completed_at"]) <= parse_time(reads[1]["started_at"]) <= parse_time(reads[1]["completed_at"])
+assert parse_time(reads[1]["completed_at"]) <= parse_time(reads[2]["started_at"]) <= parse_time(reads[2]["completed_at"])
+assert parse_time(reads[2]["completed_at"]) <= parse_time(report["collection_completed_at"]) == parse_time(report["observed_at"])
 assert report["classification"] in ("READY_ENDPOINTS_OBSERVED","NO_READY_ENDPOINTS_OBSERVED","UNKNOWN")
 for field,name in (
   ("service_before_raw","observed-service.json"),
