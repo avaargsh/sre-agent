@@ -173,7 +173,9 @@ func TestCollectServiceEndpointsFailsClosedWhenPinnedListVersionExpires(t *testi
 			_, _ = fmt.Fprint(w, serviceEndpointsService)
 		case "/apis/discovery.k8s.io/v1/namespaces/demo/endpointslices":
 			if r.URL.Query().Get("resourceVersion") != "19" ||
-				r.URL.Query().Get("resourceVersionMatch") != "NotOlderThan" {
+				r.URL.Query().Get("resourceVersionMatch") != "NotOlderThan" ||
+				r.URL.Query().Get("labelSelector") != "kubernetes.io/service-name=checkout-api" ||
+				r.URL.Query().Get("limit") != "129" {
 				t.Errorf("missing cross-resource version fence: %s", r.URL.RawQuery)
 			}
 			w.WriteHeader(http.StatusGone)
