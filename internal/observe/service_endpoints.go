@@ -182,9 +182,9 @@ func parseCaptureTime(raw string) (time.Time, error) {
 }
 
 // ReplayServiceEndpointsObservation verifies that the report's read timeline,
-// request-version fence, response versions and digests describe the supplied
-// exact raw bytes. It does not authenticate the Kubernetes API server or prove
-// that the server honored resourceVersionMatch.
+// effective list consistency mode, response versions and digests describe the
+// supplied exact raw bytes. It does not authenticate the Kubernetes API server
+// or prove that the server honored the requested read semantics.
 func ReplayServiceEndpointsObservation(target ServiceTarget, expectedTargetPort int, expectedSelector map[string]string, observation ServiceEndpointsObservation) (endpointoracle.Prediction, error) {
 	report := observation.Report
 	if err := validateServiceEndpointsSelection(target, expectedTargetPort, expectedSelector); err != nil {
