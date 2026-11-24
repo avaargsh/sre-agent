@@ -54,3 +54,17 @@ func TestPlanAlertCLIUnknownCreatesNoReport(t *testing.T) {
  }
  if _,err:=os.Stat(output);!os.IsNotExist(err){t.Fatal("UNKNOWN alert created plan file")}
 }
+
+
+func TestPlanAlertRejectsAliasedInput(t *testing.T) {
+ dir := t.TempDir()
+ target := filepath.Join(dir, "original.json")
+ input := filepath.Join(dir, "alias.json")
+ output := filepath.Join(dir, "plan.json")
+ if err := os.WriteFile(target, []byte(testAlert), 0600); err != nil { t.Fatal(err) }
+ if err := os.Symlink(target, input); err != nil { t.Fatal(err) }
+ var stdout, stderr bytes.Buffer
+ exit := run([]string{"plan-alert", "--file", input, "--cluster", "lab-a", "--namespace", "golden-demo", "--deployment", "checkout-api", "--out", output}, &stdout, &stderr)
+ if exit == 0 || stdout.Len() != 0 { t.Fatalf("aliased alert admitted: %d %s", exit, stdout.String()) }
+ if _, err := os.Lstat(output); !os.IsNotExist(err) { t.Fatal("rejected input produced a plan") }
+}

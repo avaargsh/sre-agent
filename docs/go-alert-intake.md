@@ -47,6 +47,8 @@ A successful command exits **0**; malformed, stale/resolved, duplicate-key, inva
 
 The command only prepares an incident identity and scope. A human may separately invoke the existing scoped `investigate` command using the `incident_id`, `summary`, `severity` and target fields, with existing read-only Kubernetes credentials and a Prometheus query selected by the operator. There is **no implicit bridge**, no untrusted Alertmanager-provided endpoint or tool permission, and no retrying execution solely because a group key matches.
 
+When the standard Alertmanager webhook reports `truncatedAlerts`, its value must be the JSON integer `0`. Positive counts mean omitted alerts, so the group is rejected as `UNKNOWN` rather than treated as a complete scoped group. Invalid types and case aliases are also rejected. Older fixtures without the field remain compatible; absence is not proof of completeness or source authenticity. See [Alertmanager webhook configuration](https://prometheus.io/docs/alerting/latest/configuration/).
+
 A stable incident ID does not mean the same alert bytes. `raw_sha256` changes if the notification changes (such as updated annotations) while the identity stays stable. Callers that want true deduplication must use an external transactional journal/unique key; this CLI by itself cannot ensure exactly-once processing across machines.
 
 ## Explicit evidence and trust boundaries

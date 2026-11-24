@@ -26,14 +26,13 @@ func planAlert(args []string,stdout,stderr io.Writer) int {
   fmt.Fprintln(stderr,"usage: sre-agent plan-alert --file FILE|- --cluster ID --namespace NS --deployment NAME --out NEW_FILE|-")
   return 2
  }
- var source io.Reader=os.Stdin
- if *path!="-" {
-  f,err:=os.Open(*path)
-  if err!=nil{fmt.Fprintln(stderr,"cannot open alert file");return 1}
-  defer f.Close()
-  source=f
+ var raw []byte
+ var err error
+ if *path=="-" {
+  raw,err=io.ReadAll(io.LimitReader(os.Stdin,alertintake.MaxAlertBytes+1))
+ }else{
+  raw,err=boundedAlertFile(*path,alertintake.MaxAlertBytes)
  }
- raw,err:=io.ReadAll(io.LimitReader(source,alertintake.MaxAlertBytes+1))
  if err!=nil{fmt.Fprintln(stderr,"cannot read alert file");return 1}
  plan,err:=alertintake.Parse(raw,alertintake.Target{
   Cluster:*cluster,Namespace:*namespace,Deployment:*deployment,
@@ -50,15 +49,8 @@ func planAlert(args []string,stdout,stderr io.Writer) int {
   if _,err:=stdout.Write(data);err!=nil{fmt.Fprintln(stderr,"cannot write alert plan");return 1}
   return 0
  }
- f,err:=os.OpenFile(*out,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
- if err!=nil{fmt.Fprintln(stderr,"cannot create new alert plan:",err);return 1}
- n,writeErr:=f.Write(data)
- if writeErr==nil&&n!=len(data){writeErr=io.ErrShortWrite}
- if writeErr==nil{writeErr=f.Sync()}
- closeErr:=f.Close()
- if writeErr!=nil||closeErr!=nil{
-  _=os.Remove(*out)
-  fmt.Fprintln(stderr,"cannot finish alert plan")
+ if err:=publishAlertPlan(*out,data);err!=nil{
+  fmt.Fprintln(stderr,"cannot publish new alert plan:",err)
   return 1
  }
  fmt.Fprintln(stdout,*out)
