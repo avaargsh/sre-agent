@@ -123,8 +123,9 @@ func query(ctx context.Context,p Policy,u *url.URL,start,end time.Time,threshold
  raw,err:=io.ReadAll(io.LimitReader(resp.Body,maxResponseSize+1))
  if err!=nil||len(raw)>maxResponseSize{return SourceEvidence{},false,errors.New("Prometheus response exceeds limit or failed")}
  if err:=sourcejson.Validate(raw);err!=nil{return SourceEvidence{},false,errors.New("invalid native Prometheus SLI JSON")}
- if sourcejson.CheckPrometheusCompleteness(raw)!=nil{return SourceEvidence{},false,errors.New("warned, partial or invalid Prometheus SLI response")}
  var parsed response
+ if err:=sourcejson.ValidateCanonicalFields(raw,&parsed);err!=nil{return SourceEvidence{},false,errors.New("noncanonical Prometheus SLI field name")}
+ if sourcejson.CheckPrometheusCompleteness(raw)!=nil{return SourceEvidence{},false,errors.New("warned, partial or invalid Prometheus SLI response")}
  dec:=json.NewDecoder(bytes.NewReader(raw))
  if err:=dec.Decode(&parsed);err!=nil{return SourceEvidence{},false,errors.New("invalid Prometheus response JSON")}
  var extra any
