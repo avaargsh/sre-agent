@@ -48,7 +48,9 @@ func TestVerifyObservation(t *testing.T) {
 		{"confirmation-digest", func(_ *Target, _ *string, _ *[3]string, o *Observation) {
 			o.Confirmations[1].SHA256 = strings.Repeat("0", 64)
 		}},
-		{"first-digest", func(_ *Target, _ *string, _ *[3]string, o *Observation) { o.Snapshots[1].SHA256 = strings.Repeat("0", 64) }},
+		{"first-digest", func(_ *Target, _ *string, _ *[3]string, o *Observation) {
+			o.Snapshots[1].SHA256 = strings.Repeat("0", 64)
+		}},
 		{"rehashed-both-rounds", func(_ *Target, _ *string, _ *[3]string, o *Observation) {
 			s := pin(strings.Replace(pod, `"12"`, `"13"`, 1))
 			o.Snapshots[2] = s
