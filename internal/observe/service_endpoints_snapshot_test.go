@@ -8,23 +8,24 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
 func TestCollectServiceEndpointsPinsListAtOrAfterServiceResourceVersion(t *testing.T) {
-	var listQuery url.Values
-	var serviceReads int
+	listQueryCh := make(chan url.Values, 1)
+	var serviceReads atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Errorf("unexpected method %s", r.Method)
 		}
 		switch r.URL.Path {
 		case "/api/v1/namespaces/demo/services/checkout-api":
-			serviceReads++
+			serviceReads.Add(1)
 			_, _ = fmt.Fprint(w, serviceEndpointsService)
 		case "/apis/discovery.k8s.io/v1/namespaces/demo/endpointslices":
-			listQuery = r.URL.Query()
+			listQueryCh <- r.URL.Query()
 			_, _ = fmt.Fprint(w, serviceEndpointsSlices)
 		default:
 			t.Errorf("unexpected path %s", r.URL.Path)
@@ -37,9 +38,10 @@ func TestCollectServiceEndpointsPinsListAtOrAfterServiceResourceVersion(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if serviceReads != 2 {
-		t.Fatalf("expected two Service fences, got %d", serviceReads)
+	if serviceReads.Load() != 2 {
+		t.Fatalf("expected two Service fences, got %d", serviceReads.Load())
 	}
+	listQuery := <-listQueryCh
 	if listQuery.Get("resourceVersion") != "19" ||
 		listQuery.Get("resourceVersionMatch") != "NotOlderThan" ||
 		listQuery.Get("limit") != "129" {
@@ -156,9 +158,9 @@ func TestReplayServiceEndpointsObservationValidatesReadAndRawEvidenceBinding(t *
 }
 
 func TestCollectServiceEndpointsFailsClosedWhenPinnedListVersionExpires(t *testing.T) {
-	var calls int
+	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
+		calls.Add(1)
 		switch r.URL.Path {
 		case "/api/v1/namespaces/demo/services/checkout-api":
 			_, _ = fmt.Fprint(w, serviceEndpointsService)
@@ -180,8 +182,8 @@ func TestCollectServiceEndpointsFailsClosedWhenPinnedListVersionExpires(t *testi
 		observation.ServiceBeforeRaw != nil ||
 		observation.EndpointSlicesRaw != nil ||
 		observation.ServiceAfterRaw != nil ||
-		calls != 2 {
-		t.Fatalf("expired pinned snapshot must fail closed without fallback or partial evidence: %+v err=%v calls=%d", observation, err, calls)
+		calls.Load() != 2 {
+		t.Fatalf("expired pinned snapshot must fail closed without fallback or partial evidence: %+v err=%v calls=%d", observation, err, calls.Load())
 	}
 }
 
@@ -190,9 +192,9 @@ func TestCollectServiceEndpointsRejectsZeroServiceResourceVersionBeforeList(t *t
 	if zeroVersion == serviceEndpointsService {
 		t.Fatal("zero-RV fixture mutation did not apply")
 	}
-	var calls int
+	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
+		calls.Add(1)
 		_, _ = fmt.Fprint(w, zeroVersion)
 	}))
 	defer server.Close()
@@ -201,7 +203,7 @@ func TestCollectServiceEndpointsRejectsZeroServiceResourceVersionBeforeList(t *t
 	if !errors.Is(err, ErrUnknown) ||
 		observation.ServiceBeforeRaw != nil ||
 		observation.EndpointSlicesRaw != nil ||
-		calls != 1 {
-		t.Fatalf("zero RV must not weaken the cross-resource snapshot fence: %+v err=%v calls=%d", observation, err, calls)
+		calls.Load() != 1 {
+		t.Fatalf("zero RV must not weaken the cross-resource snapshot fence: %+v err=%v calls=%d", observation, err, calls.Load())
 	}
 }
