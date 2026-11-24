@@ -159,7 +159,7 @@ func inspect(raw []byte,namespace,service,serviceUID string)(observation,error){
  if err:=dec.Decode(&list);err!=nil{return observation{},errors.New("invalid EndpointSlice JSON")}
  var extra any
  if !errors.Is(dec.Decode(&extra),io.EOF){return observation{},errors.New("trailing EndpointSlice JSON")}
- if list.Kind!="EndpointSliceList"||list.Metadata.ResourceVersion==""||list.Metadata.ResourceVersion=="0"||(len(list.Metadata.Continue)!=0&&string(list.Metadata.Continue)!=`""`)||
+ if list.Kind!="EndpointSliceList"||list.Metadata.ResourceVersion==""||list.Metadata.ResourceVersion=="0"||len(list.Metadata.ResourceVersion)>256||(len(list.Metadata.Continue)!=0&&string(list.Metadata.Continue)!=`""`)||
   (len(list.Metadata.RemainingItemCount)!=0&&string(list.Metadata.RemainingItemCount)!="0")||list.Items==nil||len(list.Items)>128{
   return observation{},errors.New("EndpointSlice list is incomplete or wrong kind")
  }
