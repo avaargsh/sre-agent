@@ -136,10 +136,10 @@ func TestCollectServiceEndpointsRejectsIncompleteOrForeignEndpointSlices(t *test
 		"null-items": `{"kind":"EndpointSliceList","metadata":{"resourceVersion":"25"},"items":null}`,
 		"continued-list": `{"kind":"EndpointSliceList","metadata":{"resourceVersion":"25","continue":"next"},"items":[]}`,
 		"foreign-namespace": strings.Replace(serviceEndpointsSlices, `"namespace":"demo"`, `"namespace":"other"`, 1),
-		"foreign-service": strings.Replace(serviceEndpointsSlices, "checkout-api", "other-service", 1),
+		"foreign-service": strings.Replace(serviceEndpointsSlices, `"kubernetes.io/service-name":"checkout-api"`, `"kubernetes.io/service-name":"other-service"`, 1),
 		"unknown-readiness": strings.Replace(serviceEndpointsSlices, `"ready":true`, `"ready":null`, 1),
 		"duplicate-readiness": strings.Replace(serviceEndpointsSlices, `"ready":true`, `"ready":false,"ready":true`, 1),
-		"duplicate-name": strings.Replace(serviceEndpointsSlices, `"uid":"slice-uid-1","name":"checkout-api-abc"`, `"uid":"slice-uid-2","name":"checkout-api-abc"`, 1),
+		"duplicate-name": `{"kind":"EndpointSliceList","metadata":{"resourceVersion":"25","continue":""},"items":[{"metadata":{"uid":"slice-uid-1","name":"same","namespace":"demo","labels":{"kubernetes.io/service-name":"checkout-api"}},"addressType":"IPv4","endpoints":[]},{"metadata":{"uid":"slice-uid-2","name":"same","namespace":"demo","labels":{"kubernetes.io/service-name":"checkout-api"}},"addressType":"IPv4","endpoints":[]}]}`,
 	}
 	for name, slices := range cases {
 		t.Run(name, func(t *testing.T) {
