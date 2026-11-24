@@ -48,14 +48,14 @@ func investigate(args []string,stdout,stderr io.Writer)int{
  }
  token:=""
  if *tokenPath!=""{
-  b,err:=os.ReadFile(*tokenPath)
+  b,err:=boundedCredentialFile(*tokenPath,64*1024)
   if err!=nil{fmt.Fprintln(stderr,"cannot read Kubernetes token file");return 2}
   token=strings.TrimSpace(string(b))
   if token==""{fmt.Fprintln(stderr,"Kubernetes token file is empty");return 2}
  }
  var hc *http.Client
  if *caPath!=""{
-  pem,err:=os.ReadFile(*caPath)
+  pem,err:=boundedCredentialFile(*caPath,1024*1024)
   if err!=nil{fmt.Fprintln(stderr,"cannot read CA file");return 2}
   roots,err:=x509.SystemCertPool()
   if err!=nil{fmt.Fprintln(stderr,"cannot read trust store");return 2}
