@@ -44,6 +44,7 @@ func TestCollectServiceEndpointsPinsListAtOrAfterServiceResourceVersion(t *testi
 	listQuery := <-listQueryCh
 	if listQuery.Get("resourceVersion") != "19" ||
 		listQuery.Get("resourceVersionMatch") != "NotOlderThan" ||
+		listQuery.Get("labelSelector") != "kubernetes.io/service-name=checkout-api" ||
 		listQuery.Get("limit") != "129" {
 		t.Fatalf("EndpointSlice LIST is not bounded to the Service version: %s", listQuery.Encode())
 	}
