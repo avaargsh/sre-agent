@@ -12,8 +12,8 @@ on:
   pull_request:
     paths:
       - "cmd/sre-agent/**"
-      - "internal/verifier/**"
-      - "internal/sourcejson/**"
+      - "internal/**"
+      - "go.mod"
       - "demo/k8s/golden-stack.yaml"
       - ".github/workflows/go-sli-kind.yml"
 
@@ -59,25 +59,28 @@ jobs:
             if curl -fsS http://127.0.0.1:19090/-/ready >/dev/null 2>&1; then break; fi
             sleep 2
           done
+          curl -fsS http://127.0.0.1:19090/-/ready >/dev/null
           COMMON=(
             --prometheus http://127.0.0.1:19090
             --latency-query 'max(checkout_request_latency_seconds)'
             --traffic-query 'sum(rate(checkout_requests_total[20s]))'
             --age-query 'max(time() - timestamp(checkout_request_latency_seconds))'
             --max-sample-age-seconds 10
-            --max-latency-seconds 10
             --window 20s --step 5s
           )
           # Very lenient demo latency threshold: proves live range contract, not SLO.
-          /tmp/sre-agent verify-sli "${COMMON[@]}" --min-traffic-rps 0.001 --out /tmp/go-sli-healthy.json
-          set +e
-          /tmp/sre-agent verify-sli "${COMMON[@]}" --min-traffic-rps 1000000 --out /tmp/go-sli-unknown.json
-          STATUS=$?
-          set -e
+          /tmp/sre-agent verify-sli "${COMMON[@]}" --max-latency-seconds 10 --min-traffic-rps 0.001 --out /tmp/go-sli-healthy.json
+          # The demo handles real requests taking at least 90ms; a 1ms
+          # threshold exercises the unhealthy verdict without altering the source.
+          STATUS=0
+          /tmp/sre-agent verify-sli "${COMMON[@]}" --max-latency-seconds 0.001 --min-traffic-rps 0.001 --out /tmp/go-sli-unhealthy.json || STATUS=$?
+          test "$STATUS" -eq 4
+          STATUS=0
+          /tmp/sre-agent verify-sli "${COMMON[@]}" --max-latency-seconds 10 --min-traffic-rps 1000000 --out /tmp/go-sli-unknown.json || STATUS=$?
           test "$STATUS" -eq 3
           python - <<'PY'
           import base64, hashlib, json
-          for path, want in [('/tmp/go-sli-healthy.json', 'HEALTHY'), ('/tmp/go-sli-unknown.json', 'UNKNOWN')]:
+          for path, want in [('/tmp/go-sli-healthy.json', 'HEALTHY'), ('/tmp/go-sli-unhealthy.json', 'UNHEALTHY'), ('/tmp/go-sli-unknown.json', 'UNKNOWN')]:
               report = json.load(open(path, encoding='utf-8'))
               assert report['status'] == want, report
               assert len(report['evidence']) == 3, report
@@ -94,6 +97,7 @@ jobs:
           name: go-sli-kind-proof-${{ github.sha }}
           path: |
             /tmp/go-sli-healthy.json
+            /tmp/go-sli-unhealthy.json
             /tmp/go-sli-unknown.json
             /tmp/go-sli-prometheus-pf.log
           if-no-files-found: warn
