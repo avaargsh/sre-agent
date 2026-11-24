@@ -59,3 +59,16 @@ This checkpoint supersedes the older observed-main SHA above for current work; t
 - This is a bounded observation interval with stable Service identity, not a cross-resource atomic transaction, controller-convergence proof or source authentication. `source_authenticated=false` remains mandatory.
 - Exact-head Go race/vet/build and disposable-kind Endpoint Oracle proof have not been returned by GitHub Actions in this session. Treat the candidate as HOLD until the exact candidate SHA has complete logs and independently checked artifacts; after merge, repeat against the resulting exact main SHA.
 - Next P0 after this slice: exact-main Go proof, live kind healthy/fault/recovery proof, then reconcile original evidence artifacts. Only after those pass should work expand to DNS vs NetworkPolicy, Pod diagnosis, and independent fault-family evaluation. Do not advance to G3/G4 authority or remediation claims on this evidence alone.
+
+
+## Integration checkpoint — native JSON admission consolidation (2026-11-24)
+
+This checkpoint supersedes the prior current-main SHA above; earlier sections remain historical evidence and planning context.
+
+- Exact observed main: `4a336e0b8622834c7d0664dd9e543e73308dcd38` (PR #106).
+- PR #104 introduced schema-aware canonical-field admission for Kubernetes Observer, Prometheus SLI and Service Oracle inputs.
+- PR #105 removed EndpointOracle's duplicate reflection walker and reused `sourcejson.ValidateCanonicalFields`.
+- PR #106 corrected an over-broad global case-fold collision check: the schema-independent syntax pass now rejects exact duplicate JSON keys, while typed struct-field aliases are rejected at the schema-aware boundary. Case-sensitive map keys and opaque `json.RawMessage` values remain data.
+- Go 1.23.2 isolated sourcejson harness: unit tests, race tests and `go vet` passed. This is not full-repository validation.
+- Exact-main `go test -race ./...`, `go vet ./...`, `go build ./cmd/sre-agent`, and live disposable-Kind Endpoint/SLI proofs have not yet been observed for `4a336e0`. Keep the mainline release posture at HOLD until exact-SHA Actions evidence and artifacts are independently checked.
+- Next P0: execute the existing exact-tree Go contract workflow and the two live Kind workflows against the exact merged main SHA; investigate any failures before adding new product scope.
