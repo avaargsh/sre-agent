@@ -122,3 +122,14 @@ def test_cli_invalid_inputs_fail_without_report(tmp_path, fault):
     assert p.returncode == 3
     assert not p.stdout.strip()
     assert "HOLD" in p.stderr
+
+
+@pytest.mark.parametrize("case", [{}, {"schema_version": "sre.sql.holdout-case/v1"}, [], None, 7, "cpu-1"])
+def test_cli_malformed_case_identity_returns_hold(tmp_path, case):
+    argv, data, _ = command(tmp_path)
+    argv[argv.index("--case-sha256") + 1] = write(data, case)
+    proc = subprocess.run(argv, capture_output=True, text=True, timeout=10)
+    assert proc.returncode == 3, proc.stderr
+    assert not proc.stdout.strip()
+    assert "HOLD" in proc.stderr
+    assert "Traceback" not in proc.stderr
