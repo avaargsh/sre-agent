@@ -88,6 +88,29 @@ func TestCollectServiceEndpointsPreservesExactReadOnlyEvidence(t *testing.T) {
 	}
 }
 
+func TestReplayServiceEndpointsRecomputesSourceOnlyPrediction(t *testing.T) {
+	prediction, err := ReplayServiceEndpoints(
+		ServiceTarget{Namespace: "demo", Name: "checkout-api", UID: "service-uid-1"},
+		8080, map[string]string{"app": "checkout-api"},
+		[]byte(serviceEndpointsService), []byte(serviceEndpointsSlices), []byte(serviceEndpointsService),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prediction.Classification != "READY_ENDPOINTS_OBSERVED" ||
+		prediction.ReadyEndpoints != 1 || prediction.Service.ServiceUID != "service-uid-1" {
+		t.Fatalf("wrong offline replay: %+v", prediction)
+	}
+	if _, err := ReplayServiceEndpoints(
+		ServiceTarget{Namespace: "demo", Name: "checkout-api", UID: "service-uid-1"},
+		8080, map[string]string{"app": "checkout-api"},
+		[]byte(serviceEndpointsService), []byte(serviceEndpointsSlices),
+		[]byte(strings.Replace(serviceEndpointsService, `"name":"checkout-api"`, `"name":"checkout-api","annotations":{"drift":"true"}`, 1)),
+	); !errors.Is(err, ErrUnknown) {
+		t.Fatalf("same-RV byte drift must fail replay: %v", err)
+	}
+}
+
 func TestCollectServiceEndpointsReportsNoReadyEndpointsWithoutRootCauseClaim(t *testing.T) {
 	empty := `{"kind":"EndpointSliceList","metadata":{"resourceVersion":"26","continue":""},"items":[]}`
 	srv, _ := serviceEndpointsServer(t, serviceEndpointsService, empty, serviceEndpointsService)
