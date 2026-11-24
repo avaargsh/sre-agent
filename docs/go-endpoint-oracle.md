@@ -99,9 +99,15 @@ recomputes the prediction and checks that the timeline, request fence, response
 versions and hashes agree with the archived raw bytes. This is a bounded
 cross-resource freshness association, not an atomic multi-resource
 transaction or source authentication; `source_authenticated=false` remains
-explicit. Protect the output: it is evidence, not a public diagnostic artifact. The exported `observe.ReplayServiceEndpoints` function independently revalidates
-both Service snapshots, exact-byte/resourceVersion equality, selected UID and
-the EndpointSlice list before recomputing the source-only prediction. The
+explicit. If an API server ignores `resourceVersionMatch`, the nonzero version
+plus bounded `limit` retains the legacy exact-list behavior; an unavailable
+version fails closed. Protect the output: it is evidence, not a public
+diagnostic artifact. `observe.ReplayServiceEndpointsObservation` validates the
+complete capture report, ordered read timeline, request fence, response
+versions and hashes. The lower-level `observe.ReplayServiceEndpoints` function
+revalidates both Service snapshots, exact-byte/resourceVersion equality,
+selected UID and the EndpointSlice list before recomputing the source-only
+prediction. The
 `diagnose-endpoints` command can also replay the decoded raw Service and
 EndpointSlice files.
 
