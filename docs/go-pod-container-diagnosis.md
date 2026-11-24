@@ -1,0 +1,64 @@
+# Pod container diagnosis — development slice
+
+The existing Evidence v1 observer records Pod phase, which cannot distinguish a Running Pod with a CrashLoopBackOff container. Do not change v1 producer/verifier fields independently: the offline verifier reserves an exact schema.
+
+`internal/poddiagnosis.Assess(expected Target, snapshot Snapshot) Report` consumes a normalized snapshot and separately selected namespace/name/UID. ResourceVersion must be present; every declared regular container must have exactly one status. Unknown states, missing or mismatched identity/coverage, negative restart counts and contradictory non-running ready flags cause UNKNOWN with no findings. Recognized waiting reasons and current OOMKilled are current signals; last termination OOMKilled is historical, not proof of ongoing failure. No recognized signal means UNKNOWN, not HEALTHY. Every report retains false RCA/recovery flags.
+
+The pure classifier now also has `AssessNative(expected Target, raw []byte) (NativeReport, error)`. It validates bounded original Pod v1 JSON using existing `sourcejson.Validate`, enforces exact consumed keys and state unions, requires regular container coverage and separately expected namespace/name/UID, and binds the exact response bytes with SHA-256 and ResourceVersion. Valid inputs may return UNKNOWN when no failure signal is recognized; invalid inputs return an error and no receipt. This is offline replay; freshness and source provenance remain unverified. Init and ephemeral containers, probes and generic exit codes remain outside the current slice; Events are handled separately below.
+
+Alternatives: extending the existing v1 projection would break its strict replay contract; a separate normalized classifier is the small independently testable step before a versioned source adapter and offline replay.
+
+The Go `observe.CollectPod(ctx, PodConfig)` library entrypoint now performs a bounded single named Pod GET through the existing source transport (no redirects, fixed scope, deadline and response-size cap). It takes an independently selected target UID, returns the original response body and replayable NativeReport, and returns ErrUnknown with no artifact on HTTP or validation failure. Existing Evidence v1 collection retains the typed decoder over the shared raw read helper. Raw Pod configuration may contain sensitive data; do not publish it to public artifacts or model inputs without review. No proof of freshness, authenticated provenance, Deployment ownership, durable publication or RCA.
+
+The CLI capture/replay commands and disposable-kind acceptance scripts for named Pod reads and namespace-scoped Events List are implemented. The scripts and workflow are staged in PR #60; local Bash syntax, workflow YAML and fixture/RBAC checks pass, but no GitHub Actions run or live kind execution is recorded. Remaining acceptance: run the exact-head workflow, verify real CrashLoopBackOff/healthy controls and Events RBAC denials, then obtain independent review. Freshness and cross-source identity binding remain follow-up work. No model or Kubernetes writes.
+
+## CLI capture and pinned replay
+
+`capture-pod --kube-api URL --namespace NS --pod NAME --uid UID` writes validated original response bytes to stdout. The current CLI expects an operator-controlled authenticated proxy (e.g. local kubectl proxy in a disposable test environment); it does not accept bearer credentials or custom CA flags. Set a private output directory, use umask 077 and shell noclobber when redirecting sensitive raw bytes. Stdout redirection is not atomic artifact publication; on nonzero exit discard the partial file. Do not expose the proxy publicly.
+
+`replay-pod --namespace NS --pod NAME --uid UID --sha256 PIN < pod.json` consumes bounded stdin and returns a structured NativeReport only after the independent expected digest and UID match. PIN and UID must originate from a separately trusted record; hashing the untrusted input immediately before replay is only a lab consistency demonstration, not source attestation. Exit 0 means a valid capture or report, not health or RCA confirmation; 1 output failure, 2 invalid arguments, 3 source rejected. No verified recovery, freshness, authorization, durable journal or production readiness claim.
+
+## Disposable kind acceptance gate (implementation, execution pending)
+
+The dedicated `go-pod-kind` workflow creates a disposable `sre-pod-diagnosis` cluster and runs `demo/go-observe/pod-kind.sh` at the checked-out workflow SHA. The admin fixture injector independently waits for a Ready healthy Pod and a CrashLoopBackOff Pod and obtains their UIDs. A separate short-lived actual ServiceAccount token is used by a loopback kubectl proxy; its Role grants only get on the two named Pods. RBAC checks and denied HTTP GETs are required, along with capture/replay for both Pods, wrong UID and changed raw digest rejection. No raw Pod snapshots or credentials are uploaded; temporary private files are removed. The SHA computed from the captured file is a lab consistency pin only, not independent production source attestation. Expected healthy result remains UNKNOWN without findings. No automatic remediation or recovery certification.
+
+For manual use only in the disposable test environment with kind, Docker, kubectl, Go and Python installed: create a fresh kind cluster named `sre-pod-diagnosis`, check out the candidate, then run `EXPECTED_SHA="$(git rev-parse HEAD)" bash demo/go-observe/pod-kind.sh`. The script refuses a different current context or a missing expected kind cluster and refuses to reuse an existing lab namespace. The CI job runs focused race tests first. This is not proof of a successful execution until actual workflow run/job records and logs for the checked SHA are available.
+
+## Independent receipt verification CLI
+
+After capture and replay, a separate verifier can check the submitted JSON report without contacting Kubernetes:
+
+```sh
+sre-agent verify-pod-report --namespace "$NS" --pod "$POD" --uid "$EXPECTED_UID" \
+  --sha256 "$INDEPENDENT_SNAPSHOT_SHA256" --report "$REPORT_FILE" < "$RAW_POD_FILE"
+```
+
+The expected UID and digest must come from a separate trusted record; do not derive them from the claim. Exit 0 and `STRUCTURALLY_LINKED` mean structural/content consistency only. Invalid data yields exit 3 with no stdout; malformed CLI arguments yield 2. The report file must be operator-owned and trusted; stdin is an explicitly supplied finite stream. **Merge dependency:** #57's shared `boundedAlertFile` regular-file/no-follow/nonblocking hardening is already merged to main. Both receipt verifiers use that helper, and the default Linux regression covers regular files, symlinks, FIFOs and directories. The remaining #60 acceptance workflow still needs to run on its exact checked-out SHA. Do not treat staged development-main integration as production readiness. No source authentication, freshness, RCA, recovery or execution authority.
+
+## Scoped Pod Events (library development slice)
+
+`observe.CollectPodEvents(ctx, PodConfig)` reads core/v1 events using `involvedObject.uid` and limit 128. `poddiagnosis.AssessEvents` replays exact bytes, requiring EventList resourceVersion and no continuation token, exact Pod namespace/name/UID and core/v1 Pod reference on every item, distinct event UIDs, and bounded reason codes. Empty lists are valid but do not establish health; event messages are omitted from the projection. The original response may contain sensitive material. No source authentication, freshness, or causal assertion. The client selector is not an RBAC boundary: Kubernetes event list permission is namespace-wide. The existing named-Pod-only role is unchanged; use a separately approved reader in a disposable namespace to test events. A separate disposable-kind Events acceptance script is implemented; real execution remains pending. No Evidence v1 wire changes.
+
+### Event capture and pinned replay CLI
+
+`capture-events --kube-api URL --namespace NS --pod NAME --uid UID` emits validated original EventList bytes to stdout through an operator-approved proxy. `replay-events --namespace NS --pod NAME --uid UID --sha256 PIN < events.json` replays bounded stdin against independently supplied identity and digest. Exit 0 means successful capture or structural replay only, 1 output error, 2 invalid arguments, 3 rejected source. Empty results do not prove health. Messages are not included in the report, but raw EventList bytes remain sensitive. Use private output directories and discard partial files on nonzero exit. No RBAC expansion, atomic stdout publication, source authentication, freshness or root-cause claim. Existing named Pod-only reader is not sufficient for Events List; separate namespace-level authorization is required.
+
+### Independent EventReport verification
+
+`poddiagnosis.VerifyEventReportJSON(expected, raw, expectedRawSHA256, claimed)` recomputes an EventReport from the original bounded EventList and independently provided Pod identity/digest. The serialized claim is bounded at 256 KiB and checked for malformed Unicode, duplicate keys, case-fold collisions and exact structure. It must match the recomputed report, including every event, original order, schema and false source-authenticated flag; object ordering and JSON whitespace may differ. Altered reason codes, missing/extra fields, changed source bytes and cross-Pod replay are rejected. This verifies consistency, not truth, freshness, origin or causality. The library interface and CLI are implemented; combined Pod/Event evidence linking remains a follow-up. No RBAC or Evidence v1 changes.
+
+`verify-events-report --namespace NS --pod NAME --uid UID --sha256 PIN --report REPORT < events.json` performs independent serialized report verification. Success emits only STRUCTURALLY_LINKED; invalid claims return 3 without stdout, invalid CLI arguments return 2, output failures return 1. Like verify-pod-report, the report file must be operator-owned and stdin finite. Both commands use #57's merged named-file regular-inode/no-follow/nonblocking hardening. The eight-case Linux regression is enabled by default; exact-head full CI and disposable-kind execution remain pending before claiming hostile-path safety. No source authentication, causality or recovery proof.
+
+## #57 / #60 integration status
+
+The current #60 candidate includes #57 secure file admission through a merge of the feature branch. The receipt admission regression is now part of the default Linux test suite (no opt-in build tag). Run on Linux:
+
+```sh
+go test -race -count=1 -timeout 30s ./cmd/sre-agent -run '^TestReceiptAdmissionAfterFileHardening$'
+```
+
+The eight scenarios exercise both receipt handlers with regular reports, final-component symlinks, FIFOs without writers, and directories. The pre-hardening implementation accepted symlink claims and could block on FIFOs. The temporary build-tag condition has been removed now that the dependency is integrated. #57 is already on main. The remaining #60 diff contains only the kind workflow, fixtures, acceptance scripts and this documentation. Before treating this slice as accepted, run the exact-head full Go/Python checks and disposable-kind workflow, then obtain independent review. Parent directories remain operator-owned; storage stalls and explicitly supplied stdin streams are outside the regular-inode check. No production release authorization.
+
+## Disposable kind Events acceptance (execution pending)
+
+The same workflow also runs `demo/go-observe/pod-events-kind.sh` in a separate fresh namespace `sre-events-lab`. The Events reader is explicitly denied `get events` as well as Pod/Secret access and all Event mutations; the script also verifies an actual denied GET for the selected Event. It requires an actual kubelet BackOff event for the independently selected crash Pod UID. A distinct short-lived ServiceAccount token grants only core/v1 events list in that namespace. The existing named-Pod-only reader remains unchanged. The event selector restricts returned evidence, not namespace-wide RBAC authorization. The reader must be denied Pod/Secret reads, cross-namespace Events List, and Event mutations; the script checks actual denied GET responses and authorization decisions without attempting writes. The CLI captures, replays and verifies the EventList; the report must retain BackOff and omit event messages. Forged authority, symlink, FIFO, wrong UID and changed raw bytes must be rejected. Temporary raw data and credentials are not uploaded. The lab digest is a consistency pin, not production source attestation. No freshness, causality or recovery claim. The workflow is not a successful acceptance result until its actual run and exact checkout SHA are verified.
