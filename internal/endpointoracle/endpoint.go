@@ -119,6 +119,7 @@ func inspect(raw []byte,namespace,service string)(observation,error){
   }
   seenUIDs[meta.UID]=true
   seenNames[meta.Name]=true
+  if item.Endpoints==nil{return observation{},errors.New("EndpointSlice endpoints array missing or null")}
   if len(item.Endpoints)>256{return observation{},errors.New("EndpointSlice too many endpoints")}
   for _,endpoint:=range item.Endpoints{
    if endpoint.Conditions.Ready==nil||len(endpoint.Addresses)==0||len(endpoint.Addresses)>16{
