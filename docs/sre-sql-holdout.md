@@ -50,7 +50,7 @@ PYTHONPATH=src python scripts/evaluate_sre_sql_holdout.py \
 PYTHONPATH=src python -m pytest -q tests/test_sql_holdout.py
 ```
 
-Maximums: 128 KiB per input; 4 tables; 12 columns/table; 128 fixture rows/table; 256 result rows; 4096 SQL characters. The scorer does **not** attest runtime identity, validate original incident evidence, or decide whether a model-produced SQL statement is authorized against a real DB. Actual production SQL remains outside this module.
+Maximums: 128 KiB per input; 4 tables; 12 columns/table; 128 fixture rows/table; 256 result rows; 1 MiB serialized aggregate result payload; 4096 SQL characters. The scorer does **not** attest runtime identity, validate original incident evidence, or decide whether a model-produced SQL statement is authorized against a real DB. Actual production SQL remains outside this module.
 
 ## Integration and merge gates
 
