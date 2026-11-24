@@ -3,6 +3,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 PIN = Path(__file__).resolve().parents[1] / "demo" / "go-endpoint" / "pin_during.py"
 
@@ -38,11 +39,33 @@ def test_pin_exact_observer_resource_version(tmp_path):
         "&limit=129&resourceVersion=123&resourceVersionMatch=Exact"
     )
 
-def test_reject_unsafe_observer_versions_and_incomplete_lists(tmp_path):
+def test_pin_opaque_resource_version_is_url_encoded(tmp_path):
+    opaque = "rv/alpha?cursor=1&limit=0#fragment-β"
+    observer = tmp_path / "opaque.json"
+    observer.write_text(json.dumps(example(rv=opaque)), encoding="utf-8")
+
+    result = call(tmp_path, observer)
+    assert result.returncode == 0, result.stderr
+    parsed = urlsplit(result.stdout.strip())
+    query = parse_qs(parsed.query, strict_parsing=True)
+    assert parsed.path == (
+        "/apis/discovery.k8s.io/v1/namespaces/golden-demo/endpointslices"
+    )
+    assert parsed.fragment == ""
+    assert query == {
+        "labelSelector": ["kubernetes.io/service-name=checkout-api"],
+        "limit": ["129"],
+        "resourceVersion": [opaque],
+        "resourceVersionMatch": ["Exact"],
+    }
+
+
+def test_reject_invalid_observer_versions_and_incomplete_lists(tmp_path):
     cases = [
         example(rv=""),
-        example(rv="123&limit=0"),
-        example(rv="-1"),
+        example(rv="0"),
+        example(rv="x" * 257),
+        example(rv=123),
         {**example(), "metadata": {"resourceVersion": "123", "continue": "next"}},
         {**example(), "kind": "List"},
     ]
