@@ -15,8 +15,8 @@ import (
  "reflect"
  "strings"
 
- "github.com/avaargsh/sre-agent/internal/evidence"
  "github.com/avaargsh/sre-agent/internal/oracle"
+ "github.com/avaargsh/sre-agent/internal/sourcejson"
 )
 
 const maxRaw=2<<20
@@ -97,7 +97,7 @@ func snap(raw []byte)oracle.Snapshot{
 }
 func inspect(raw []byte,namespace,service string)(observation,error){
  if len(raw)==0||len(raw)>maxRaw{return observation{},errors.New("EndpointSlice response size invalid")}
- if err:=evidence.ValidateUniqueJSONObject(raw);err!=nil{return observation{},errors.New("ambiguous EndpointSlice JSON keys")}
+ if err:=sourcejson.Validate(raw);err!=nil{return observation{},errors.New("ambiguous or malformed EndpointSlice JSON")}
  dec:=json.NewDecoder(bytes.NewReader(raw))
  var list sliceList
  if err:=dec.Decode(&list);err!=nil{return observation{},errors.New("invalid EndpointSlice JSON")}
