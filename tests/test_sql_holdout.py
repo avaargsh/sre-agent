@@ -57,6 +57,9 @@ def test_unsafe_queries_are_rejected(query):
 @pytest.mark.parametrize("query", [
     "WITH incidents AS (SELECT 2 AS id UNION ALL SELECT 2 AS id) SELECT COUNT(*) FROM incidents",
     'WITH "incidents" AS (SELECT 2 AS id UNION ALL SELECT 2 AS id) SELECT COUNT(*) FROM incidents',
+    "WITH `incidents` AS (SELECT 2 AS id UNION ALL SELECT 2 AS id) SELECT COUNT(*) FROM incidents",
+    "WITH [incidents] AS (SELECT 2 AS id UNION ALL SELECT 2 AS id) SELECT COUNT(*) FROM incidents",
+    "WITH x AS (SELECT 1), incidents AS (SELECT 2 AS id UNION ALL SELECT 2 AS id) SELECT COUNT(*) FROM incidents",
     "SELECT COUNT(*) FROM (WITH incidents AS (SELECT 2 AS id UNION ALL SELECT 2 AS id) SELECT * FROM incidents)",
 ])
 def test_cte_cannot_shadow_fixture_table_to_match_private_oracle(query):
