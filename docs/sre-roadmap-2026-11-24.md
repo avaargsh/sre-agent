@@ -33,9 +33,9 @@ Detection and localization; RCA accuracy by fault family; supported citation fra
 
 SRE owns evidence, investigation and recovery measurement; ACP/EngageGuard owns authorization; Temporal owns durable workflow. UNKNOWN is not FAILED on timeout or lost ACK. One small PR per slice, regression negatives first, exact-head checks and post-merge exact-main proof. Preserve historical stack lock and evidence. Start with A, then B/C; no G4 before G3. No production release authorization follows from this document.
 
-## Integration checkpoint — 2026-11-24
+## Historical integration checkpoint — 2026-11-24 (pre-PR #101)
 
-Observed main remains `064ea714615cdc08ed515ab0187ef849f7b96a5a`; no exact-SHA Actions runs were returned. Open drafts #52–#60 and #11 are not release evidence. Use the existing PRs rather than opening duplicate implementation branches.
+Historical snapshot only: observed main at that checkpoint was `064ea714615cdc08ed515ab0187ef849f7b96a5a`; its PR #56–#60 inventory and local evidence are retained for audit, not as the current backlog or merge status. The post-#101 baseline and current PR #102 checkpoint are recorded below.
 
 | Workstream | Existing PR | Next acceptance |
 |---|---|---|
