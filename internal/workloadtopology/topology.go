@@ -136,7 +136,7 @@ func inspect(s Snapshot, version, kind string) (Source, object, error) {
 	name, e2 := field[string](meta, "name")
 	uid, e3 := field[string](meta, "uid")
 	rv, e4 := field[string](meta, "resourceVersion")
-	if e1 != nil || e2 != nil || e3 != nil || e4 != nil || !identity(ns, 63) || !identity(name, 253) || !identity(uid, 128) || !bounded(rv, 256) {
+	if e1 != nil || e2 != nil || e3 != nil || e4 != nil || len(ns) > 63 || !dnsLabel.MatchString(ns) || !validName(name) || !identity(uid, 128) || !bounded(rv, 256) {
 		return Source{}, nil, errInvalid
 	}
 	return Source{Kind: kind, Namespace: ns, Name: name, UID: uid, ResourceVersion: rv, SHA256: s.SHA256}, meta, nil
@@ -146,7 +146,7 @@ func inspect(s Snapshot, version, kind string) (Source, object, error) {
 // caller-selected endpoint identities. LINKED is not an assertion that the
 // resources were observed atomically, currently exist, or caused an incident.
 func Verify(expected Target, deployment, replicaSet, pod Snapshot) (Report, error) {
-	if !identity(expected.Namespace, 63) || !identity(expected.DeploymentName, 253) || !identity(expected.DeploymentUID, 128) || !identity(expected.PodName, 253) || !identity(expected.PodUID, 128) {
+	if len(expected.Namespace) > 63 || !dnsLabel.MatchString(expected.Namespace) || !validName(expected.DeploymentName) || !identity(expected.DeploymentUID, 128) || !validName(expected.PodName) || !identity(expected.PodUID, 128) {
 		return Report{}, errInvalid
 	}
 	d, _, err := inspect(deployment, "apps/v1", "Deployment")
