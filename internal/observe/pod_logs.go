@@ -225,5 +225,8 @@ func CollectPodLogs(ctx context.Context, c PodLogsConfig) (PodLogsObservation, e
 		report.BeforePodSHA256 == "" || report.AfterPodSHA256 == "" || report.LogsSHA256 == "" {
 		return PodLogsObservation{}, unknownf("incomplete Pod log identity receipt")
 	}
+	if bounded.Err() != nil {
+		return PodLogsObservation{}, unknownf("Pod log collection canceled or deadline exceeded")
+	}
 	return PodLogsObservation{Raw: raw, BeforePodRaw: before.Raw, AfterPodRaw: after.Raw, Report: report}, nil
 }
