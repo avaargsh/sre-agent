@@ -32,3 +32,19 @@ Detection and localization; RCA accuracy by fault family; supported citation fra
 ## Ownership and merge gate
 
 SRE owns evidence, investigation and recovery measurement; ACP/EngageGuard owns authorization; Temporal owns durable workflow. UNKNOWN is not FAILED on timeout or lost ACK. One small PR per slice, regression negatives first, exact-head checks and post-merge exact-main proof. Preserve historical stack lock and evidence. Start with A, then B/C; no G4 before G3. No production release authorization follows from this document.
+
+## Integration checkpoint — 2026-11-24
+
+Observed main remains `064ea714615cdc08ed515ab0187ef849f7b96a5a`; no exact-SHA Actions runs were returned. Open drafts #52–#60 and #11 are not release evidence. Use the existing PRs rather than opening duplicate implementation branches.
+
+| Workstream | Existing PR | Next acceptance |
+|---|---|---|
+| A: verification | #56 | Exact-candidate Python matrix and Go checks; non-author review; refresh main proof after merge. |
+| B: alert/evidence boundary | #57, #59 | #57 regular-file admission, create-only publishing, bounded credential reads; #59 truncated Alertmanager group rejection. Verify individually, then together on latest main; no authenticated alert or recovery claim. |
+| B/C: Pod diagnosis | #60 | Complete native response parsing, independently selected namespace/name/UID, original raw digest, bounded GET/replay. Prove live disposable kind CrashLoopBackOff, current versus historical OOM, healthy negative, UID replacement and malformed state rejection. Keep Evidence v1 schema unchanged; no RCA truth from a container status alone. |
+| Model evaluation | #52, #54, #58 | Frozen Oracle-free prompts, real attributed captures, SQL lab limits and isolated execution; separate actual model quality from submitted prediction-byte scoring. |
+| Training | #53, #11 | Validate the focused CPU tensor contract; extract rather than merge the divergent training branch wholesale. Actual CUDA/optimizer and independently authenticated model effects remain unverified. |
+
+Contributor-side isolated replay of #60 normalized classifier (Go 1.23.2, Linux): source blob `2bb19cb75faaf2afb419e46e46a8413c14a2642e`, checked-in test blob `d0edbac268891666bf2168cfd260d7f8800acdb4`. Both copied files matched Git blob hashes. `go test -race -v ./internal/poddiagnosis` passed four test functions, including seven negative subtests; `go vet ./internal/poddiagnosis` passed. This is not native adapter or full-repository acceptance. During preparation the native-test branch advanced to `38b7a392d8d14015231d0ad0511529f32cb43292`; avoid overlapping writes, review its final head when implementation is present.
+
+Local `git ls-remote` failed DNS resolution for github.com. The existing `test.yml`, `go.yml`, and `go-readonly-kind.yml` already expose workflow_dispatch; authorized maintainers can dispatch them for the exact candidate ref, verify the checked-out SHA and artifact provenance, and rerun against the merged main. Do not treat a run from another commit or an isolated module as certification. Keep Draft/HOLD until all applicable gates pass.
