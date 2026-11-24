@@ -202,7 +202,10 @@ construct a constrained Kubernetes LIST request with
 `resourceVersion=<observer RV>&resourceVersionMatch=Exact`.
 The test-admin performs its own read using that version and compares the
 decoded complete LIST with the observer's list before running the unchanged
-Go Oracle. Both original source files and their SHA-256 digests are retained.
+Go Oracle. The helper treats the resourceVersion as an opaque UTF-8 string
+bounded to 256 bytes and URL-encodes it; it does not require decimal digits or
+perform numeric ordering. Both original source files and their SHA-256 digests
+are retained.
 Unparseable, duplicated-key, paginated or drifting snapshots return UNKNOWN
 without a success verdict. There is no retry that silently selects a
 favorable sample; a 410/expired resourceVersion fails closed.
