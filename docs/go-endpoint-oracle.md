@@ -208,3 +208,11 @@ The raw evaluator enforces the CLI's 12 MiB Episode and 6 MiB Prediction
 budgets and rejects duplicate/case-fold-conflicting keys, invalid UTF-8,
 unpaired surrogates, and trailing JSON before typed decoding. The disposable
 kind harness independently recomputes both digests from the archived inputs.
+
+
+The envelope decoder also requires exact schema field spelling at every
+struct level. Go's standard JSON decoder accepts case-insensitive aliases
+(e.g. `SCHEMA_VERSION` for `schema_version`) even with
+`DisallowUnknownFields`; the evaluator rejects those aliases before typed
+decoding. Keys inside declared string maps, such as Kubernetes selectors,
+remain data and are not constrained by the envelope schema.
