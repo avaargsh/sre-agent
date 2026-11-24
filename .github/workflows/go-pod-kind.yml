@@ -27,6 +27,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Validate acceptance script syntax
+        run: |
+          bash -n demo/go-observe/pod-kind.sh
+          bash -n demo/go-observe/pod-events-kind.sh
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
