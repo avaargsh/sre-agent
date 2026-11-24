@@ -44,12 +44,13 @@ type ServiceEndpointsRead struct {
 	Name                         string `json:"name"`
 	StartedAt                    string `json:"started_at"`
 	CompletedAt                  string `json:"completed_at"`
+	RequestConsistency           string `json:"request_consistency,omitempty"`
 	RequestResourceVersion       string `json:"request_resource_version,omitempty"`
 	RequestResourceVersionMatch  string `json:"request_resource_version_match,omitempty"`
 	RequestLabelSelector         string `json:"request_label_selector,omitempty"`
 	RequestLimit                 int    `json:"request_limit,omitempty"`
 	ResponseResourceVersion      string `json:"response_resource_version"`
-	ResponseSHA256                string `json:"response_sha256"`
+	ResponseSHA256               string `json:"response_sha256"`
 }
 
 // ServiceEndpointsReport contains source identity, read consistency and observation metadata.
@@ -189,7 +190,7 @@ func ReplayServiceEndpointsObservation(target ServiceTarget, expectedTargetPort 
 	if err := validateServiceEndpointsSelection(target, expectedTargetPort, expectedSelector); err != nil {
 		return endpointoracle.Prediction{}, err
 	}
-	if report.SchemaVersion != "sre.service-endpoints/v2" ||
+	if report.SchemaVersion != "sre.service-endpoints/v3" ||
 		report.Target != target ||
 		report.ExpectedTargetPort != expectedTargetPort ||
 		!reflect.DeepEqual(report.ExpectedSelector, expectedSelector) ||
@@ -239,15 +240,17 @@ func ReplayServiceEndpointsObservation(target ServiceTarget, expectedTargetPort 
 			return endpointoracle.Prediction{}, unknownf("capture read timeline does not match source evidence")
 		}
 	}
-	if reads[0].RequestResourceVersion != "" || reads[0].RequestResourceVersionMatch != "" ||
+	if reads[0].RequestConsistency != "" ||
+		reads[0].RequestResourceVersion != "" || reads[0].RequestResourceVersionMatch != "" ||
 		reads[0].RequestLabelSelector != "" || reads[0].RequestLimit != 0 ||
-		reads[1].RequestResourceVersion != before.ResourceVersion ||
-		reads[1].RequestResourceVersionMatch != "NotOlderThan" ||
+		reads[1].RequestConsistency != "MOST_RECENT" ||
+		reads[1].RequestResourceVersion != "" || reads[1].RequestResourceVersionMatch != "" ||
 		reads[1].RequestLabelSelector != "kubernetes.io/service-name="+target.Name ||
 		reads[1].RequestLimit != 129 ||
+		reads[2].RequestConsistency != "" ||
 		reads[2].RequestResourceVersion != "" || reads[2].RequestResourceVersionMatch != "" ||
 		reads[2].RequestLabelSelector != "" || reads[2].RequestLimit != 0 {
-		return endpointoracle.Prediction{}, unknownf("EndpointSlice LIST is not bound to the selected Service resourceVersion")
+		return endpointoracle.Prediction{}, unknownf("EndpointSlice LIST must use Most Recent semantics without cross-resource ResourceVersion comparison")
 	}
 
 	collectionStart, err := parseCaptureTime(report.CollectionStartedAt)
@@ -278,9 +281,12 @@ func ReplayServiceEndpointsObservation(target ServiceTarget, expectedTargetPort 
 }
 
 // CollectServiceEndpoints reads one Service, its label-selected EndpointSlice
-// list, and the Service again. The list is requested at least as fresh as the
-// first Service resourceVersion. A changed Service UID, version or exact bytes
-// invalidates the observation. EndpointSlice LIST authorization remains
+// list, and the Service again. The EndpointSlice list uses the API's default
+// Most Recent consistency semantics. The Service GET resourceVersion is not
+// sent as a list lower bound because ResourceVersions from different resource
+// types are not comparable. A changed Service UID, version or exact bytes
+// invalidates the observation. This bounded sequence is not an atomic
+// cross-resource snapshot. EndpointSlice LIST authorization remains
 // namespace-wide in Kubernetes RBAC; labelSelector is not an access control
 // boundary. Use only an isolated namespace or a narrower mediator.
 func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (ServiceEndpointsObservation, error) {
@@ -314,10 +320,9 @@ func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (Ser
 	query := url.Values{}
 	query.Set("labelSelector", "kubernetes.io/service-name="+c.Target.Name)
 	query.Set("limit", strconv.Itoa(129)) // 128 accepted plus one to detect overflow.
-	// Ask the API server for a collection snapshot no older than the
-	// selected Service version. Never retry without this freshness fence.
-	query.Set("resourceVersion", before.ResourceVersion)
-	query.Set("resourceVersionMatch", "NotOlderThan")
+	// With resourceVersion unset and limit set, Kubernetes LIST uses its
+	// Most Recent consistency semantics. Do not compare the Service RV with
+	// the EndpointSlice collection RV: they are different resource types.
 	slicesPath := "/apis/discovery.k8s.io/v1/namespaces/" + c.Target.Namespace + "/endpointslices?" + query.Encode()
 
 	slicesStarted := time.Now()
@@ -351,7 +356,7 @@ func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (Ser
 
 	selector := cloneSelector(c.ExpectedSelector)
 	report := ServiceEndpointsReport{
-		SchemaVersion: "sre.service-endpoints/v2",
+		SchemaVersion: "sre.service-endpoints/v3",
 		Target: c.Target,
 		ExpectedTargetPort: c.ExpectedTargetPort,
 		ExpectedSelector: selector,
@@ -375,8 +380,7 @@ func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (Ser
 				Name: "endpoint_slice_list",
 				StartedAt: slicesStarted.UTC().Format(time.RFC3339Nano),
 				CompletedAt: slicesCompleted.UTC().Format(time.RFC3339Nano),
-				RequestResourceVersion: before.ResourceVersion,
-				RequestResourceVersionMatch: "NotOlderThan",
+				RequestConsistency: "MOST_RECENT",
 				RequestLabelSelector: "kubernetes.io/service-name="+c.Target.Name,
 				RequestLimit: 129,
 				ResponseResourceVersion: prediction.ListResourceVersion,
