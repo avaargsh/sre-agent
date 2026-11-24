@@ -118,6 +118,7 @@ func serviceIdentity(raw []byte, target ServiceTarget, expectedPort int, selecto
 	return got, nil
 }
 
+// ReplayServiceEndpoints validates the exact pre/post Service snapshots and EndpointSlice list, then recomputes the source-only prediction without contacting Kubernetes.
 func ReplayServiceEndpoints(target ServiceTarget, expectedTargetPort int, expectedSelector map[string]string, serviceBeforeRaw, endpointSlicesRaw, serviceAfterRaw []byte) (endpointoracle.Prediction, error) {
 	if err := validateServiceEndpointsSelection(target, expectedTargetPort, expectedSelector); err != nil {
 		return endpointoracle.Prediction{}, err
