@@ -37,3 +37,28 @@ func TestPublishAlertPlanPreservesExistingSymlink(t *testing.T) {
  entries, err := os.ReadDir(dir)
  if err != nil || len(entries) != 2 { t.Fatalf("staging leak: %v %v", entries, err) }
 }
+
+
+func TestPublishAlertPlanConcurrentWritersPreserveCompleteWinner(t *testing.T) {
+ dir := t.TempDir()
+ target := filepath.Join(dir, "bundle.json")
+ inputs := [][]byte{bytes.Repeat([]byte("a"), 65536), bytes.Repeat([]byte("b"), 65536)}
+ start := make(chan struct{})
+ results := make(chan int, 2)
+ for i := range inputs {
+  go func(i int) {
+   <-start
+   if err := publishAlertPlan(target, inputs[i]); err != nil { results <- -1; return }
+   results <- i
+  }(i)
+ }
+ close(start)
+ first, second := <-results, <-results
+ winner := first
+ if winner < 0 { winner = second }
+ if winner < 0 || (first >= 0 && second >= 0) { t.Fatalf("expected one winner: %d %d", first, second) }
+ got, err := os.ReadFile(target)
+ if err != nil || !bytes.Equal(got, inputs[winner]) { t.Fatalf("partial or replaced winner: %v", err) }
+ entries, err := os.ReadDir(dir)
+ if err != nil || len(entries) != 1 { t.Fatalf("staging leak: %v %v", entries, err) }
+}
