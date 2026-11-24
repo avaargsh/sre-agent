@@ -3,9 +3,11 @@
 This validates report/byte consistency, not source authentication or readiness.
 """
 import base64
+import calendar
 import datetime
 import hashlib
 import json
+import re
 from pathlib import Path
 import sys
 
@@ -28,10 +30,22 @@ def unique(pairs):
     return result
 
 
+_TIME_RE = re.compile(
+    r"^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.([0-9]{0,8}[1-9]))?Z$"
+)
+
+
 def parse_time(value):
-    parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
-    require(parsed.tzinfo is not None, "missing capture timezone")
-    return parsed
+    require(type(value) is str, "invalid capture timestamp type")
+    match = _TIME_RE.fullmatch(value)
+    require(match is not None, "capture timestamp must be canonical UTC RFC3339Nano")
+    try:
+        whole = datetime.datetime.strptime(match.group(1), "%Y-%m-%dT%H:%M:%S")
+    except ValueError as exc:
+        raise ValueError("invalid capture timestamp") from exc
+    seconds = calendar.timegm(whole.timetuple())
+    fraction = (match.group(2) or "").ljust(9, "0")
+    return seconds * 1_000_000_000 + (int(fraction) if fraction else 0)
 
 
 def unpack(capture, directory, uid):
@@ -43,7 +57,8 @@ def unpack(capture, directory, uid):
     require(report["expected_target_port"] == 8080 and report["expected_selector"] == {"app": "checkout-api"}, "lab baseline mismatch")
     reads = report["read_timeline"]
     require([r["name"] for r in reads] == ["service_get_before", "endpoint_slice_list", "service_get_after"], "invalid read timeline")
-    previous = parse_time(report["collection_started_at"])
+    collection_start = parse_time(report["collection_started_at"])
+    previous = collection_start
     for i, read in enumerate(reads):
         require(read.get("request_resource_version", "") == "" and read.get("request_resource_version_match", "") == "", "unexpected request resourceVersion")
         require(read.get("request_consistency", "") == ("MOST_RECENT" if i == 1 else ""), "invalid request consistency")
@@ -53,7 +68,7 @@ def unpack(capture, directory, uid):
         require(previous <= started <= completed, "invalid read interval")
         previous = completed
     end = parse_time(report["observed_at"])
-    require(previous <= end and end - parse_time(report["collection_started_at"]) <= datetime.timedelta(seconds=30), "invalid collection window")
+    require(previous <= end and end - collection_start <= 30_000_000_000, "invalid collection window")
     require(report["classification"] in ("READY_ENDPOINTS_OBSERVED", "NO_READY_ENDPOINTS_OBSERVED", "UNKNOWN"), "invalid classification")
     sources = []
     for read, (field, name, kind, version_field) in zip(reads, FIELDS):
