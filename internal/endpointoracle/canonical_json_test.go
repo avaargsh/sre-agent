@@ -47,3 +47,21 @@ func TestCanonicalJSONFieldValidationLeavesMapKeysAsData(t *testing.T) {
 		t.Fatalf("selector map key was treated as an envelope field: %v", err)
 	}
 }
+
+type canonicalEndpointSliceEnvelope struct {
+	Items []struct {
+		Metadata struct {
+			OwnerReferences []struct {
+				UID string `json:"uid"`
+			} `json:"ownerReferences"`
+		} `json:"metadata"`
+	} `json:"items"`
+}
+
+func TestCanonicalJSONFieldValidationRejectsNestedOwnerReferenceAlias(t *testing.T) {
+	raw := []byte(`{"items":[{"metadata":{"ownerReferences":[{"UID":"service-uid"}]}}]}`)
+	if err := validateCanonicalJSONFields(raw, reflect.TypeOf(canonicalEndpointSliceEnvelope{})); err == nil {
+		t.Fatal("case-folded owner reference UID alias accepted")
+	}
+}
+
