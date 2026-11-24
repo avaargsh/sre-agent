@@ -120,11 +120,13 @@ def evaluate_sql_case(fixture: Any, candidate: Any) -> dict[str, Any]:
         conn.setlimit(sqlite3.SQLITE_LIMIT_SQL_LENGTH, 4096)
         conn.setlimit(sqlite3.SQLITE_LIMIT_EXPR_DEPTH, 64)
         conn.setlimit(sqlite3.SQLITE_LIMIT_COLUMN, 12)
+        read_dependencies = [0]
         def authorizer(action, arg1, arg2, _db_name, _source):
             if action == sqlite3.SQLITE_SELECT:
                 return sqlite3.SQLITE_OK
             if action == sqlite3.SQLITE_READ and isinstance(arg1, str):
                 if arg1.casefold() in allowed and (not arg2 or arg2.casefold() in allowed[arg1.casefold()]):
+                    read_dependencies[0] += 1
                     return sqlite3.SQLITE_OK
             if action == sqlite3.SQLITE_FUNCTION and isinstance(arg2, str) and arg2.casefold() in _FUNCTIONS:
                 return sqlite3.SQLITE_OK
@@ -140,6 +142,11 @@ def evaluate_sql_case(fixture: Any, candidate: Any) -> dict[str, Any]:
             if cursor.description is None or not 1 <= len(cursor.description) <= 12:
                 return report
             rows = cursor.fetchmany(_MAX_ROWS + 1)
+            # A literal-only SELECT can coincidentally equal the private Oracle.
+            # Require an allowed table READ dependency before scoring results.
+            # This is syntactic dependency, not proof of semantic causal use.
+            if not read_dependencies[0]:
+                return report
             if len(rows) > _MAX_ROWS or any(not _value(cell) for row in rows for cell in row):
                 return report
             report["execution_status"] = "COMPLETED"
