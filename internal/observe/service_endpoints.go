@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
-	"sort"
 	"strconv"
 	"time"
 
@@ -20,9 +19,9 @@ import (
 // The UID is required because a Service can be deleted and recreated under
 // the same namespace/name.
 type ServiceTarget struct {
-	Namespace string
-	Name      string
-	UID       string
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	UID       string `json:"uid"`
 }
 
 // ServiceEndpointsConfig describes a bounded, read-only Service and
@@ -183,22 +182,11 @@ func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (Ser
 	}
 
 	selector := cloneSelector(c.ExpectedSelector)
-	// Stable ordering is not required for JSON maps, but constructing the
-	// report from a copied map prevents caller mutation after collection.
-	keys := make([]string, 0, len(selector))
-	for key := range selector {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	orderedSelector := make(map[string]string, len(selector))
-	for _, key := range keys {
-		orderedSelector[key] = selector[key]
-	}
 	report := ServiceEndpointsReport{
 		SchemaVersion: "sre.service-endpoints/v1",
 		Target: c.Target,
 		ExpectedTargetPort: c.ExpectedTargetPort,
-		ExpectedSelector: orderedSelector,
+		ExpectedSelector: selector,
 		ServiceResourceVersion: before.ResourceVersion,
 		EndpointSliceListResourceVersion: prediction.ListResourceVersion,
 		ReadyEndpoints: prediction.ReadyEndpoints,
