@@ -15,7 +15,7 @@ func TestEndpointSliceRequiresExplicitEndpointsArray(t *testing.T) {
 		{"ready endpoint", `,"endpoints":[{"addresses":["10.0.0.1"],"conditions":{"ready":true}}]`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := inspect([]byte(prefix+tc.field+`}]}`), "demo", "checkout-api")
+			got, err := inspect([]byte(prefix+tc.field+`}]}`), "demo", "checkout-api", "service-uid-1")
 			if tc.wantError {
 				if err == nil {
 					t.Fatalf("incomplete source accepted as observation: %+v", got)

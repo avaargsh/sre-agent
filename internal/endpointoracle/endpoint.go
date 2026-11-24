@@ -69,6 +69,12 @@ type sliceList struct {
    Name string `json:"name"`
    Namespace string `json:"namespace"`
    Labels map[string]string `json:"labels"`
+   OwnerReferences []struct {
+    APIVersion string `json:"apiVersion"`
+    Kind string `json:"kind"`
+    Name string `json:"name"`
+    UID string `json:"uid"`
+   } `json:"ownerReferences"`
   } `json:"metadata"`
   AddressType string `json:"addressType"`
   Endpoints []struct {
@@ -95,7 +101,7 @@ func snap(raw []byte)oracle.Snapshot{
  h:=sha256.Sum256(raw)
  return oracle.Snapshot{ResponseSHA256:hex.EncodeToString(h[:]),RawResponseBase64:base64.StdEncoding.EncodeToString(raw)}
 }
-func inspect(raw []byte,namespace,service string)(observation,error){
+func inspect(raw []byte,namespace,service,serviceUID string)(observation,error){
  if len(raw)==0||len(raw)>maxRaw{return observation{},errors.New("EndpointSlice response size invalid")}
  if err:=sourcejson.Validate(raw);err!=nil{return observation{},errors.New("ambiguous or malformed EndpointSlice JSON")}
  dec:=json.NewDecoder(bytes.NewReader(raw))
@@ -117,6 +123,19 @@ func inspect(raw []byte,namespace,service string)(observation,error){
    (item.AddressType!="IPv4"&&item.AddressType!="IPv6"&&item.AddressType!="FQDN"){
    return observation{},errors.New("invalid or off-scope EndpointSlice membership")
   }
+  serviceOwners:=0
+  for _,owner:=range meta.OwnerReferences{
+   if owner.Kind!="Service"{continue}
+   serviceOwners++
+   if serviceOwners>1||owner.APIVersion!="v1"||owner.Name!=service||owner.UID==""||owner.UID!=serviceUID{
+    return observation{},errors.New("EndpointSlice Service owner identity mismatch")
+   }
+  }
+  // Built-in controller slices must be tied to the selected Service UID.
+  // Legacy/custom label-only slices remain unauthenticated observations.
+  if meta.Labels["endpointslice.kubernetes.io/managed-by"]=="endpointslice-controller.k8s.io"&&serviceOwners!=1{
+   return observation{},errors.New("controller-managed EndpointSlice missing Service owner")
+  }
   seenUIDs[meta.UID]=true
   seenNames[meta.Name]=true
   if item.Endpoints==nil{return observation{},errors.New("EndpointSlice endpoints array missing or null")}
@@ -136,7 +155,7 @@ func inspect(raw []byte,namespace,service string)(observation,error){
 func Diagnose(serviceRaw,endpointRaw []byte,targetPort int,selector map[string]string)(Prediction,error){
  service,err:=oracle.DiagnoseWithSelector(serviceRaw,targetPort,selector)
  if err!=nil{return Prediction{},err}
- obs,err:=inspect(endpointRaw,service.Namespace,service.Service)
+ obs,err:=inspect(endpointRaw,service.Namespace,service.Service,service.ServiceUID)
  if err!=nil{return Prediction{},err}
  classification:="UNKNOWN"
  if service.Classification=="UNKNOWN"&&service.CurrentTargetPort==targetPort&&reflect.DeepEqual(service.CurrentSelector,selector){
@@ -152,7 +171,7 @@ func phase(e Episode,p Phase)(oracle.Prediction,observation,error){
  endpointRaw,err:=checkedRaw(p.EndpointSlices);if err!=nil{return oracle.Prediction{},observation{},err}
  got,err:=oracle.DiagnoseWithSelector(serviceRaw,e.ExpectedTargetPort,e.ExpectedSelector)
  if err!=nil{return oracle.Prediction{},observation{},err}
- obs,err:=inspect(endpointRaw,e.Namespace,e.Service)
+ obs,err:=inspect(endpointRaw,e.Namespace,e.Service,e.ServiceUID)
  if err!=nil{return oracle.Prediction{},observation{},err}
  if got.Namespace!=e.Namespace||got.Service!=e.Service||got.ServiceUID!=e.ServiceUID||
   got.Classification!="UNKNOWN"||!reflect.DeepEqual(got.CurrentSelector,e.ExpectedSelector)||
