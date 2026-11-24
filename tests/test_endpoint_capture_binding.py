@@ -154,3 +154,22 @@ def test_unpack_publishes_private_files(tmp_path):
         "observer-report.json",
     ):
         assert stat.S_IMODE((tmp_path / name).stat().st_mode) == 0o600
+
+
+
+def test_unpack_rejects_symlinked_output_directory(tmp_path):
+    capture = fixture()
+    src = tmp_path / "capture.json"
+    src.write_text(json.dumps(capture), encoding="utf-8")
+    real_output = tmp_path / "real-output"
+    real_output.mkdir()
+    output_link = tmp_path / "output-link"
+    output_link.symlink_to(real_output, target_is_directory=True)
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(src), str(output_link), UID],
+        capture_output=True, text=True, timeout=10,
+    )
+
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert list(real_output.iterdir()) == []
