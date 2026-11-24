@@ -81,8 +81,6 @@ func TestRejectEndpointSliceListWithOversizedResourceVersion(t *testing.T) {
 	}
 }
 
-
-
 func TestDiagnoseRejectsServiceResourceVersionsOutsideSnapshotBudget(t *testing.T) {
 	_, _, service, endpointSlices := fixture(t, 1)
 	cases := map[string]string{
@@ -133,15 +131,15 @@ func TestDiagnoseAcceptsOpaqueServiceResourceVersionAtByteLimit(t *testing.T) {
 func TestEvaluateRejectsInvalidServiceResourceVersionInEveryPhase(t *testing.T) {
 	for _, phaseName := range []string{"before", "during", "after"} {
 		t.Run(phaseName, func(t *testing.T) {
-			episode, prediction := episode(t, false)
+			ep, prediction := episode(t, false)
 			var phase *Phase
 			switch phaseName {
 			case "before":
-				phase = &episode.Before
+				phase = &ep.Before
 			case "during":
-				phase = &episode.During
+				phase = &ep.During
 			case "after":
-				phase = &episode.After
+				phase = &ep.After
 			}
 			raw, err := checkedRaw(phase.Service)
 			if err != nil {
@@ -157,7 +155,7 @@ func TestEvaluateRejectsInvalidServiceResourceVersionInEveryPhase(t *testing.T) 
 				t.Fatal("Service resourceVersion fixture mutation did not apply")
 			}
 			phase.Service = snap([]byte(changed))
-			if _, err := Evaluate(episode, prediction); err == nil {
+			if _, err := Evaluate(ep, prediction); err == nil {
 				t.Fatal("accepted an Episode phase with zero Service resourceVersion")
 			}
 		})
