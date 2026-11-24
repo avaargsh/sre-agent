@@ -1,5 +1,6 @@
 """Regression contract: test-admin must independently replay observer's exact API list snapshot."""
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -125,3 +126,25 @@ def test_reject_deeply_nested_source_json(tmp_path):
         assert result.returncode == 3
         assert "UNKNOWN:" in result.stderr
         assert "Traceback" not in result.stderr
+
+
+def test_reject_symlink_source_file(tmp_path):
+    target = tmp_path / "target.json"
+    target.write_text(json.dumps(example()), encoding="utf-8")
+    link = tmp_path / "observer-link.json"
+    link.symlink_to(target)
+    result = call(tmp_path, link)
+    assert result.returncode == 3
+    assert "UNKNOWN:" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_reject_fifo_source_without_blocking(tmp_path):
+    if not hasattr(os, "mkfifo"):
+        return
+    fifo = tmp_path / "observer.fifo"
+    os.mkfifo(fifo)
+    result = call(tmp_path, fifo)
+    assert result.returncode == 3
+    assert "UNKNOWN:" in result.stderr
+    assert "Traceback" not in result.stderr
