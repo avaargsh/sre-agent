@@ -218,7 +218,7 @@ func TestCollectServiceEndpointsRejectsZeroServiceResourceVersionBeforeList(t *t
 }
 
 func TestCollectServiceEndpointsRejectsOversizedServiceResourceVersionBeforeList(t *testing.T) {
-	oversizedVersion := strings.Repeat("x", 257)
+	oversizedVersion := strings.Repeat("β", 129) // 258 UTF-8 bytes.
 	oversizedService := strings.Replace(
 		serviceEndpointsService,
 		`"resourceVersion":"19"`,
