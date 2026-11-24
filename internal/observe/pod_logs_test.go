@@ -16,7 +16,7 @@ import (
 
 const podLogsFixture = `{"apiVersion":"v1","kind":"Pod","metadata":{"namespace":"demo","name":"checkout-1","uid":"pod-uid-1","resourceVersion":"42"},"spec":{"containers":[{"name":"app"}]},"status":{"phase":"Running","containerStatuses":[{"name":"app","ready":false,"restartCount":5,"state":{"waiting":{"reason":"CrashLoopBackOff"}}}]}}`
 
-const podLogTail = "2026-11-24T10:00:00Z stdout F startup failed\n2026-11-24T10:00:01Z stderr F connection refused\n"
+const podLogTail = "2026-11-24T10:00:00Z startup failed\n2026-11-24T10:00:01Z connection refused\n"
 
 func podLogsConfig(endpoint string) PodLogsConfig {
  return PodLogsConfig{
@@ -55,6 +55,10 @@ func TestCollectPodLogsUsesBoundedTailAndUIDFence(t *testing.T) {
  if err!=nil {t.Fatal(err)}
  if podReads.Load()!=2 || logReads.Load()!=1 {t.Fatalf("unexpected read counts: pod=%d logs=%d",podReads.Load(),logReads.Load())}
  if !bytes.Equal(got.Raw,[]byte(podLogTail)) {t.Fatalf("raw log tail changed: %q",got.Raw)}
+ if !bytes.Equal(got.BeforePodRaw,[]byte(podJSONWithResourceVersion("42"))) ||
+  !bytes.Equal(got.AfterPodRaw,[]byte(podJSONWithResourceVersion("43"))) {
+  t.Fatal("pre/post Pod source bytes were not preserved for independent replay")
+ }
  if got.Report.Target!=podTarget() || got.Report.Container!="app" || got.Report.TailLines!=80 || got.Report.MaxBytes!=maxPodLogBytes || !got.Report.Timestamps {
   t.Fatalf("wrong report scope: %+v",got.Report)
  }
