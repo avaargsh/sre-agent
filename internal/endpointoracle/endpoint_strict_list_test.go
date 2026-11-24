@@ -75,7 +75,7 @@ func TestRejectEndpointSliceListWithZeroResourceVersion(t *testing.T) {
 }
 
 func TestRejectEndpointSliceListWithOversizedResourceVersion(t *testing.T) {
-	raw := []byte(`{"kind":"EndpointSliceList","metadata":{"resourceVersion":"` + strings.Repeat("x", 257) + `"},"items":[]}`)
+	raw := []byte(`{"kind":"EndpointSliceList","metadata":{"resourceVersion":"` + strings.Repeat("β", 129) + `"},"items":[]}`)
 	if _, err := inspect(raw, "golden-demo", "checkout-api", "svc-1"); err == nil {
 		t.Fatal("accepted oversized opaque EndpointSlice resourceVersion")
 	}
