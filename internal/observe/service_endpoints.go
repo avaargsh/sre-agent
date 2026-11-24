@@ -45,8 +45,8 @@ type ServiceEndpointsReport struct {
 	Target                       ServiceTarget     `json:"target"`
 	ExpectedTargetPort           int               `json:"expected_target_port"`
 	ExpectedSelector             map[string]string `json:"expected_selector"`
-	ServiceResourceVersion       string            `json:"service_resource_version"`
-	EndpointSliceListResourceVersion string         `json:"endpoint_slice_list_resource_version"`
+	ServiceResourceVersion           string            `json:"service_resource_version"`
+	EndpointSliceListResourceVersion string            `json:"endpoint_slice_list_resource_version"`
 	ReadyEndpoints               int               `json:"ready_endpoints"`
 	Classification               string            `json:"classification"`
 	ServiceBeforeSHA256          string            `json:"service_before_sha256"`
@@ -154,7 +154,6 @@ func ReplayServiceEndpoints(target ServiceTarget, expectedTargetPort int, expect
 	}
 	return prediction, nil
 }
-
 
 // CollectServiceEndpoints reads one Service, its label-selected EndpointSlice
 // list, and the Service again. A changed UID, resourceVersion or exact source
