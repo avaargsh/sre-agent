@@ -6,7 +6,7 @@ import (
  "path/filepath"
 )
 
-// publishAlertPlan exposes only complete, synced plan bytes at target.
+// publishAlertPlan exposes only complete, synced alert plan or evidence bytes at target.
 // The parent must be operator-owned and not writable by untrusted parties.
 // A hard link publishes create-only; competing paths are never removed.
 func publishAlertPlan(target string, data []byte) error {
