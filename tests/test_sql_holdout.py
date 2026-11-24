@@ -99,7 +99,7 @@ def test_cli_scores_pinned_bytes_only(tmp_path):
     assert result["admission"] == "HOLD"
 
 
-@pytest.mark.parametrize("fault", ["pin", "hardlink", "symlink", "case_mismatch", "duplicate_key"])
+@pytest.mark.parametrize("fault", ["pin", "hardlink", "symlink", "parent_symlink", "case_mismatch", "duplicate_key"])
 def test_cli_invalid_inputs_fail_without_report(tmp_path, fault):
     argv, data, prediction = command(tmp_path)
     if fault == "pin":
@@ -112,6 +112,15 @@ def test_cli_invalid_inputs_fail_without_report(tmp_path, fault):
         prediction.unlink()
         prediction.symlink_to(data)
         argv[-1] = argv[argv.index("--case-sha256") + 1]
+    elif fault == "parent_symlink":
+        real_dir = tmp_path / "real"
+        alias_dir = tmp_path / "alias"
+        real_dir.mkdir()
+        alias_dir.symlink_to(real_dir, target_is_directory=True)
+        data.rename(real_dir / "case.json")
+        prediction.rename(real_dir / "candidate.json")
+        argv[argv.index("--case") + 1] = str(alias_dir / "case.json")
+        argv[argv.index("--prediction") + 1] = str(alias_dir / "candidate.json")
     elif fault == "case_mismatch":
         argv[-1] = write(prediction, {"case_id": "other", "sql": "SELECT 1"})
     else:
