@@ -33,6 +33,16 @@ chmod 0600 "$OBS"
 # The CLI deliberately accepts no Kubernetes token. kubectl proxy authenticates
 # with the disposable read-only kubeconfig and exposes only a loopback endpoint.
 PROXY_PID=""
+restore() {
+  if [[ -n "$PROXY_PID" ]]; then
+    kill "$PROXY_PID" >/dev/null 2>&1 || true
+    wait "$PROXY_PID" 2>/dev/null || true
+  fi
+  kubectl -n golden-demo scale deploy/checkout-api --replicas=2 >/dev/null 2>&1 || true
+  rm -f "$OBS" /tmp/go-endpoint-ca.crt
+}
+trap restore EXIT
+
 kubectl --kubeconfig="$OBS" proxy --address=127.0.0.1 --port=18001 >/tmp/go-endpoint-kube-proxy.log 2>&1 &
 PROXY_PID=$!
 for attempt in $(seq 1 30); do
@@ -43,16 +53,6 @@ curl --noproxy '*' -fsS http://127.0.0.1:18001/version >/dev/null || {
   cat /tmp/go-endpoint-kube-proxy.log >&2
   exit 1
 }
-
-restore() {
-  if [[ -n "$PROXY_PID" ]]; then
-    kill "$PROXY_PID" >/dev/null 2>&1 || true
-    wait "$PROXY_PID" 2>/dev/null || true
-  fi
-  kubectl -n golden-demo scale deploy/checkout-api --replicas=2 >/dev/null 2>&1 || true
-  rm -f "$OBS" /tmp/go-endpoint-ca.crt
-}
-trap restore EXIT
 
 # kubectl resource-printer JSON returns a generic List with empty RV;
 # use the actual discovery.k8s.io LIST API for an auditable collection RV
