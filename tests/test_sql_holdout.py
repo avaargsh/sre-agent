@@ -54,6 +54,22 @@ def test_unsafe_queries_are_rejected(query):
     assert report["admission"] == "HOLD"
 
 
+@pytest.mark.parametrize("query", [
+    "WITH incidents AS (SELECT 2 AS id UNION ALL SELECT 2 AS id) SELECT COUNT(*) FROM incidents",
+    'WITH "incidents" AS (SELECT 2 AS id UNION ALL SELECT 2 AS id) SELECT COUNT(*) FROM incidents',
+    "SELECT COUNT(*) FROM (WITH incidents AS (SELECT 2 AS id UNION ALL SELECT 2 AS id) SELECT * FROM incidents)",
+])
+def test_cte_cannot_shadow_fixture_table_to_match_private_oracle(query):
+    # The fixture's expected result is [[2]]. A same-named CTE can synthesize
+    # that result without reading the actual fixture table. SQLite's authorizer
+    # reports SQLITE_READ for the CTE name too, so table-name shadowing must be
+    # rejected before relying on that callback as a read-dependency signal.
+    report = evaluate_sql_case(fixture(), query)
+    assert report["execution_status"] == "REJECTED"
+    assert report["exact_result_match"] is False
+    assert report["admission"] == "HOLD"
+
+
 def test_read_only_cte_and_count_are_allowed():
     result = evaluate_sql_case(fixture(), "WITH t AS (SELECT id FROM incidents WHERE severity = 'high') SELECT COUNT(*) FROM t")
     assert result["exact_result_match"] is True
