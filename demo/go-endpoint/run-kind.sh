@@ -98,7 +98,7 @@ for field,name in (
   raw=base64.b64decode(capture[field],validate=True)
   assert 0<len(raw)<=2*1024*1024
   pathlib.Path(sys.argv[2],name).write_bytes(raw)
-pathlib.Path(sys.argv[2],"observer-report.json").write_text(json.dumps(report,sort_keys=True,indent=2)+"\\n")
+pathlib.Path(sys.argv[2],"observer-report.json").write_text(json.dumps(report,sort_keys=True,indent=2)+"\n")
 print("PASS: live Service/EndpointSlice collector",report["classification"],
       "ready endpoints",report["ready_endpoints"])
 PY
@@ -685,7 +685,7 @@ for field,name in (
   raw=base64.b64decode(capture[field],validate=True)
   assert 0<len(raw)<=2*1024*1024
   pathlib.Path(sys.argv[2],name).write_bytes(raw)
-pathlib.Path(sys.argv[2],"observer-report.json").write_text(json.dumps(report,sort_keys=True,indent=2)+"\\n")
+pathlib.Path(sys.argv[2],"observer-report.json").write_text(json.dumps(report,sort_keys=True,indent=2)+"\n")
 print("PASS: live Service/EndpointSlice collector",report["classification"],
       "ready endpoints",report["ready_endpoints"])
 PY
