@@ -13,11 +13,11 @@ import (
 )
 
 type serviceEndpointsCapture struct {
-	SchemaVersion    string                         `json:"schema_version"`
-	Report           observe.ServiceEndpointsReport `json:"report"`
-	ServiceBeforeRaw []byte                         `json:"service_before_raw"`
+	SchemaVersion     string                         `json:"schema_version"`
+	Report            observe.ServiceEndpointsReport `json:"report"`
+	ServiceBeforeRaw  []byte                         `json:"service_before_raw"`
 	EndpointSlicesRaw []byte                        `json:"endpoint_slices_raw"`
-	ServiceAfterRaw  []byte                         `json:"service_after_raw"`
+	ServiceAfterRaw   []byte                         `json:"service_after_raw"`
 }
 
 func parseExpectedSelector(raw string) (map[string]string, error) {
