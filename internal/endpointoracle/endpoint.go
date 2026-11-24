@@ -54,8 +54,37 @@ type Result struct{
  Scenario string `json:"scenario"`
  Prediction string `json:"prediction"`
  Verdict string `json:"verdict"`
+ EpisodeSHA256 string `json:"episode_sha256"`
+ PredictionSHA256 string `json:"prediction_sha256"`
  ProductionCausalityVerified bool `json:"production_causality_verified"`
  Explanation string `json:"explanation"`
+}
+
+const maxEpisodeBytes=12<<20
+const maxPredictionBytes=6<<20
+
+// EvaluateRaw validates the exact serialized inputs, evaluates their typed
+// contents, and binds the successful result to the original input bytes.
+// The digests establish byte identity only; they do not authenticate provenance.
+func EvaluateRaw(episodeRaw,predictionRaw []byte)(Result,error){
+ if len(episodeRaw)==0||len(episodeRaw)>maxEpisodeBytes||
+  len(predictionRaw)==0||len(predictionRaw)>maxPredictionBytes{
+  return Result{},errors.New("episode or prediction envelope size invalid")
+ }
+ if sourcejson.Validate(episodeRaw)!=nil||sourcejson.Validate(predictionRaw)!=nil{
+  return Result{},errors.New("malformed or ambiguous Episode/Prediction JSON")
+ }
+ var e Episode
+ var p Prediction
+ if err:=json.Unmarshal(episodeRaw,&e);err!=nil{return Result{},errors.New("invalid Episode envelope")}
+ if err:=json.Unmarshal(predictionRaw,&p);err!=nil{return Result{},errors.New("invalid Prediction envelope")}
+ result,err:=Evaluate(e,p)
+ if err!=nil{return Result{},err}
+ episodeDigest:=sha256.Sum256(episodeRaw)
+ predictionDigest:=sha256.Sum256(predictionRaw)
+ result.EpisodeSHA256=hex.EncodeToString(episodeDigest[:])
+ result.PredictionSHA256=hex.EncodeToString(predictionDigest[:])
+ return result,nil
 }
 
 type sliceList struct {
