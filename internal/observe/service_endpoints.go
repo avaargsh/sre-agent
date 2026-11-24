@@ -255,8 +255,9 @@ func ReplayServiceEndpointsObservation(target ServiceTarget, expectedTargetPort 
 		return endpointoracle.Prediction{}, err
 	}
 	collectionEnd, err := parseCaptureTime(report.ObservedAt)
-	if err != nil || collectionEnd.Before(collectionStart) {
-		return endpointoracle.Prediction{}, unknownf("invalid Service endpoint collection time window")
+	if err != nil || collectionEnd.Before(collectionStart) ||
+		collectionEnd.Sub(collectionStart) > maxCollectionDuration {
+		return endpointoracle.Prediction{}, unknownf("invalid or over-budget Service endpoint collection time window")
 	}
 	previousEnd := collectionStart
 	for _, read := range reads {
