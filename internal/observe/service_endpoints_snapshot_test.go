@@ -262,12 +262,12 @@ func TestReplayServiceEndpointsObservationRejectsLegacyReportSchema(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	observation.Report.SchemaVersion = "sre.service-endpoints/v1"
+	observation.Report.SchemaVersion = "sre.service-endpoints/v2"
 	if _, err := ReplayServiceEndpointsObservation(
 		ServiceTarget{Namespace: "demo", Name: "checkout-api", UID: "service-uid-1"},
 		8080, map[string]string{"app": "checkout-api"}, observation,
 	); !errors.Is(err, ErrUnknown) {
-		t.Fatalf("legacy report without the required Most Recent read contract must fail closed: %v", err)
+		t.Fatalf("v2 report with cross-resource ResourceVersion fencing must fail closed: %v", err)
 	}
 }
 
