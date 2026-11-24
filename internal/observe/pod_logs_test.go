@@ -59,7 +59,7 @@ func TestCollectPodLogsUsesBoundedTailAndUIDFence(t *testing.T) {
   !bytes.Equal(got.AfterPodRaw,[]byte(podJSONWithResourceVersion("43"))) {
   t.Fatal("pre/post Pod source bytes were not preserved for independent replay")
  }
- if got.Report.Target!=podTarget() || got.Report.Container!="app" || got.Report.TailLines!=80 || got.Report.MaxBytes!=maxPodLogBytes || !got.Report.Timestamps {
+ if got.Report.Target!=podTarget() || got.Report.Container!="app" || got.Report.RequestedTailLines!=80 || got.Report.MaxBytes!=maxPodLogBytes || !got.Report.Timestamps {
   t.Fatalf("wrong report scope: %+v",got.Report)
  }
  if got.Report.BeforeResourceVersion!="42" || got.Report.AfterResourceVersion!="43" {
