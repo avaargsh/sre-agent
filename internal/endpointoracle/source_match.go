@@ -22,9 +22,8 @@ func sameJSONSource(observer, admin []byte) bool {
  return okA && okB && reflect.DeepEqual(a,b)
 }
 
-
 // sameEndpointSource compares complete EndpointSlice snapshots. Callers must
 // validate both byte streams with inspect before using this equality check.
 func sameEndpointSource(observer, admin []byte) bool {
-	return sameJSONSource(observer, admin)
+ return sameJSONSource(observer, admin)
 }
