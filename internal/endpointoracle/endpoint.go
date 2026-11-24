@@ -135,6 +135,23 @@ type sliceList struct {
   } `json:"endpoints"`
  } `json:"items"`
 }
+type serviceSource struct {
+	Metadata struct {
+		UID string `json:"uid"`
+		Name string `json:"name"`
+		Namespace string `json:"namespace"`
+		ResourceVersion string `json:"resourceVersion"`
+	} `json:"metadata"`
+	Spec struct {
+		Selector map[string]string `json:"selector"`
+		Ports []struct {
+			Port int `json:"port"`
+			TargetPort json.RawMessage `json:"targetPort"`
+		} `json:"ports"`
+		PublishNotReadyAddresses json.RawMessage `json:"publishNotReadyAddresses"`
+	} `json:"spec"`
+}
+
 type observation struct{ready int;version string}
 
 func validateServiceResourceVersion(version string) error {
@@ -163,6 +180,7 @@ func snap(raw []byte)oracle.Snapshot{
 func inspect(raw []byte,namespace,service,serviceUID string)(observation,error){
  if len(raw)==0||len(raw)>maxRaw{return observation{},errors.New("EndpointSlice response size invalid")}
  if err:=sourcejson.Validate(raw);err!=nil{return observation{},errors.New("ambiguous or malformed EndpointSlice JSON")}
+ if err:=validateCanonicalJSONFields(raw,reflect.TypeOf(sliceList{}));err!=nil{return observation{},errors.New("non-canonical EndpointSlice field name")}
  dec:=json.NewDecoder(bytes.NewReader(raw))
  var list sliceList
  if err:=dec.Decode(&list);err!=nil{return observation{},errors.New("invalid EndpointSlice JSON")}
@@ -218,6 +236,7 @@ func inspect(raw []byte,namespace,service,serviceUID string)(observation,error){
 // It never receives test-admin episode labels or client HTTP probe results.
 func Diagnose(serviceRaw,endpointRaw []byte,targetPort int,selector map[string]string)(Prediction,error){
  if len(serviceRaw)==0||len(serviceRaw)>maxRaw||sourcejson.Validate(serviceRaw)!=nil{return Prediction{},errors.New("invalid native Service JSON")}
+ if err:=validateCanonicalJSONFields(serviceRaw,reflect.TypeOf(serviceSource{}));err!=nil{return Prediction{},errors.New("non-canonical Service field name")}
  if err:=validateServiceReadinessPolicy(serviceRaw);err!=nil{return Prediction{},err}
  service,err:=oracle.DiagnoseWithSelector(serviceRaw,targetPort,selector)
  if err!=nil{return Prediction{},err}
@@ -237,6 +256,7 @@ func phase(e Episode,p Phase)(oracle.Prediction,observation,error){
  serviceRaw,err:=checkedRaw(p.Service);if err!=nil{return oracle.Prediction{},observation{},err}
  endpointRaw,err:=checkedRaw(p.EndpointSlices);if err!=nil{return oracle.Prediction{},observation{},err}
  if sourcejson.Validate(serviceRaw)!=nil{return oracle.Prediction{},observation{},errors.New("invalid native Service JSON")}
+ if err:=validateCanonicalJSONFields(serviceRaw,reflect.TypeOf(serviceSource{}));err!=nil{return oracle.Prediction{},observation{},errors.New("non-canonical Service field name")}
  if err:=validateServiceReadinessPolicy(serviceRaw);err!=nil{return oracle.Prediction{},observation{},err}
  got,err:=oracle.DiagnoseWithSelector(serviceRaw,e.ExpectedTargetPort,e.ExpectedSelector)
  if err!=nil{return oracle.Prediction{},observation{},err}
