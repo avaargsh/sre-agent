@@ -20,12 +20,40 @@ def _object_pairs(pairs):
     return result
 
 
+def _open_nofollow_path(path):
+    """Open a file without following symlinks in any path component.
+
+    O_NOFOLLOW protects only the final component when passed a multi-component
+    path. Walk parent directories through already-open directory descriptors
+    so an intermediate symlink cannot redirect the pinned artifact lookup.
+    """
+    if (not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_NONBLOCK")
+            or not hasattr(os, "O_DIRECTORY") or os.open not in os.supports_dir_fd):
+        raise ValueError("secure read unsupported")
+    raw_path = os.fsdecode(os.fspath(path))
+    if not raw_path or "\\x00" in raw_path:
+        raise ValueError("invalid artifact path")
+    absolute = os.path.isabs(raw_path)
+    parts = [part for part in raw_path.split(os.sep) if part not in ("", ".")]
+    if not parts:
+        raise ValueError("invalid artifact path")
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    file_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    directory_fd = os.open(os.sep if absolute else ".", directory_flags)
+    try:
+        for component in parts[:-1]:
+            next_fd = os.open(component, directory_flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = next_fd
+        return os.open(parts[-1], file_flags, dir_fd=directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
 def _pinned(path, digest, identities):
     if type(digest) is not str or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
         raise ValueError("invalid SHA256 pin")
-    if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_NONBLOCK"):
-        raise ValueError("secure read unsupported")
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    fd = _open_nofollow_path(path)
     try:
         s = os.fstat(fd)
         ident = (s.st_dev, s.st_ino)
