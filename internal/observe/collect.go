@@ -78,11 +78,38 @@ type deployment struct {
  } `json:"spec"`
  Status struct{ReadyReplicas int `json:"readyReplicas"`; ObservedGeneration int64 `json:"observedGeneration"`} `json:"status"`
 }
+type podListMetadata struct {
+ ResourceVersion string `json:"resourceVersion"`
+ Continue string `json:"continue"`
+}
+
+// UnmarshalJSON rejects contradictory pagination metadata before any complete
+// PodList can be projected. The source JSON validator has already rejected
+// duplicate keys; reject lone aliases and explicit nulls here as well.
+func (m *podListMetadata) UnmarshalJSON(raw []byte) error {
+ var fields map[string]json.RawMessage
+ if err:=json.Unmarshal(raw,&fields);err!=nil||fields==nil{return unknownf("invalid PodList metadata")}
+ for key:=range fields {
+  for _,canonical:=range []string{"resourceVersion","continue","remainingItemCount"} {
+   if key!=canonical&&strings.EqualFold(key,canonical){return unknownf("noncanonical PodList metadata key")}
+  }
+ }
+ for _,key:=range []string{"resourceVersion","continue"} {
+  if value,ok:=fields[key];ok&&bytes.Equal(bytes.TrimSpace(value),[]byte("null")){return unknownf("null PodList metadata field")}
+ }
+ if value,ok:=fields["remainingItemCount"];ok {
+  var remaining int64
+  if bytes.Equal(bytes.TrimSpace(value),[]byte("null"))||json.Unmarshal(value,&remaining)!=nil||remaining!=0{return unknownf("incomplete or invalid PodList remaining item count")}
+ }
+ type plain podListMetadata
+ var decoded plain
+ if err:=json.Unmarshal(raw,&decoded);err!=nil{return err}
+ *m=podListMetadata(decoded)
+ return nil
+}
+
 type podList struct {
- Metadata struct{
-  ResourceVersion string `json:"resourceVersion"`
-  Continue string `json:"continue"`
- } `json:"metadata"`
+ Metadata podListMetadata `json:"metadata"`
  Items []struct{
   Metadata metadata `json:"metadata"`
   Status struct{Phase string `json:"phase"`} `json:"status"`
