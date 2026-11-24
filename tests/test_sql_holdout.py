@@ -174,3 +174,30 @@ def test_empty_table_count_is_still_a_valid_read_dependency():
     assert result["execution_status"] == "COMPLETED"
     assert result["exact_result_match"] is True
     assert result["admission"] == "HOLD"
+
+
+@pytest.mark.parametrize("column_type,cell", [
+    ("INTEGER", "002"), ("INTEGER", 2.0), ("TEXT", 7),
+    ("REAL", "1.5"), ("REAL", 2),
+])
+def test_fixture_rejects_implicit_sqlite_affinity_conversion(column_type, cell):
+    case = fixture()
+    case["tables"][0]["columns"] = [{"name": "value", "type": column_type}]
+    case["tables"][0]["rows"] = [[cell]]
+    case["expected_rows"] = [[1]]
+    with pytest.raises(ValueError, match="fixture cell type"):
+        evaluate_sql_case(case, "SELECT COUNT(*) FROM incidents")
+
+
+@pytest.mark.parametrize("column_type,cell", [
+    ("INTEGER", 2), ("TEXT", "002"), ("REAL", 2.0),
+    ("INTEGER", None), ("TEXT", None), ("REAL", None),
+])
+def test_fixture_preserves_declared_cell_type(column_type, cell):
+    case = fixture()
+    case["tables"][0]["columns"] = [{"name": "value", "type": column_type}]
+    case["tables"][0]["rows"] = [[cell]]
+    case["expected_rows"] = [[cell]]
+    report = evaluate_sql_case(case, "SELECT value FROM incidents")
+    assert report["execution_status"] == "COMPLETED"
+    assert report["exact_result_match"] is True
