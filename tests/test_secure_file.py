@@ -174,3 +174,26 @@ def test_create_only_pair_does_not_overwrite_existing_output(tmp_path):
     assert output.read_bytes() == b"previous-predictions"
     assert not manifest.exists()
     assert not list(tmp_path.glob(".sre-capture-*.stage"))
+
+
+@pytest.mark.parametrize("target", ["output", "manifest"])
+def test_create_only_pair_never_follows_existing_final_symlink(tmp_path, target):
+    from agentic_aiops.secure_file import publish_create_only_pair
+
+    victim = tmp_path / "victim"
+    victim.write_bytes(b"must-not-change")
+    output = tmp_path / "predictions.jsonl"
+    manifest = tmp_path / "capture.json"
+    selected = output if target == "output" else manifest
+    selected.symlink_to(victim)
+
+    with pytest.raises(FileExistsError):
+        publish_create_only_pair(output, b"new-predictions", manifest, b"new-manifest")
+
+    assert victim.read_bytes() == b"must-not-change"
+    assert selected.is_symlink()
+    if target == "output":
+        assert not manifest.exists()
+    else:
+        # A prediction-only orphan is not a complete capture.
+        assert output.read_bytes() == b"new-predictions"
