@@ -113,14 +113,15 @@ def test_reject_unpaired_surrogate_in_unrelated_source_field(tmp_path):
 
 
 def test_reject_deeply_nested_source_json(tmp_path):
-    observer = tmp_path / "deep.json"
-    nested = "[" * 65 + "0" + "]" * 65
-    observer.write_text(
-        '{"kind":"EndpointSliceList","metadata":{"resourceVersion":"123",'
-        '"annotation":' + nested + '},"items":[]}',
-        encoding="utf-8",
-    )
-    result = call(tmp_path, observer)
-    assert result.returncode == 3
-    assert "UNKNOWN:" in result.stderr
-    assert "Traceback" not in result.stderr
+    for depth in (65, 1200):
+        observer = tmp_path / f"deep-{depth}.json"
+        nested = "[" * depth + "0" + "]" * depth
+        observer.write_text(
+            '{"kind":"EndpointSliceList","metadata":{"resourceVersion":"123",'
+            '"annotation":' + nested + '},"items":[]}',
+            encoding="utf-8",
+        )
+        result = call(tmp_path, observer)
+        assert result.returncode == 3
+        assert "UNKNOWN:" in result.stderr
+        assert "Traceback" not in result.stderr
