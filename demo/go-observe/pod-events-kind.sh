@@ -29,6 +29,8 @@ for i in $(seq 1 90); do
   sleep 2
 done
 test "$found" = 1
+event_name=$(k -n "$ns" get events --field-selector "involvedObject.uid=$uid,reason=BackOff" -o jsonpath='{.items[0].metadata.name}')
+test -n "$event_name"
 k -n "$ns" create token events-reader --duration=10m > "$work/token"
 k config view --raw --minify --flatten -o json | python3 -c '
 import json, pathlib, sys
@@ -45,7 +47,7 @@ rm "$work/token"
 r() { kubectl --kubeconfig "$work/reader.json" "$@"; }
 # List authorization is namespace-wide. No Pod/Secret reads or writes granted.
 test "$(r auth can-i list events -n "$ns")" = yes
-for check in 'get pod/crash' 'list pods' 'list secrets' 'create events' 'patch events' 'delete events'; do
+for check in 'get events' 'get pod/crash' 'list pods' 'list secrets' 'create events' 'patch events' 'delete events'; do
   read -r verb resource <<< "$check"
   test "$(r auth can-i "$verb" "$resource" -n "$ns" || true)" = no
 done
@@ -60,7 +62,7 @@ for i in $(seq 1 30); do
 done
 kill -0 "$proxy_pid"
 curl --max-time 2 -fsS "$api/api/v1/namespaces/$ns/events" >/dev/null
-for path in "/api/v1/namespaces/$ns/pods/crash" "/api/v1/namespaces/$ns/secrets" "/api/v1/namespaces/default/events"; do
+for path in "/api/v1/namespaces/$ns/pods/crash" "/api/v1/namespaces/$ns/secrets" "/api/v1/namespaces/$ns/events/$event_name" "/api/v1/namespaces/default/events"; do
   test "$(curl --max-time 5 -sS -o /dev/null -w '%{http_code}' "$api$path")" = 403
 done
 go build -o "$work/sre-agent" ./cmd/sre-agent
