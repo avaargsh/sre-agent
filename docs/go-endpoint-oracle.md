@@ -110,6 +110,13 @@ The Service UID/resourceVersion fence detects Service replacement or drift
 during collection, but Service and EndpointSlice reads are not an atomic
 Kubernetes transaction. The collector reports only
 `READY_ENDPOINTS_OBSERVED`, `NO_READY_ENDPOINTS_OBSERVED`, or `UNKNOWN`.
+The `ready_endpoints` count denotes distinct ready canonical address groups,
+not unique Pods, transport-port tuples or routable backends. IPv4 and IPv6
+remain separate families; IPv6 textual forms and FQDN case/trailing dots
+are normalized. Identical groups with agreeing readiness count once;
+partial overlap, conflicting readiness or duplicate addresses within a
+single endpoint return UNKNOWN. Historical predictions containing repeated
+address groups may need to be regenerated, not silently promoted.
 A zero-ready list does not establish backend root cause, dataplane failure,
 health, or recovery. `source_authenticated=false` remains explicit.
 
