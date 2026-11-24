@@ -29,7 +29,7 @@ def test_preserves_invalid_completion_without_claiming_model_truth(tmp_path):
     def sample(payload):
         calls.append(payload)
         return {"model":payload["model"], "choices":[{"finish_reason":"stop",
-                "message":{"content":"not valid diagnosis JSON"}}],
+                "message":{"role":"assistant","content":"not valid diagnosis JSON"}}],
                 "usage":{"prompt_tokens":12,"completion_tokens":7}}
     report = capture(tmp_path, sample)
     assert len(calls) == 1
@@ -103,7 +103,7 @@ def test_non_loopback_url_cannot_be_supplied():
 def test_malformed_usage_fails_without_publishing(tmp_path, usage):
     def sample(payload):
         return {"model": payload["model"], "choices": [{"finish_reason": "stop",
-                "message": {"content": "{}"}}], "usage": usage}
+                "message": {"role": "assistant", "content": "{}"}}], "usage": usage}
     with pytest.raises(ValueError):
         capture(tmp_path, sample)
     assert not (tmp_path / "predictions.jsonl").exists()
@@ -160,7 +160,7 @@ def test_truncated_or_tool_shaped_responses_fail_without_publication(
     # Explicit tool-call fields, even when empty, are not text-only evidence.
     def sample(payload):
         return {"model": payload["model"], "choices": [{
-            "finish_reason": finish, "message": {"content": "{}", **extra},
+            "finish_reason": finish, "message": {"role": "assistant", "content": "{}", **extra},
         }]}
     with pytest.raises(ValueError):
         capture(tmp_path, sample)
@@ -229,3 +229,19 @@ def test_special_fifo_projection_rejected_before_sampler(tmp_path):
             engine="lab", quantization="lab", max_tokens=512, seed=42,
             sample=sampler,
         )
+
+
+@pytest.mark.parametrize("message", [
+    {"content": "not valid diagnosis JSON"},
+    {"role": "assistant", "content": "text", "refusal": "policy refusal"},
+    {"role": "assistant", "content": "text", "audio": {"data": "ignored"}},
+])
+def test_noncanonical_message_shape_is_rejected_without_publication(tmp_path, message):
+    def sample(payload):
+        return {"model": payload["model"], "choices": [{
+            "finish_reason": "stop", "message": message,
+        }]}
+    with pytest.raises(ValueError):
+        capture(tmp_path, sample)
+    assert not (tmp_path / "predictions.jsonl").exists()
+    assert not (tmp_path / "capture.json").exists()
