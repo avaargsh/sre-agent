@@ -65,6 +65,7 @@ def test_reject_invalid_observer_versions_and_incomplete_lists(tmp_path):
         example(rv=""),
         example(rv="0"),
         example(rv="x" * 257),
+        example(rv="β" * 129),  # 258 UTF-8 bytes despite only 129 code points.
         example(rv=123),
         {**example(), "metadata": {"resourceVersion": "123", "continue": "next"}},
         {**example(), "kind": "List"},
