@@ -2,6 +2,13 @@ name: go-sli-kind
 
 on:
   workflow_dispatch:
+  # Validate the exact merged main tree, not only PR merge refs.
+  push:
+    branches: [main]
+  # GitHub App/API-created commits may not emit workflow-triggering push events.
+  # This fallback always checks out the latest default-branch commit.
+  schedule:
+    - cron: '7 5 * * *'
   pull_request:
     paths:
       - "cmd/sre-agent/**"
@@ -19,6 +26,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Confirm exact event commit before live proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "${{ github.sha }}"
+          test -z "$(git status --porcelain --untracked-files=normal)"
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -77,8 +91,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: go-sli-kind-proof
+          name: go-sli-kind-proof-${{ github.sha }}
           path: |
             /tmp/go-sli-healthy.json
             /tmp/go-sli-unknown.json
             /tmp/go-sli-prometheus-pf.log
+          if-no-files-found: warn
