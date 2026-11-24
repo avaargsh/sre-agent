@@ -1,6 +1,7 @@
 """Synthetic/disposable SQLite holdout evaluation; never a production SQL executor."""
 from __future__ import annotations
 
+import json
 import math
 import re
 import sqlite3
@@ -11,6 +12,7 @@ _CASE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}\Z")
 _TYPES = {"INTEGER", "REAL", "TEXT"}
 _FUNCTIONS = {"count", "sum", "avg", "min", "max", "lower", "upper", "length", "abs", "round", "coalesce"}
 _MAX_ROWS = 256
+_MAX_RESULT_BYTES = 1024 * 1024
 _SURROGATE = re.compile(r"[\ud800-\udfff]")
 
 
@@ -150,13 +152,33 @@ def evaluate_sql_case(fixture: Any, candidate: Any) -> dict[str, Any]:
             cursor = conn.execute(query)
             if cursor.description is None or not 1 <= len(cursor.description) <= 12:
                 return report
-            rows = cursor.fetchmany(_MAX_ROWS + 1)
             # A literal-only SELECT can coincidentally equal the private Oracle.
             # Require an allowed table READ dependency before scoring results.
             # This is syntactic dependency, not proof of semantic causal use.
             if not read_dependencies[0]:
                 return report
-            if len(rows) > _MAX_ROWS or any(not _value(cell) for row in rows for cell in row):
+            # Fetch one row at a time and cap the serialized result payload.
+            # fetchmany(257) can materialize ~192 MiB (256 * 12 * 64 KiB)
+            # before the per-cell checks reject oversized values.
+            rows = []
+            result_bytes = 0
+            while len(rows) <= _MAX_ROWS:
+                row = cursor.fetchone()
+                if row is None:
+                    break
+                if any(not _value(cell) for cell in row):
+                    return report
+                try:
+                    row_bytes = len(json.dumps(
+                        row, ensure_ascii=False, separators=(",", ":"),
+                    ).encode("utf-8")) + 1
+                except (TypeError, UnicodeError):
+                    return report
+                if result_bytes + row_bytes > _MAX_RESULT_BYTES:
+                    return report
+                result_bytes += row_bytes
+                rows.append(row)
+            if len(rows) > _MAX_ROWS:
                 return report
             report["execution_status"] = "COMPLETED"
             report["exact_result_match"] = _same_rows(rows, expected)
