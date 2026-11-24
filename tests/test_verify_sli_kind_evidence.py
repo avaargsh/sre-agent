@@ -71,3 +71,33 @@ def test_rehashed_invalid_source(mutation):
     entry["response_sha256"] = hashlib.sha256(raw).hexdigest()
     with pytest.raises(ValueError):
         verify_report(report, "HEALTHY")
+
+
+@pytest.mark.parametrize("location,key,alias", [
+    ("root", "warnings", "Warnings"),
+    ("root", "isPartial", "IsPartial"),
+    ("root", "status", "Status"),
+    ("data", "resultType", "ResultType"),
+    ("row", "metric", "Metric"),
+    ("row", "values", "Values"),
+])
+def test_replay_rejects_noncanonical_source_fields(location, key, alias):
+    report = fixture()
+    entry = report["evidence"][0]
+    source = json.loads(base64.b64decode(entry["raw_response_base64"]))
+    obj = {"root": source, "data": source["data"], "row": source["data"]["result"][0]}[location]
+    obj[alias] = obj.get(key, True)
+    raw = json.dumps(source).encode()
+    entry.update(raw_response_base64=base64.b64encode(raw).decode(), response_sha256=hashlib.sha256(raw).hexdigest())
+    with pytest.raises(ValueError):
+        verify_report(report, "HEALTHY")
+
+
+def test_replay_preserves_case_sensitive_metric_labels():
+    report = fixture()
+    entry = report["evidence"][0]
+    source = json.loads(base64.b64decode(entry["raw_response_base64"]))
+    source["data"]["result"][0]["metric"] = {"app": "checkout", "App": "legacy"}
+    raw = json.dumps(source).encode()
+    entry.update(raw_response_base64=base64.b64encode(raw).decode(), response_sha256=hashlib.sha256(raw).hexdigest())
+    verify_report(report, "HEALTHY")
