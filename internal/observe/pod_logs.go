@@ -1,6 +1,7 @@
 package observe
 
 import (
+ "bytes"
  "context"
  "crypto/sha256"
  "encoding/hex"
@@ -53,6 +54,19 @@ type PodLogsObservation struct {
  BeforePodRaw []byte
  AfterPodRaw []byte
  Report PodLogsReport
+}
+
+func validTimestampedLogTail(raw []byte, maxLines int) bool {
+ if len(raw)==0||maxLines<1{return false}
+ lines:=bytes.Split(raw,[]byte{'\\n'})
+ if len(lines)>0&&len(lines[len(lines)-1])==0{lines=lines[:len(lines)-1]}
+ if len(lines)==0||len(lines)>maxLines{return false}
+ for _,line:=range lines{
+  separator:=bytes.IndexByte(line,' ')
+  if separator<=0{return false}
+  if _,err:=time.Parse(time.RFC3339Nano,string(line[:separator]));err!=nil{return false}
+ }
+ return true
 }
 
 func podContainsContainer(raw []byte, expected string) bool {
@@ -134,6 +148,7 @@ func CollectPodLogs(ctx context.Context,c PodLogsConfig)(PodLogsObservation,erro
  path:="/api/v1/namespaces/"+target.Namespace+"/pods/"+target.Name+"/log?"+query.Encode()
  raw,err:=getRawText(bounded,client(Config{Client:c.Client}),source,path,c.BearerToken,maxPodLogBytes)
  if err!=nil{return PodLogsObservation{},err}
+ if !validTimestampedLogTail(raw,c.TailLines){return PodLogsObservation{},unknownf("Pod log response has invalid timestamps or exceeds requested tail lines")}
  if bounded.Err()!=nil{return PodLogsObservation{},unknownf("Pod log collection canceled or deadline exceeded")}
  after,err:=CollectPod(bounded,c.PodConfig)
  if err!=nil{return PodLogsObservation{},err}
