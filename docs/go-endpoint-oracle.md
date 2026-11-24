@@ -87,8 +87,19 @@ sre-agent capture-service-endpoints \
 The capture envelope includes the exact pre/post Service and EndpointSlice
 response bytes as base64 JSON byte fields, plus SHA-256 digests, Service and
 EndpointSlice-list resourceVersions, ready endpoint count and an observation
-classification. Protect the output: it is evidence, not a public diagnostic
-artifact. The exported `observe.ReplayServiceEndpoints` function independently revalidates
+classification. The EndpointSlice LIST is requested with the first Service
+resourceVersion and `resourceVersionMatch=NotOlderThan`, retaining the bounded
+`limit=129`. The API server's collection resourceVersion is therefore required
+to be no older than the Service snapshot; an expired version (HTTP 410) fails
+closed without falling back to an unpinned LIST. The report records the request
+resourceVersion/match, returned collection resourceVersion, per-read response
+digest, and UTC start/completion timestamps for the ordered Service GET →
+EndpointSlice LIST → Service GET sequence. `ReplayServiceEndpointsObservation`
+recomputes the prediction and checks that the timeline, request fence, response
+versions and hashes agree with the archived raw bytes. This is a bounded
+cross-resource freshness association, not an atomic multi-resource
+transaction or source authentication; `source_authenticated=false` remains
+explicit. Protect the output: it is evidence, not a public diagnostic artifact. The exported `observe.ReplayServiceEndpoints` function independently revalidates
 both Service snapshots, exact-byte/resourceVersion equality, selected UID and
 the EndpointSlice list before recomputing the source-only prediction. The
 `diagnose-endpoints` command can also replay the decoded raw Service and
