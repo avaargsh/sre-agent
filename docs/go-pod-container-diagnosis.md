@@ -33,7 +33,7 @@ sre-agent verify-pod-report --namespace "$NS" --pod "$POD" --uid "$EXPECTED_UID"
   --sha256 "$INDEPENDENT_SNAPSHOT_SHA256" --report "$REPORT_FILE" < "$RAW_POD_FILE"
 ```
 
-The expected UID and digest must come from a separate trusted record; do not derive them from the claim. Exit 0 and `STRUCTURALLY_LINKED` mean structural/content consistency only. Invalid data yields exit 3 with no stdout; malformed CLI arguments yield 2. The report file must be operator-owned and trusted; stdin is an explicitly supplied finite stream. **Merge dependency:** land #57 shared boundedAlertFile regular-file/no-follow/nonblocking hardening first, rebase and test #60 on the resulting main, including FIFO/symlink rejection for the report path. Until then the existing named-file helper is byte-bounded but can follow symlinks or block on special files. Do not treat this branch as ready for hostile file paths. No source authentication, freshness, RCA, recovery or execution authority.
+The expected UID and digest must come from a separate trusted record; do not derive them from the claim. Exit 0 and `STRUCTURALLY_LINKED` mean structural/content consistency only. Invalid data yields exit 3 with no stdout; malformed CLI arguments yield 2. The report file must be operator-owned and trusted; stdin is an explicitly supplied finite stream. **Merge dependency:** land #57 shared boundedAlertFile regular-file/no-follow/nonblocking hardening first, rebase and test #60 on the resulting main, including FIFO/symlink rejection for the report path. The integrated candidate already includes #57's hardened helper; final acceptance still requires #57 on main and tests on the resulting exact candidate. Do not treat development-tree integration as production readiness. No source authentication, freshness, RCA, recovery or execution authority.
 
 ## Scoped Pod Events (library development slice)
 
@@ -51,10 +51,10 @@ The expected UID and digest must come from a separate trusted record; do not der
 
 ## Required #57 / #60 integration gate
 
-After #57 secure file admission lands, rebase #60 and run on Linux:
+The current #60 candidate includes #57 secure file admission through a merge of the feature branch. The receipt admission regression is now part of the default Linux test suite (no opt-in build tag). Run on Linux:
 
 ```sh
-go test -race -count=1 -timeout 30s -tags sre_file_hardening ./cmd/sre-agent -run '^TestReceiptAdmissionAfterFileHardening$'
+go test -race -count=1 -timeout 30s ./cmd/sre-agent -run '^TestReceiptAdmissionAfterFileHardening$'
 ```
 
-The eight scenarios exercise both receipt handlers with regular reports, final-component symlinks, FIFOs without writers, and directories. Before #57 this opt-in test is expected to fail (both symlink cases admit claims and both FIFO cases block). Do not treat default-suite success as satisfying this dependency. After integration, remove the temporary `sre_file_hardening` build-tag condition so Linux CI always runs these regressions, and rerun the complete exact-tree Go/Python and disposable-kind gates. Parent directories remain operator-owned; storage stalls and explicitly supplied stdin streams are outside the regular-inode check. No production release authorization.
+The eight scenarios exercise both receipt handlers with regular reports, final-component symlinks, FIFOs without writers, and directories. The pre-hardening implementation accepted symlink claims and could block on FIFOs. The temporary build-tag condition has been removed now that the dependency is integrated. Keep #60 Draft until #57 lands on main, then verify the final feature-only diff, rerun the complete exact-tree Go/Python and disposable-kind gates, and obtain independent review. Parent directories remain operator-owned; storage stalls and explicitly supplied stdin streams are outside the regular-inode check. No production release authorization.
