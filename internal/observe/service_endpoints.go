@@ -63,7 +63,6 @@ type ServiceEndpointsReport struct {
 	EndpointSlicesSHA256             string                  `json:"endpoint_slices_sha256"`
 	ServiceAfterSHA256               string                  `json:"service_after_sha256"`
 	CollectionStartedAt              string                  `json:"collection_started_at"`
-	CollectionCompletedAt            string                  `json:"collection_completed_at"`
 	ReadTimeline                     []ServiceEndpointsRead  `json:"read_timeline"`
 	ObservedAt                       string                  `json:"observed_at"`
 	SourceAuthenticated              bool                    `json:"source_authenticated"`
@@ -217,8 +216,7 @@ func ReplayServiceEndpointsObservation(target ServiceTarget, expectedTargetPort 
 		report.Classification != prediction.Classification ||
 		report.ServiceBeforeSHA256 != digestSource(observation.ServiceBeforeRaw) ||
 		report.EndpointSlicesSHA256 != digestSource(observation.EndpointSlicesRaw) ||
-		report.ServiceAfterSHA256 != digestSource(observation.ServiceAfterRaw) ||
-		report.ObservedAt != report.CollectionCompletedAt {
+		report.ServiceAfterSHA256 != digestSource(observation.ServiceAfterRaw) {
 		return endpointoracle.Prediction{}, unknownf("capture report does not bind exact source bytes and replay result")
 	}
 
@@ -248,7 +246,7 @@ func ReplayServiceEndpointsObservation(target ServiceTarget, expectedTargetPort 
 	if err != nil {
 		return endpointoracle.Prediction{}, err
 	}
-	collectionEnd, err := parseCaptureTime(report.CollectionCompletedAt)
+	collectionEnd, err := parseCaptureTime(report.ObservedAt)
 	if err != nil || collectionEnd.Before(collectionStart) {
 		return endpointoracle.Prediction{}, unknownf("invalid Service endpoint collection time window")
 	}
@@ -357,7 +355,6 @@ func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (Ser
 		EndpointSlicesSHA256: digestSource(slicesRaw),
 		ServiceAfterSHA256: digestSource(afterRaw),
 		CollectionStartedAt: collectionStarted.UTC().Format(time.RFC3339Nano),
-		CollectionCompletedAt: collectionCompleted.UTC().Format(time.RFC3339Nano),
 		ReadTimeline: []ServiceEndpointsRead{
 			{
 				Name: "service_get_before",
