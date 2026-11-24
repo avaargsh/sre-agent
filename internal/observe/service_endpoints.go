@@ -37,9 +37,7 @@ type ServiceEndpointsConfig struct {
 	Client              *http.Client
 }
 
-// ServiceEndpointsReport contains source identity and observation metadata.
-// It deliberately makes no source-authentication, root-cause, health or
-// recovery claim.
+// ServiceEndpointsRead records one bounded Kubernetes API read and its exact response binding.
 type ServiceEndpointsRead struct {
 	Name                         string `json:"name"`
 	StartedAt                    string `json:"started_at"`
@@ -50,6 +48,8 @@ type ServiceEndpointsRead struct {
 	ResponseSHA256                string `json:"response_sha256"`
 }
 
+// ServiceEndpointsReport contains source identity, read consistency and observation metadata.
+// It deliberately makes no source-authentication, root-cause, health or recovery claim.
 type ServiceEndpointsReport struct {
 	SchemaVersion                    string                  `json:"schema_version"`
 	Target                           ServiceTarget           `json:"target"`
@@ -168,11 +168,6 @@ func ReplayServiceEndpoints(target ServiceTarget, expectedTargetPort int, expect
 	return prediction, nil
 }
 
-// CollectServiceEndpoints reads one Service, its label-selected EndpointSlice
-// list, and the Service again. A changed UID, resourceVersion or exact source
-// bytes invalidates the entire observation. EndpointSlice LIST authorization
-// remains namespace-wide in Kubernetes RBAC; labelSelector is not an access
-// control boundary. Use only an isolated namespace or a narrower mediator.
 // parseCaptureTime accepts only canonical UTC RFC3339Nano timestamps emitted by the collector.
 func parseCaptureTime(raw string) (time.Time, error) {
 	parsed, err := time.Parse(time.RFC3339Nano, raw)
@@ -275,6 +270,12 @@ func ReplayServiceEndpointsObservation(target ServiceTarget, expectedTargetPort 
 	return prediction, nil
 }
 
+// CollectServiceEndpoints reads one Service, its label-selected EndpointSlice
+// list, and the Service again. The list is requested at least as fresh as the
+// first Service resourceVersion. A changed Service UID, version or exact bytes
+// invalidates the observation. EndpointSlice LIST authorization remains
+// namespace-wide in Kubernetes RBAC; labelSelector is not an access control
+// boundary. Use only an isolated namespace or a narrower mediator.
 func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (ServiceEndpointsObservation, error) {
 	u, err := validateServiceEndpointsConfig(c)
 	if err != nil {
@@ -329,6 +330,10 @@ func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (Ser
 	if err != nil {
 		return ServiceEndpointsObservation{}, err
 	}
+	after, err := serviceIdentity(afterRaw, c.Target, c.ExpectedTargetPort, c.ExpectedSelector)
+	if err != nil {
+		return ServiceEndpointsObservation{}, err
+	}
 	prediction, err := ReplayServiceEndpoints(c.Target, c.ExpectedTargetPort, c.ExpectedSelector, beforeRaw, slicesRaw, afterRaw)
 	if err != nil {
 		return ServiceEndpointsObservation{}, err
@@ -374,7 +379,7 @@ func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (Ser
 				Name: "service_get_after",
 				StartedAt: afterStarted.UTC().Format(time.RFC3339Nano),
 				CompletedAt: afterCompleted.UTC().Format(time.RFC3339Nano),
-				ResponseResourceVersion: before.ResourceVersion,
+				ResponseResourceVersion: after.ResourceVersion,
 				ResponseSHA256: digestSource(afterRaw),
 			},
 		},
