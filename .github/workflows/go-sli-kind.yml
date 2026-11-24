@@ -15,6 +15,8 @@ on:
       - "internal/**"
       - "go.mod"
       - "demo/k8s/golden-stack.yaml"
+      - "scripts/verify_sli_kind_evidence.py"
+      - "tests/test_verify_sli_kind_evidence.py"
       - ".github/workflows/go-sli-kind.yml"
 
 permissions:
@@ -78,18 +80,7 @@ jobs:
           STATUS=0
           /tmp/sre-agent verify-sli "${COMMON[@]}" --max-latency-seconds 10 --min-traffic-rps 1000000 --out /tmp/go-sli-unknown.json || STATUS=$?
           test "$STATUS" -eq 3
-          python - <<'PY'
-          import base64, hashlib, json
-          for path, want in [('/tmp/go-sli-healthy.json', 'HEALTHY'), ('/tmp/go-sli-unhealthy.json', 'UNHEALTHY'), ('/tmp/go-sli-unknown.json', 'UNKNOWN')]:
-              report = json.load(open(path, encoding='utf-8'))
-              assert report['status'] == want, report
-              assert len(report['evidence']) == 3, report
-              for entry in report['evidence']:
-                  original = base64.b64decode(entry['raw_response_base64'], validate=True)
-                  assert hashlib.sha256(original).hexdigest() == entry['response_sha256']
-                  assert entry['series'] >= 1 and entry['samples'] >= 5
-              print('independently_validated', path, report['status'])
-          PY
+          python scripts/verify_sli_kind_evidence.py
       - name: Upload exact-head live SLI evidence
         if: always()
         uses: actions/upload-artifact@v4
