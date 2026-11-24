@@ -24,7 +24,12 @@ func checkCanonicalFields(raw []byte) error {
  if err:=json.Unmarshal(raw,&root);err!=nil||root==nil {
   return unknown("invalid Alertmanager root object")
  }
- if err:=checkCanonicalObject(root,"receiver","status","groupKey","commonLabels","commonAnnotations","alerts");err!=nil{return err}
+ if err:=checkCanonicalObject(root,"receiver","status","groupKey","truncatedAlerts","commonLabels","commonAnnotations","alerts");err!=nil{return err}
+ // Alertmanager may truncate the group before computing common labels.
+ // An explicitly incomplete group cannot prove that every member is scoped.
+ if value,ok:=root["truncatedAlerts"];ok && strings.TrimSpace(string(value))!="0" {
+  return unknown("truncated or invalid Alertmanager alert count")
+ }
  var common map[string]json.RawMessage
  if bytes,ok:=root["commonLabels"];ok {
   if err:=json.Unmarshal(bytes,&common);err!=nil{return unknown("invalid common label object")}
