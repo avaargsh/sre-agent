@@ -131,10 +131,17 @@ func TestReplayServiceEndpointsObservationValidatesReadAndRawEvidenceBinding(t *
 		"service-after-version-forged": func(capture *ServiceEndpointsObservation) {
 			capture.Report.ReadTimeline[2].ResponseResourceVersion = "20"
 		},
+		"raw-endpoint-source-tampered": func(capture *ServiceEndpointsObservation) {
+			capture.EndpointSlicesRaw = append([]byte(nil), capture.EndpointSlicesRaw...)
+			capture.EndpointSlicesRaw = []byte(strings.Replace(string(capture.EndpointSlicesRaw), `"ready":true`, `"ready":false`, 1))
+		},
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
 			candidate := observation
+			candidate.ServiceBeforeRaw = append([]byte(nil), observation.ServiceBeforeRaw...)
+			candidate.EndpointSlicesRaw = append([]byte(nil), observation.EndpointSlicesRaw...)
+			candidate.ServiceAfterRaw = append([]byte(nil), observation.ServiceAfterRaw...)
 			candidate.Report.ReadTimeline = append([]ServiceEndpointsRead(nil), observation.Report.ReadTimeline...)
 			mutate(&candidate)
 			if _, err := ReplayServiceEndpointsObservation(target, 8080, selector, candidate); err == nil {
