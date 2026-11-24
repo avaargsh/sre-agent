@@ -55,6 +55,14 @@ func replaceJSONOnce(t *testing.T, raw, old, replacement string) []byte {
 	return []byte(changed)
 }
 
+func appendJSONRootField(t *testing.T, raw, field string) []byte {
+	t.Helper()
+	if !strings.HasSuffix(raw, "}") {
+		t.Fatal("JSON object fixture has no closing brace")
+	}
+	return []byte(strings.TrimSuffix(raw, "}") + "," + field + "}")
+}
+
 func TestEvaluateRawRejectsAmbiguousEnvelopes(t *testing.T) {
 	validPrediction := []byte(`{}`)
 	for _, tc := range []struct {
@@ -93,7 +101,7 @@ func TestEvaluateRawRejectsUnconsumedFields(t *testing.T) {
 	}{
 		{
 			"unknown episode field",
-			replaceJSONOnce(t, episodeText, `}`, `,"operator_approval":true}`),
+			appendJSONRootField(t, episodeText, `"operator_approval":true`),
 			predictionRaw,
 		},
 		{
@@ -105,7 +113,7 @@ func TestEvaluateRawRejectsUnconsumedFields(t *testing.T) {
 		{
 			"unknown prediction field",
 			episodeRaw,
-			replaceJSONOnce(t, predictionText, `}`, `,"evidence_attestation":"signed"}`),
+			appendJSONRootField(t, predictionText, `"evidence_attestation":"signed"`),
 		},
 		{
 			"noncanonical root field alias",
