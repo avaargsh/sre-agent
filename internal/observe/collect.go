@@ -47,6 +47,7 @@ func selectorLabelOK(key, value string) bool {
 }
 
 const maxResponseBytes = 2 << 20
+const maxCollectionDuration = 30 * time.Second
 const maxPods = 100
 const maxSeries = 32
 
@@ -179,6 +180,7 @@ func client(c Config)*http.Client{
  return &copied
 }
 func getRawJSON(ctx context.Context,hc *http.Client,endpoint *url.URL,path,token string)([]byte,error){
+ if ctx.Err()!=nil{return nil,unknownf("source read canceled or collection deadline exceeded")}
  u:=*endpoint
  parsed,err:=url.Parse(path)
  if err!=nil||!strings.HasPrefix(parsed.Path,"/"){return nil,unknownf("invalid read path")}
@@ -190,10 +192,12 @@ func getRawJSON(ctx context.Context,hc *http.Client,endpoint *url.URL,path,token
  if token!=""{req.Header.Set("Authorization","Bearer "+token)}
  res,err:=hc.Do(req)
  if err!=nil{return nil,unknownf("read request failed: %T",err)}
+ if ctx.Err()!=nil{if res!=nil&&res.Body!=nil{_ = res.Body.Close()};return nil,unknownf("source read canceled or collection deadline exceeded")}
  defer res.Body.Close()
  if res.StatusCode!=http.StatusOK{return nil,unknownf("source response status %d",res.StatusCode)}
  payload,err:=io.ReadAll(io.LimitReader(res.Body,maxResponseBytes+1))
  if err!=nil||len(payload)>maxResponseBytes{return nil,unknownf("source response failed or exceeded limit")}
+ if ctx.Err()!=nil{return nil,unknownf("source read canceled or collection deadline exceeded")}
  if err:=validateSourceJSON(payload);err!=nil{return nil,unknownf("invalid native source JSON")}
  return payload,nil
 }
@@ -279,16 +283,28 @@ func readPrometheus(ctx context.Context,hc *http.Client,u *url.URL,c Config,now 
   "observed_at":when,"max_age_seconds":strconv.FormatFloat(maxAge.Seconds(),'f',-1,64)}
  return evidenceItem(stableID("prometheus",attrs),"prometheus",fmt.Sprintf("PromQL %s: %d fresh finite series",query,len(samples)),when,attrs),nil
 }
-// Collect gathers observation facts, never marks a hypothesis SUPPORTED or the
-// incident RECOVERED. On any incomplete read it returns UNKNOWN and no bundle.
+// Collect gathers observation facts under one shared, bounded source-read
+// deadline. It never marks a hypothesis SUPPORTED or an incident RECOVERED.
 func Collect(ctx context.Context,c Config)([]byte,error){
+ return collectWithBudget(ctx,c,maxCollectionDuration)
+}
+
+// collectWithBudget is kept internal so tests can exercise the same production
+// path with a short deterministic budget. The caller's earlier deadline wins.
+func collectWithBudget(ctx context.Context,c Config,budget time.Duration)([]byte,error){
+ if budget<=0{return nil,unknownf("invalid collection time budget")}
  k,p,err:=validate(c);if err!=nil{return nil,err}
+ ctx,cancel:=context.WithTimeout(ctx,budget)
+ defer cancel()
+ if ctx.Err()!=nil{return nil,unknownf("collection canceled or deadline exceeded")}
  now:=time.Now().UTC()
  if c.Now!=nil{now=c.Now().UTC()}
  when:=now.Format(time.RFC3339Nano)
  hc:=client(c)
  kubernetesEvidence,err:=readKubernetes(ctx,hc,k,c,when);if err!=nil{return nil,err}
+ if ctx.Err()!=nil{return nil,unknownf("collection canceled or deadline exceeded")}
  prometheusEvidence,err:=readPrometheus(ctx,hc,p,c,now,when);if err!=nil{return nil,err}
+ if ctx.Err()!=nil{return nil,unknownf("collection canceled or deadline exceeded")}
  payload:=map[string]any{
   "incident":map[string]any{"incident_id":c.IncidentID,"summary":c.Summary,"severity":c.Severity,"scope":"namespace="+c.Namespace+",deployment="+c.Deployment},
   "evidence":[]any{kubernetesEvidence,prometheusEvidence},
@@ -303,5 +319,6 @@ func Collect(ctx context.Context,c Config)([]byte,error){
  serialized,err=json.MarshalIndent(payload,"","  ")
  if err!=nil{return nil,unknownf("failed to encode frozen bundle")}
  if _,err=evidence.Verify(serialized);err!=nil{return nil,unknownf("final bundle validation: %v",err)}
+ if ctx.Err()!=nil{return nil,unknownf("collection canceled or deadline exceeded")}
  return serialized,nil
 }
