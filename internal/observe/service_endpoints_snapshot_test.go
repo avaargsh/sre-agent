@@ -64,8 +64,7 @@ func TestCollectServiceEndpointsPinsListAtOrAfterServiceResourceVersion(t *testi
 		report.ReadTimeline[2].ResponseResourceVersion != "19" {
 		t.Fatalf("read timeline lost cross-resource version association: %+v", report.ReadTimeline)
 	}
-	if report.CollectionStartedAt == "" || report.CollectionCompletedAt == "" ||
-		report.ObservedAt != report.CollectionCompletedAt {
+	if report.CollectionStartedAt == "" || report.ObservedAt == "" {
 		t.Fatalf("collection window is incomplete: %+v", report)
 	}
 
@@ -81,7 +80,7 @@ func TestCollectServiceEndpointsPinsListAtOrAfterServiceResourceVersion(t *testi
 		return parsed
 	}
 	collectionStart := parse(report.CollectionStartedAt)
-	collectionEnd := parse(report.CollectionCompletedAt)
+	collectionEnd := parse(report.ObservedAt)
 	previousEnd := collectionStart
 	for _, read := range report.ReadTimeline {
 		started := parse(read.StartedAt)
@@ -127,8 +126,7 @@ func TestReplayServiceEndpointsObservationValidatesReadAndRawEvidenceBinding(t *
 			capture.Report.ReadTimeline[1].ResponseSHA256 = strings.Repeat("0", 64)
 		},
 		"collection-window-inverted": func(capture *ServiceEndpointsObservation) {
-			capture.Report.CollectionCompletedAt = capture.Report.CollectionStartedAt
-			capture.Report.ObservedAt = capture.Report.CollectionCompletedAt
+			capture.Report.ObservedAt = capture.Report.CollectionStartedAt
 		},
 		"service-after-version-forged": func(capture *ServiceEndpointsObservation) {
 			capture.Report.ReadTimeline[2].ResponseResourceVersion = "20"
