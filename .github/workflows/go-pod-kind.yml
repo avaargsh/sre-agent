@@ -39,3 +39,7 @@ jobs:
         env:
           EXPECTED_SHA: ${{ github.sha }}
         run: bash demo/go-observe/pod-kind.sh
+      - name: Real disposable-kind Events List capture and verification
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: bash demo/go-observe/pod-events-kind.sh
