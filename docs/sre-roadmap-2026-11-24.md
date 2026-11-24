@@ -55,7 +55,7 @@ Local `git ls-remote` failed DNS resolution for github.com. The existing `test.y
 This checkpoint supersedes the older observed-main SHA above for current work; the earlier checkpoint remains historical context.
 
 - Main before the current candidate: `5de0398bf3c8b56da653731bef92846771b57304` (PR #101 merged).
-- Candidate: PR #102, `da4383a847d40c842011ef5febf4b3a283b54e01`, binding EndpointSlice LIST to the selected Service resourceVersion with `NotOlderThan`, adding ordered per-read timestamps/digests, offline capture replay, and zero-RV/410 fail-closed cases.
+- Candidate: PR #102 (use the PR's current head SHA), binding EndpointSlice LIST to the selected Service resourceVersion with `NotOlderThan`, adding ordered per-read timestamps/digests, offline capture replay, and zero/oversized-RV plus HTTP 410 fail-closed cases.
 - This is a freshness association, not a cross-resource atomic transaction or source authentication. `source_authenticated=false` remains mandatory.
 - Exact-head Go race/vet/build and disposable-kind Endpoint Oracle proof have not been returned by GitHub Actions in this session. Treat the candidate as HOLD until the exact candidate SHA has complete logs and independently checked artifacts; after merge, repeat against the resulting exact main SHA.
 - Next P0 after this slice: exact-main Go proof, live kind healthy/fault/recovery proof, then reconcile original evidence artifacts. Only after those pass should work expand to DNS vs NetworkPolicy, Pod diagnosis, and independent fault-family evaluation. Do not advance to G3/G4 authority or remediation claims on this evidence alone.
