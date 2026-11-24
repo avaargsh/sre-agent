@@ -31,7 +31,7 @@ def _open_nofollow_path(path):
             or not hasattr(os, "O_DIRECTORY") or os.open not in os.supports_dir_fd):
         raise ValueError("secure read unsupported")
     raw_path = os.fsdecode(os.fspath(path))
-    if not raw_path or "\\x00" in raw_path:
+    if not raw_path or "\x00" in raw_path:
         raise ValueError("invalid artifact path")
     absolute = os.path.isabs(raw_path)
     parts = [part for part in raw_path.split(os.sep) if part not in ("", ".")]
