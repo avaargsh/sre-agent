@@ -47,7 +47,7 @@ Historical snapshot only: observed main at that checkpoint was `064ea714615cdc08
 
 Contributor-side isolated replay of #60 normalized classifier (Go 1.23.2, Linux): source blob `2bb19cb75faaf2afb419e46e46a8413c14a2642e`, checked-in test blob `d0edbac268891666bf2168cfd260d7f8800acdb4`. Both copied files matched Git blob hashes. `go test -race -v ./internal/poddiagnosis` passed four test functions, including seven negative subtests; `go vet ./internal/poddiagnosis` passed. This is not native adapter or full-repository acceptance. During preparation the native-test branch advanced to `38b7a392d8d14015231d0ad0511529f32cb43292`; avoid overlapping writes, review its final head when implementation is present.
 
-Local `git ls-remote` failed DNS resolution for github.com. The existing `test.yml`, `go.yml`, and `go-readonly-kind.yml` already expose workflow_dispatch; authorized maintainers can dispatch them for the exact candidate ref, verify the checked-out SHA and artifact provenance, and rerun against the merged main. Do not treat a run from another commit or an isolated module as certification. Keep Draft/HOLD until all applicable gates pass.
+Local `git ls-remote` failed DNS resolution for github.com. The existing `test.yml`, `go.yml`, and `go-endpoint-kind.yml` expose workflow_dispatch; authorized maintainers can dispatch them for the exact candidate ref, verify the checked-out SHA and artifact provenance, and rerun against the merged main. Do not treat a run from another commit or an isolated module as certification. Keep Draft/HOLD until all applicable gates pass.
 
 
 ## Integration checkpoint — after Endpoint Oracle evidence hardening
