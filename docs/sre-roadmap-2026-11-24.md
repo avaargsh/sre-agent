@@ -48,3 +48,14 @@ Observed main remains `064ea714615cdc08ed515ab0187ef849f7b96a5a`; no exact-SHA A
 Contributor-side isolated replay of #60 normalized classifier (Go 1.23.2, Linux): source blob `2bb19cb75faaf2afb419e46e46a8413c14a2642e`, checked-in test blob `d0edbac268891666bf2168cfd260d7f8800acdb4`. Both copied files matched Git blob hashes. `go test -race -v ./internal/poddiagnosis` passed four test functions, including seven negative subtests; `go vet ./internal/poddiagnosis` passed. This is not native adapter or full-repository acceptance. During preparation the native-test branch advanced to `38b7a392d8d14015231d0ad0511529f32cb43292`; avoid overlapping writes, review its final head when implementation is present.
 
 Local `git ls-remote` failed DNS resolution for github.com. The existing `test.yml`, `go.yml`, and `go-readonly-kind.yml` already expose workflow_dispatch; authorized maintainers can dispatch them for the exact candidate ref, verify the checked-out SHA and artifact provenance, and rerun against the merged main. Do not treat a run from another commit or an isolated module as certification. Keep Draft/HOLD until all applicable gates pass.
+
+
+## Integration checkpoint — after Endpoint Oracle evidence hardening
+
+This checkpoint supersedes the older observed-main SHA above for current work; the earlier checkpoint remains historical context.
+
+- Main before the current candidate: `5de0398bf3c8b56da653731bef92846771b57304` (PR #101 merged).
+- Candidate: PR #102, `da4383a847d40c842011ef5febf4b3a283b54e01`, binding EndpointSlice LIST to the selected Service resourceVersion with `NotOlderThan`, adding ordered per-read timestamps/digests, offline capture replay, and zero-RV/410 fail-closed cases.
+- This is a freshness association, not a cross-resource atomic transaction or source authentication. `source_authenticated=false` remains mandatory.
+- Exact-head Go race/vet/build and disposable-kind Endpoint Oracle proof have not been returned by GitHub Actions in this session. Treat the candidate as HOLD until the exact candidate SHA has complete logs and independently checked artifacts; after merge, repeat against the resulting exact main SHA.
+- Next P0 after this slice: exact-main Go proof, live kind healthy/fault/recovery proof, then reconcile original evidence artifacts. Only after those pass should work expand to DNS vs NetworkPolicy, Pod diagnosis, and independent fault-family evaluation. Do not advance to G3/G4 authority or remediation claims on this evidence alone.
