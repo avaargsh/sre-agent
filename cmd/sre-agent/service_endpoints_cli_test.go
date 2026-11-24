@@ -63,6 +63,9 @@ func TestCaptureServiceEndpointsEmitsReplayableExactBytes(t *testing.T) {
 		t.Fatalf("capture did not preserve exact bytes: %+v", got)
 	}
 	if got.Report.Classification != "READY_ENDPOINTS_OBSERVED" || got.Report.SourceAuthenticated ||
+		len(got.Report.ReadTimeline) != 3 ||
+		got.Report.ReadTimeline[1].RequestResourceVersion != "19" ||
+		got.Report.ReadTimeline[1].RequestResourceVersionMatch != "NotOlderThan" ||
 		serviceReads != 2 || sliceReads != 1 {
 		t.Fatalf("wrong capture report or read count: %+v service=%d slices=%d", got.Report, serviceReads, sliceReads)
 	}
