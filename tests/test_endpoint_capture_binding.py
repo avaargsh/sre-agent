@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 from pathlib import Path
+import stat
 import subprocess
 import sys
 
@@ -81,3 +82,75 @@ def test_capture_binding(tmp_path, mutation):
     else:
         assert result.returncode != 0, result.stdout
         assert not (tmp_path / "observed-service.json").exists()
+
+
+@pytest.mark.parametrize("destination", [
+    "observed-service.json",
+    "observed-endpointslices.json",
+    "observed-service-after.json",
+    "observer-report.json",
+])
+def test_unpack_never_overwrites_existing_destination(tmp_path, destination):
+    capture = fixture()
+    src = tmp_path / "capture.json"
+    src.write_text(json.dumps(capture), encoding="utf-8")
+    sentinel = b"preserve-existing-evidence"
+    existing = tmp_path / destination
+    existing.write_bytes(sentinel)
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(src), str(tmp_path), UID],
+        capture_output=True, text=True, timeout=10,
+    )
+
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert existing.read_bytes() == sentinel
+    for name in (
+        "observed-service.json",
+        "observed-endpointslices.json",
+        "observed-service-after.json",
+        "observer-report.json",
+    ):
+        if name != destination:
+            assert not (tmp_path / name).exists()
+
+
+def test_unpack_does_not_follow_symlink_destination(tmp_path):
+    capture = fixture()
+    src = tmp_path / "capture.json"
+    src.write_text(json.dumps(capture), encoding="utf-8")
+    victim = tmp_path / "victim.bin"
+    sentinel = b"must-not-be-modified"
+    victim.write_bytes(sentinel)
+    destination = tmp_path / "observed-service.json"
+    destination.symlink_to(victim)
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(src), str(tmp_path), UID],
+        capture_output=True, text=True, timeout=10,
+    )
+
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert destination.is_symlink()
+    assert victim.read_bytes() == sentinel
+    assert not (tmp_path / "observed-endpointslices.json").exists()
+
+
+def test_unpack_publishes_private_files(tmp_path):
+    capture = fixture()
+    src = tmp_path / "capture.json"
+    src.write_text(json.dumps(capture), encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(src), str(tmp_path), UID],
+        capture_output=True, text=True, timeout=10,
+    )
+
+    assert result.returncode == 0, result.stderr
+    for name in (
+        "observed-service.json",
+        "observed-endpointslices.json",
+        "observed-service-after.json",
+        "observer-report.json",
+    ):
+        assert stat.S_IMODE((tmp_path / name).stat().st_mode) == 0o600

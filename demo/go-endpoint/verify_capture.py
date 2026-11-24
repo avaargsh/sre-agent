@@ -7,7 +7,10 @@ import calendar
 import datetime
 import hashlib
 import json
+import os
 import re
+import secrets
+import stat
 from pathlib import Path
 import sys
 
@@ -46,6 +49,118 @@ def parse_time(value):
     seconds = calendar.timegm(whole.timetuple())
     fraction = (match.group(2) or "").ljust(9, "0")
     return seconds * 1_000_000_000 + (int(fraction) if fraction else 0)
+
+
+def open_directory_nofollow(directory):
+    """Open every path component without following a symlink."""
+    if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
+        raise OSError("safe no-follow directory opens unavailable")
+    absolute = os.path.abspath(os.fspath(directory))
+    parts = Path(absolute).parts
+    if not parts or parts[0] != os.sep:
+        raise OSError("output directory must be absolute")
+    descriptor = os.open(os.sep, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for component in parts[1:]:
+            next_descriptor = os.open(
+                component,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=descriptor,
+            )
+            os.close(descriptor)
+            descriptor = next_descriptor
+        return descriptor
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
+def publish_create_only(directory, outputs):
+    """Publish a complete artifact set without following or replacing paths.
+
+    Files are staged as private, exclusive inodes in the already-open output
+    directory. Final names are create-only hard links. If any publication
+    fails, remove only final links that still identify this invocation's inode.
+    """
+    directory_fd = open_directory_nofollow(directory)
+    staged = []
+    published = []
+    try:
+        for final_name, payload in outputs:
+            if (type(final_name) is not str or not final_name
+                    or Path(final_name).name != final_name
+                    or final_name in (".", "..")):
+                raise ValueError("invalid output filename")
+            if type(payload) is not bytes:
+                raise ValueError("output payload must be bytes")
+            temporary_name = f".verify-capture-{secrets.token_hex(16)}.tmp"
+            descriptor = os.open(
+                temporary_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=directory_fd,
+            )
+            try:
+                identity = os.fstat(descriptor)
+                if not stat.S_ISREG(identity.st_mode):
+                    raise OSError("staging output is not a regular file")
+                staged.append((temporary_name, final_name, identity.st_dev, identity.st_ino))
+                view = memoryview(payload)
+                while view:
+                    written = os.write(descriptor, view)
+                    if written <= 0:
+                        raise OSError("short write while staging evidence")
+                    view = view[written:]
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+
+        for temporary_name, final_name, device, inode in staged:
+            current = os.stat(temporary_name, dir_fd=directory_fd, follow_symlinks=False)
+            if (current.st_dev, current.st_ino) != (device, inode) or not stat.S_ISREG(current.st_mode):
+                raise OSError("staging file identity changed")
+            os.link(
+                temporary_name,
+                final_name,
+                src_dir_fd=directory_fd,
+                dst_dir_fd=directory_fd,
+                follow_symlinks=False,
+            )
+            published.append((final_name, device, inode))
+        os.fsync(directory_fd)
+    except Exception as original_error:
+        rollback_errors = []
+        for final_name, device, inode in reversed(published):
+            try:
+                current = os.stat(final_name, dir_fd=directory_fd, follow_symlinks=False)
+                if (current.st_dev, current.st_ino) == (device, inode):
+                    os.unlink(final_name, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                rollback_errors.append(exc)
+        try:
+            os.fsync(directory_fd)
+        except OSError as exc:
+            rollback_errors.append(exc)
+        if rollback_errors:
+            raise OSError("evidence publication failed and rollback was incomplete") from rollback_errors[0]
+        raise original_error
+    finally:
+        try:
+            for temporary_name, _final_name, device, inode in staged:
+                try:
+                    current = os.stat(temporary_name, dir_fd=directory_fd, follow_symlinks=False)
+                    if (current.st_dev, current.st_ino) == (device, inode):
+                        os.unlink(temporary_name, dir_fd=directory_fd)
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    # A leftover staging inode remains private (0600); never
+                    # replace or remove a path whose identity cannot be proven.
+                    pass
+        finally:
+            os.close(directory_fd)
 
 
 def unpack(capture, directory, uid):
@@ -87,9 +202,10 @@ def unpack(capture, directory, uid):
         sources.append((name, raw))
     require(sources[0][1] == sources[2][1], "Service changed during capture")
     # No output is published before all source bindings have been checked.
-    for name, raw in sources:
-        (directory / name).write_bytes(raw)
-    (directory / "observer-report.json").write_text(json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    outputs = [(name, raw) for name, raw in sources]
+    report_bytes = (json.dumps(report, sort_keys=True, indent=2) + "\n").encode("utf-8")
+    outputs.append(("observer-report.json", report_bytes))
+    publish_create_only(directory, outputs)
     print("PASS: lab capture byte binding", report["classification"], "reported ready endpoints", report["ready_endpoints"])
 
 
