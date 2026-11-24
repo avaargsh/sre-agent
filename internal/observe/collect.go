@@ -22,6 +22,7 @@ import (
   "time"
   "github.com/avaargsh/sre-agent/internal/evidence"
   "github.com/avaargsh/sre-agent/internal/metricseries"
+ "github.com/avaargsh/sre-agent/internal/sourcejson"
 )
 
 var ErrUnknown = errors.New("observation UNKNOWN")
@@ -134,7 +135,6 @@ type podList struct {
 }
 type promResult struct {
  Status string `json:"status"`
- Warnings []string `json:"warnings"`
  Data struct {
   ResultType string `json:"resultType"`
   Result []struct{
@@ -251,9 +251,11 @@ func readPrometheus(ctx context.Context,hc *http.Client,u *url.URL,c Config,now 
  if len(query)>512{return nil,unknownf("query exceeds length limit")}
  var p promResult
  path:="/api/v1/query?query="+url.QueryEscape(query)
- if err:=getJSON(ctx,hc,u,path,"",&p);err!=nil{return nil,err}
+ raw,err:=getRawJSON(ctx,hc,u,path,"")
+ if err!=nil{return nil,err}
+ if sourcejson.CheckPrometheusCompleteness(raw)!=nil{return nil,unknownf("warned, partial or invalid Prometheus response")}
+ if json.Unmarshal(raw,&p)!=nil{return nil,unknownf("malformed source JSON")}
  if p.Status!="success"||p.Data.ResultType!="vector"||len(p.Data.Result)==0||len(p.Data.Result)>maxSeries{return nil,unknownf("missing or invalid Prometheus instant-vector result")}
- if len(p.Warnings)>0{return nil,unknownf("Prometheus query returned warnings; cannot assert complete observation")}
  maxAge:=c.MaxMetricAge
  if maxAge==0{maxAge=90*time.Second}
  samples:=make([]map[string]any,0,len(p.Data.Result))
