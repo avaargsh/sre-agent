@@ -220,6 +220,12 @@ func Evaluate(e Episode,p Prediction)(Result,error){
  if before.ResourceVersion!=during.ResourceVersion||before.ResourceVersion!=after.ResourceVersion{
   return Result{},errors.New("Service was modified; EndpointSlice-only attribution unsafe")
  }
+ beforeService,err:=checkedRaw(e.Before.Service);if err!=nil{return Result{},err}
+ duringService,err:=checkedRaw(e.During.Service);if err!=nil{return Result{},err}
+ afterService,err:=checkedRaw(e.After.Service);if err!=nil{return Result{},err}
+ if !sameJSONSource(beforeService,duringService)||!sameJSONSource(beforeService,afterService){
+  return Result{},errors.New("complete Service source changed between episode phases")
+ }
  if bs.ready==0||as.ready==0{return Result{},errors.New("baseline or recovery has no ready endpoints")}
  if err:=probes(e.Before.Probes,true);err!=nil{return Result{},err}
  if err:=probes(e.After.Probes,true);err!=nil{return Result{},err}
@@ -240,6 +246,7 @@ func Evaluate(e Episode,p Prediction)(Result,error){
  if !reflect.DeepEqual(replay,p){return Result{},errors.New("model prediction differs from source-only replay")}
  adminRaw,err:=checkedRaw(e.During.EndpointSlices);if err!=nil{return Result{},err}
  if !sameEndpointSource(eraw,adminRaw){return Result{},errors.New("observer EndpointSlice source differs from test-admin exact-version snapshot")}
+ if !sameJSONSource(sraw,duringService){return Result{},errors.New("observer Service source differs from test-admin exact-version snapshot")}
  verdict:="CORRECT_CONTROL"
  if fault{verdict="MATCHED_INJECTED_OUTAGE"}
  return Result{SchemaVersion:"sre.endpoint-evaluation/v1",EpisodeID:e.ID,Scenario:e.Scenario,
