@@ -208,7 +208,7 @@ Go Oracle. The helper treats the resourceVersion as an opaque UTF-8 string
 bounded to 256 bytes and URL-encodes it; it does not require decimal digits or
 perform numeric ordering. It opens evidence with no-follow, nonblocking
 flags, accepts only regular files, and reads at most the 2 MiB response bound
-plus one detection byte; symlinks and FIFOs fail closed. It rejects unpaired
+plus one detection byte; final-component symlinks and FIFOs fail closed. It rejects unpaired
 UTF-16 surrogates anywhere in the decoded EndpointSlice JSON, not only in the
 resourceVersion field, and bounds decoded JSON nesting to 64 levels (including
 a fail-closed parser recursion guard). Malformed Unicode or adversarial
