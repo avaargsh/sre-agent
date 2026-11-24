@@ -2,6 +2,7 @@ package observe
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -140,5 +141,35 @@ func TestReplayServiceEndpointsObservationValidatesReadAndRawEvidenceBinding(t *
 				t.Fatal("accepted capture with inconsistent source/read metadata")
 			}
 		})
+	}
+}
+
+func TestCollectServiceEndpointsFailsClosedWhenPinnedListVersionExpires(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		switch r.URL.Path {
+		case "/api/v1/namespaces/demo/services/checkout-api":
+			_, _ = fmt.Fprint(w, serviceEndpointsService)
+		case "/apis/discovery.k8s.io/v1/namespaces/demo/endpointslices":
+			if r.URL.Query().Get("resourceVersion") != "19" ||
+				r.URL.Query().Get("resourceVersionMatch") != "NotOlderThan" {
+				t.Errorf("missing cross-resource version fence: %s", r.URL.RawQuery)
+			}
+			w.WriteHeader(http.StatusGone)
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	observation, err := CollectServiceEndpoints(context.Background(), serviceEndpointsConfig(server.URL))
+	if !errors.Is(err, ErrUnknown) ||
+		observation.ServiceBeforeRaw != nil ||
+		observation.EndpointSlicesRaw != nil ||
+		observation.ServiceAfterRaw != nil ||
+		calls != 2 {
+		t.Fatalf("expired pinned snapshot must fail closed without fallback or partial evidence: %+v err=%v calls=%d", observation, err, calls)
 	}
 }
