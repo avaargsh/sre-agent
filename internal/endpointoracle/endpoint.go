@@ -238,6 +238,8 @@ func Evaluate(e Episode,p Prediction)(Result,error){
  replay,err:=Diagnose(sraw,eraw,e.ExpectedTargetPort,e.ExpectedSelector)
  if err!=nil{return Result{},err}
  if !reflect.DeepEqual(replay,p){return Result{},errors.New("model prediction differs from source-only replay")}
+ adminRaw,err:=checkedRaw(e.During.EndpointSlices);if err!=nil{return Result{},err}
+ if !sameEndpointSource(eraw,adminRaw){return Result{},errors.New("observer EndpointSlice source differs from test-admin exact-version snapshot")}
  verdict:="CORRECT_CONTROL"
  if fault{verdict="MATCHED_INJECTED_OUTAGE"}
  return Result{SchemaVersion:"sre.endpoint-evaluation/v1",EpisodeID:e.ID,Scenario:e.Scenario,
