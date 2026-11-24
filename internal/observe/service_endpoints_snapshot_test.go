@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-func TestCollectServiceEndpointsPinsListAtOrAfterServiceResourceVersion(t *testing.T) {
+func TestCollectServiceEndpointsUsesMostRecentListWithoutCrossResourceVersionFence(t *testing.T) {
 	listQueryCh := make(chan url.Values, 1)
 	var serviceReads atomic.Int32
 	var listReads atomic.Int32
@@ -48,11 +48,11 @@ func TestCollectServiceEndpointsPinsListAtOrAfterServiceResourceVersion(t *testi
 		t.Fatalf("expected two Service fences and one EndpointSlice LIST, got service=%d list=%d", serviceReads.Load(), listReads.Load())
 	}
 	listQuery := <-listQueryCh
-	if listQuery.Get("resourceVersion") != "19" ||
-		listQuery.Get("resourceVersionMatch") != "NotOlderThan" ||
+	if listQuery.Get("resourceVersion") != "" ||
+		listQuery.Get("resourceVersionMatch") != "" ||
 		listQuery.Get("labelSelector") != "kubernetes.io/service-name=checkout-api" ||
 		listQuery.Get("limit") != "129" {
-		t.Fatalf("EndpointSlice LIST is not bounded to the Service version: %s", listQuery.Encode())
+		t.Fatalf("EndpointSlice LIST must use the default Most Recent read without a cross-resource version fence: %s", listQuery.Encode())
 	}
 
 	report := observation.Report
@@ -65,13 +65,14 @@ func TestCollectServiceEndpointsPinsListAtOrAfterServiceResourceVersion(t *testi
 		t.Fatalf("unexpected source read order: %+v", report.ReadTimeline)
 	}
 	if report.ReadTimeline[0].ResponseResourceVersion != "19" ||
-		report.ReadTimeline[1].RequestResourceVersion != "19" ||
-		report.ReadTimeline[1].RequestResourceVersionMatch != "NotOlderThan" ||
+		report.ReadTimeline[1].RequestResourceVersion != "" ||
+		report.ReadTimeline[1].RequestResourceVersionMatch != "" ||
+		report.ReadTimeline[1].RequestConsistency != "MOST_RECENT" ||
 		report.ReadTimeline[1].RequestLabelSelector != "kubernetes.io/service-name=checkout-api" ||
 		report.ReadTimeline[1].RequestLimit != 129 ||
 		report.ReadTimeline[1].ResponseResourceVersion != "25" ||
 		report.ReadTimeline[2].ResponseResourceVersion != "19" {
-		t.Fatalf("read timeline lost cross-resource version association: %+v", report.ReadTimeline)
+		t.Fatalf("read timeline must describe a Most Recent EndpointSlice LIST without cross-resource version comparison: %+v", report.ReadTimeline)
 	}
 	if report.CollectionStartedAt == "" || report.ObservedAt == "" {
 		t.Fatalf("collection window is incomplete: %+v", report)
@@ -128,6 +129,10 @@ func TestReplayServiceEndpointsObservationValidatesReadAndRawEvidenceBinding(t *
 		"request-version-not-bound": func(capture *ServiceEndpointsObservation) {
 			capture.Report.ReadTimeline[1].RequestResourceVersion = "18"
 		},
+		"cross-resource-version-fence-forged": func(capture *ServiceEndpointsObservation) {
+			capture.Report.ReadTimeline[1].RequestResourceVersion = "19"
+			capture.Report.ReadTimeline[1].RequestResourceVersionMatch = "NotOlderThan"
+		},
 		"request-match-weakened": func(capture *ServiceEndpointsObservation) {
 			capture.Report.ReadTimeline[1].RequestResourceVersionMatch = "Exact"
 		},
@@ -170,7 +175,7 @@ func TestReplayServiceEndpointsObservationValidatesReadAndRawEvidenceBinding(t *
 	}
 }
 
-func TestCollectServiceEndpointsFailsClosedWhenPinnedListVersionExpires(t *testing.T) {
+func TestCollectServiceEndpointsFailsClosedOnGoneListWithoutVersionFence(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -178,11 +183,11 @@ func TestCollectServiceEndpointsFailsClosedWhenPinnedListVersionExpires(t *testi
 		case "/api/v1/namespaces/demo/services/checkout-api":
 			_, _ = fmt.Fprint(w, serviceEndpointsService)
 		case "/apis/discovery.k8s.io/v1/namespaces/demo/endpointslices":
-			if r.URL.Query().Get("resourceVersion") != "19" ||
-				r.URL.Query().Get("resourceVersionMatch") != "NotOlderThan" ||
+			if r.URL.Query().Get("resourceVersion") != "" ||
+				r.URL.Query().Get("resourceVersionMatch") != "" ||
 				r.URL.Query().Get("labelSelector") != "kubernetes.io/service-name=checkout-api" ||
 				r.URL.Query().Get("limit") != "129" {
-				t.Errorf("missing cross-resource version fence: %s", r.URL.RawQuery)
+				t.Errorf("unexpected cross-resource version fence: %s", r.URL.RawQuery)
 			}
 			w.WriteHeader(http.StatusGone)
 		default:
@@ -198,7 +203,7 @@ func TestCollectServiceEndpointsFailsClosedWhenPinnedListVersionExpires(t *testi
 		observation.EndpointSlicesRaw != nil ||
 		observation.ServiceAfterRaw != nil ||
 		calls.Load() != 2 {
-		t.Fatalf("expired pinned snapshot must fail closed without fallback or partial evidence: %+v err=%v calls=%d", observation, err, calls.Load())
+		t.Fatalf("HTTP 410 must fail closed without fallback or partial evidence: %+v err=%v calls=%d", observation, err, calls.Load())
 	}
 }
 
@@ -219,7 +224,7 @@ func TestCollectServiceEndpointsRejectsZeroServiceResourceVersionBeforeList(t *t
 		observation.ServiceBeforeRaw != nil ||
 		observation.EndpointSlicesRaw != nil ||
 		calls.Load() != 1 {
-		t.Fatalf("zero RV must not weaken the cross-resource snapshot fence: %+v err=%v calls=%d", observation, err, calls.Load())
+		t.Fatalf("zero Service RV must fail closed before the unversioned EndpointSlice LIST: %+v err=%v calls=%d", observation, err, calls.Load())
 	}
 }
 
@@ -262,7 +267,7 @@ func TestReplayServiceEndpointsObservationRejectsLegacyReportSchema(t *testing.T
 		ServiceTarget{Namespace: "demo", Name: "checkout-api", UID: "service-uid-1"},
 		8080, map[string]string{"app": "checkout-api"}, observation,
 	); !errors.Is(err, ErrUnknown) {
-		t.Fatalf("legacy report without the required version-fenced timeline must fail closed: %v", err)
+		t.Fatalf("legacy report without the required Most Recent read contract must fail closed: %v", err)
 	}
 }
 
@@ -318,11 +323,14 @@ func TestCollectServiceEndpointsSupportsOpaqueResourceVersions(t *testing.T) {
 		t.Fatalf("expected exactly one EndpointSlice LIST, got %d", listReads.Load())
 	}
 	listQuery := <-listQueryCh
-	if listQuery.Get("resourceVersion") != serviceVersion ||
-		listQuery.Get("resourceVersionMatch") != "NotOlderThan" ||
+	if listQuery.Get("resourceVersion") != "" ||
+		listQuery.Get("resourceVersionMatch") != "" ||
 		listQuery.Get("labelSelector") != "kubernetes.io/service-name=checkout-api" ||
 		listQuery.Get("limit") != "129" {
-		t.Fatalf("opaque Service resourceVersion was not safely encoded: %s", listQuery.Encode())
+		t.Fatalf("opaque Service resourceVersion must not be sent to the different EndpointSlice resource type: %s", listQuery.Encode())
+	}
+	if observation.Report.ReadTimeline[1].RequestConsistency != "MOST_RECENT" {
+		t.Fatalf("missing Most Recent list semantics: %+v", observation.Report.ReadTimeline[1])
 	}
 	if observation.Report.ServiceResourceVersion != serviceVersion ||
 		observation.Report.EndpointSliceListResourceVersion != listVersion {
