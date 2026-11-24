@@ -21,6 +21,7 @@ import (
 )
 
 const maxRaw=2<<20
+const maxServiceResourceVersionBytes=256
 const maxEndpointSliceResourceVersionBytes=256
 type Phase struct{
  Service oracle.Snapshot `json:"service"`
@@ -136,6 +137,13 @@ type sliceList struct {
 }
 type observation struct{ready int;version string}
 
+func validateServiceResourceVersion(version string) error {
+	if version == "" || version == "0" || len(version) > maxServiceResourceVersionBytes {
+		return errors.New("invalid or oversized opaque Service resourceVersion")
+	}
+	return nil
+}
+
 func checkedRaw(s oracle.Snapshot)([]byte,error){
  if len(s.ResponseSHA256)!=64||strings.ToLower(s.ResponseSHA256)!=s.ResponseSHA256{
   return nil,errors.New("invalid source digest")
@@ -213,6 +221,7 @@ func Diagnose(serviceRaw,endpointRaw []byte,targetPort int,selector map[string]s
  if err:=validateServiceReadinessPolicy(serviceRaw);err!=nil{return Prediction{},err}
  service,err:=oracle.DiagnoseWithSelector(serviceRaw,targetPort,selector)
  if err!=nil{return Prediction{},err}
+ if err:=validateServiceResourceVersion(service.ResourceVersion);err!=nil{return Prediction{},err}
  obs,err:=inspect(endpointRaw,service.Namespace,service.Service,service.ServiceUID)
  if err!=nil{return Prediction{},err}
  classification:="UNKNOWN"
@@ -231,6 +240,7 @@ func phase(e Episode,p Phase)(oracle.Prediction,observation,error){
  if err:=validateServiceReadinessPolicy(serviceRaw);err!=nil{return oracle.Prediction{},observation{},err}
  got,err:=oracle.DiagnoseWithSelector(serviceRaw,e.ExpectedTargetPort,e.ExpectedSelector)
  if err!=nil{return oracle.Prediction{},observation{},err}
+ if err:=validateServiceResourceVersion(got.ResourceVersion);err!=nil{return oracle.Prediction{},observation{},err}
  obs,err:=inspect(endpointRaw,e.Namespace,e.Service,e.ServiceUID)
  if err!=nil{return oracle.Prediction{},observation{},err}
  if got.Namespace!=e.Namespace||got.Service!=e.Service||got.ServiceUID!=e.ServiceUID||
