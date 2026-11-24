@@ -48,3 +48,13 @@ The expected UID and digest must come from a separate trusted record; do not der
 `poddiagnosis.VerifyEventReportJSON(expected, raw, expectedRawSHA256, claimed)` recomputes an EventReport from the original bounded EventList and independently provided Pod identity/digest. The serialized claim is bounded at 256 KiB and checked for malformed Unicode, duplicate keys, case-fold collisions and exact structure. It must match the recomputed report, including every event, original order, schema and false source-authenticated flag; object ordering and JSON whitespace may differ. Altered reason codes, missing/extra fields, changed source bytes and cross-Pod replay are rejected. This verifies consistency, not truth, freshness, origin or causality. The library interface and CLI are implemented; combined Pod/Event evidence linking remains a follow-up. No RBAC or Evidence v1 changes.
 
 `verify-events-report --namespace NS --pod NAME --uid UID --sha256 PIN --report REPORT < events.json` performs independent serialized report verification. Success emits only STRUCTURALLY_LINKED; invalid claims return 3 without stdout, invalid CLI arguments return 2, output failures return 1. Like verify-pod-report, the report file must be operator-owned and stdin finite. Both commands depend on #57 for named-file regular-inode/no-follow/nonblocking hardening. Land #57, rebase and run symlink/FIFO regression tests and exact-tree CI before claiming hostile-path safety. No source authentication, causality or recovery proof.
+
+## Required #57 / #60 integration gate
+
+After #57 secure file admission lands, rebase #60 and run on Linux:
+
+```sh
+go test -race -count=1 -timeout 30s -tags sre_file_hardening ./cmd/sre-agent -run '^TestReceiptAdmissionAfterFileHardening$'
+```
+
+The eight scenarios exercise both receipt handlers with regular reports, final-component symlinks, FIFOs without writers, and directories. Before #57 this opt-in test is expected to fail (both symlink cases admit claims and both FIFO cases block). Do not treat default-suite success as satisfying this dependency. After integration, remove the temporary `sre_file_hardening` build-tag condition so Linux CI always runs these regressions, and rerun the complete exact-tree Go/Python and disposable-kind gates. Parent directories remain operator-owned; storage stalls and explicitly supplied stdin streams are outside the regular-inode check. No production release authorization.
