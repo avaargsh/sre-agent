@@ -27,7 +27,7 @@ func TestValidateCanonicalFieldsRejectsCaseFoldedNativeFieldAliases(t *testing.T
   "prom-result-type": `{"data":{"resultType":"vector","ResultType":"matrix"}}`,
   "kubernetes-resource-version": `{"metadata":{"resourceVersion":"old","ResourceVersion":"new"}}`,
   "nested-pod-status": `{"items":[{"status":{"phase":"Pending","Phase":"Running"}}]}`,
-  "unicode-json-fold": `{"metadata":{"name":"one","NAME":"two"}}`,
+  "unicode-simple-fold": `{"status":"error","ſtatus":"success"}`,
  }
  for name, raw := range cases {
   t.Run(name, func(t *testing.T) {
