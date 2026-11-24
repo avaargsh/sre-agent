@@ -44,6 +44,8 @@ type ServiceEndpointsRead struct {
 	CompletedAt                  string `json:"completed_at"`
 	RequestResourceVersion       string `json:"request_resource_version,omitempty"`
 	RequestResourceVersionMatch  string `json:"request_resource_version_match,omitempty"`
+	RequestLabelSelector         string `json:"request_label_selector,omitempty"`
+	RequestLimit                 int    `json:"request_limit,omitempty"`
 	ResponseResourceVersion      string `json:"response_resource_version"`
 	ResponseSHA256                string `json:"response_sha256"`
 }
@@ -236,9 +238,13 @@ func ReplayServiceEndpointsObservation(target ServiceTarget, expectedTargetPort 
 		}
 	}
 	if reads[0].RequestResourceVersion != "" || reads[0].RequestResourceVersionMatch != "" ||
+		reads[0].RequestLabelSelector != "" || reads[0].RequestLimit != 0 ||
 		reads[1].RequestResourceVersion != before.ResourceVersion ||
 		reads[1].RequestResourceVersionMatch != "NotOlderThan" ||
-		reads[2].RequestResourceVersion != "" || reads[2].RequestResourceVersionMatch != "" {
+		reads[1].RequestLabelSelector != "kubernetes.io/service-name="+target.Name ||
+		reads[1].RequestLimit != 129 ||
+		reads[2].RequestResourceVersion != "" || reads[2].RequestResourceVersionMatch != "" ||
+		reads[2].RequestLabelSelector != "" || reads[2].RequestLimit != 0 {
 		return endpointoracle.Prediction{}, unknownf("EndpointSlice LIST is not bound to the selected Service resourceVersion")
 	}
 
@@ -369,6 +375,8 @@ func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (Ser
 				CompletedAt: slicesCompleted.UTC().Format(time.RFC3339Nano),
 				RequestResourceVersion: before.ResourceVersion,
 				RequestResourceVersionMatch: "NotOlderThan",
+				RequestLabelSelector: "kubernetes.io/service-name="+c.Target.Name,
+				RequestLimit: 129,
 				ResponseResourceVersion: prediction.ListResourceVersion,
 				ResponseSHA256: digestSource(slicesRaw),
 			},
