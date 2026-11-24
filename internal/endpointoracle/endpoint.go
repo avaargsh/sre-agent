@@ -81,7 +81,11 @@ type sliceList struct {
   AddressType string `json:"addressType"`
   Endpoints []struct {
    Addresses []string `json:"addresses"`
-   Conditions struct {Ready *bool `json:"ready"`} `json:"conditions"`
+   Conditions struct {
+    Ready *bool `json:"ready"`
+    Serving *bool `json:"serving"`
+    Terminating *bool `json:"terminating"`
+   } `json:"conditions"`
   } `json:"endpoints"`
  } `json:"items"`
 }
@@ -150,6 +154,7 @@ func inspect(raw []byte,namespace,service,serviceUID string)(observation,error){
    for _,address:=range endpoint.Addresses{
     if !validEndpointAddress(item.AddressType,address){return observation{},errors.New("invalid EndpointSlice address or address family")}
    }
+   if err:=validateEndpointLifecycle(*endpoint.Conditions.Ready,endpoint.Conditions.Serving,endpoint.Conditions.Terminating);err!=nil{return observation{},err}
    if *endpoint.Conditions.Ready{ready++}
   }
  }
@@ -159,6 +164,8 @@ func inspect(raw []byte,namespace,service,serviceUID string)(observation,error){
 // GET/LIST responses and the operator's independently supplied good baseline.
 // It never receives test-admin episode labels or client HTTP probe results.
 func Diagnose(serviceRaw,endpointRaw []byte,targetPort int,selector map[string]string)(Prediction,error){
+ if len(serviceRaw)==0||len(serviceRaw)>maxRaw||sourcejson.Validate(serviceRaw)!=nil{return Prediction{},errors.New("invalid native Service JSON")}
+ if err:=validateServiceReadinessPolicy(serviceRaw);err!=nil{return Prediction{},err}
  service,err:=oracle.DiagnoseWithSelector(serviceRaw,targetPort,selector)
  if err!=nil{return Prediction{},err}
  obs,err:=inspect(endpointRaw,service.Namespace,service.Service,service.ServiceUID)
@@ -175,6 +182,8 @@ func Diagnose(serviceRaw,endpointRaw []byte,targetPort int,selector map[string]s
 func phase(e Episode,p Phase)(oracle.Prediction,observation,error){
  serviceRaw,err:=checkedRaw(p.Service);if err!=nil{return oracle.Prediction{},observation{},err}
  endpointRaw,err:=checkedRaw(p.EndpointSlices);if err!=nil{return oracle.Prediction{},observation{},err}
+ if sourcejson.Validate(serviceRaw)!=nil{return oracle.Prediction{},observation{},errors.New("invalid native Service JSON")}
+ if err:=validateServiceReadinessPolicy(serviceRaw);err!=nil{return oracle.Prediction{},observation{},err}
  got,err:=oracle.DiagnoseWithSelector(serviceRaw,e.ExpectedTargetPort,e.ExpectedSelector)
  if err!=nil{return oracle.Prediction{},observation{},err}
  obs,err:=inspect(endpointRaw,e.Namespace,e.Service,e.ServiceUID)
