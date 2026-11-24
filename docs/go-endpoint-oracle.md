@@ -101,6 +101,12 @@ across the bounded observation interval. This is not an atomic cross-resource
 transaction and does not prove that the EndpointSlice controller had already
 reconciled every upstream Pod change.
 
+The native Service and EndpointSlice decoders also reject non-canonical case
+aliases for schema fields they consume (including nested owner references and
+endpoint conditions), rather than relying on `encoding/json`'s case-insensitive
+field matching. Dynamic label-selector and label-map keys remain data and are
+not treated as schema field names.
+
 The collector rejects empty/zero Service and collection resourceVersions and
 applies a conservative 256-byte UTF-8 bound to the opaque metadata values; it
 never parses or orders them numerically. Freshness metadata is taken from the
