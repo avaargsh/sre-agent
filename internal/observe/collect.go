@@ -134,23 +134,28 @@ func client(c Config)*http.Client{
  copied.CheckRedirect=func(req *http.Request,via []*http.Request)error{return http.ErrUseLastResponse}
  return &copied
 }
-func getJSON(ctx context.Context,hc *http.Client,endpoint *url.URL,path,token string,out any)error{
+func getRawJSON(ctx context.Context,hc *http.Client,endpoint *url.URL,path,token string)([]byte,error){
  u:=*endpoint
  parsed,err:=url.Parse(path)
- if err!=nil||!strings.HasPrefix(parsed.Path,"/"){return unknownf("invalid read path")}
+ if err!=nil||!strings.HasPrefix(parsed.Path,"/"){return nil,unknownf("invalid read path")}
  u.Path=parsed.Path
  u.RawQuery=parsed.RawQuery
  req,err:=http.NewRequestWithContext(ctx,http.MethodGet,u.String(),nil)
- if err!=nil{return unknownf("invalid read request")}
+ if err!=nil{return nil,unknownf("invalid read request")}
  req.Header.Set("Accept","application/json")
  if token!=""{req.Header.Set("Authorization","Bearer "+token)}
  res,err:=hc.Do(req)
- if err!=nil{return unknownf("read request failed: %T",err)}
+ if err!=nil{return nil,unknownf("read request failed: %T",err)}
  defer res.Body.Close()
- if res.StatusCode!=http.StatusOK{return unknownf("source response status %d",res.StatusCode)}
+ if res.StatusCode!=http.StatusOK{return nil,unknownf("source response status %d",res.StatusCode)}
  payload,err:=io.ReadAll(io.LimitReader(res.Body,maxResponseBytes+1))
- if err!=nil||len(payload)>maxResponseBytes{return unknownf("source response failed or exceeded limit")}
- if err:=validateSourceJSON(payload);err!=nil{return unknownf("invalid native source JSON")}
+ if err!=nil||len(payload)>maxResponseBytes{return nil,unknownf("source response failed or exceeded limit")}
+ if err:=validateSourceJSON(payload);err!=nil{return nil,unknownf("invalid native source JSON")}
+ return payload,nil
+}
+func getJSON(ctx context.Context,hc *http.Client,endpoint *url.URL,path,token string,out any)error{
+ payload,err:=getRawJSON(ctx,hc,endpoint,path,token)
+ if err!=nil{return err}
  decoder:=json.NewDecoder(bytes.NewReader(payload))
  if err:=decoder.Decode(out);err!=nil{return unknownf("malformed source JSON")}
  var extra any
