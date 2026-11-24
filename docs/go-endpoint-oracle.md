@@ -85,8 +85,11 @@ The capture envelope includes the exact pre/post Service and EndpointSlice
 response bytes as base64 JSON byte fields, plus SHA-256 digests, Service and
 EndpointSlice-list resourceVersions, ready endpoint count and an observation
 classification. Protect the output: it is evidence, not a public diagnostic
-artifact. Re-run `diagnose-endpoints` against the decoded raw Service and
-EndpointSlice files to replay the source-only classification.
+artifact. The exported `observe.ReplayServiceEndpoints` function independently revalidates
+both Service snapshots, exact-byte/resourceVersion equality, selected UID and
+the EndpointSlice list before recomputing the source-only prediction. The
+`diagnose-endpoints` command can also replay the decoded raw Service and
+EndpointSlice files.
 
 The EndpointSlice LIST request is bounded to 129 items and accepts at most
 128; a continuation token, absent/null `items`, duplicate slice UID/name,
