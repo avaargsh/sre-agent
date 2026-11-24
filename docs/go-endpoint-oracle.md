@@ -55,7 +55,10 @@ port/selector, checks healthy ready endpoints before+after, checks at least thre
 real HTTP successes before+after, and the expected during-phase readiness and
 HTTP failures in the injected case. It replays the observer's actual response
 and forbids unsupported classifications, forged counts/digests and invented
-recovery. Exit 3 / UNKNOWN / no output file means fail closed.
+recovery. The Episode and Prediction envelopes are themselves validated as
+single strict JSON values before typed decoding: duplicate/case-fold-conflicting
+keys, malformed Unicode/UTF-8 and trailing JSON values fail closed instead of
+being silently overwritten or ignored. Exit 3 / UNKNOWN / no output file means fail closed.
 
 
 ## Live read-only Service / EndpointSlice capture
