@@ -57,6 +57,59 @@ HTTP failures in the injected case. It replays the observer's actual response
 and forbids unsupported classifications, forged counts/digests and invented
 recovery. Exit 3 / UNKNOWN / no output file means fail closed.
 
+
+## Live read-only Service / EndpointSlice capture
+
+The Go collector now exposes `observe.CollectServiceEndpoints` and the
+`sre-agent capture-service-endpoints` command. It requires an independently
+selected Service namespace/name/UID plus the operator-owned numeric targetPort
+and selector. It performs exactly three source reads in one deadline:
+Service GET, EndpointSlice LIST filtered by
+`kubernetes.io/service-name=<service>`, then Service GET again. The two
+Service responses must retain the same UID, resourceVersion and exact bytes;
+any mismatch returns UNKNOWN and emits no partial capture.
+
+Example through an operator-controlled local API proxy (no bearer token is
+accepted by the CLI):
+
+```bash
+SERVICE_UID="$(kubectl -n golden-demo get service checkout-api -o jsonpath='{.metadata.uid}')"
+sre-agent capture-service-endpoints \
+  --namespace golden-demo --service checkout-api --uid "$SERVICE_UID" \
+  --kube-api http://127.0.0.1:18001 \
+  --expected-target-port 8080 --expected-selector app=checkout-api \
+  --timeout 15s > /secure/path/service-endpoints-capture.json
+```
+
+The capture envelope includes the exact pre/post Service and EndpointSlice
+response bytes as base64 JSON byte fields, plus SHA-256 digests, Service and
+EndpointSlice-list resourceVersions, ready endpoint count and an observation
+classification. Protect the output: it is evidence, not a public diagnostic
+artifact. Re-run `diagnose-endpoints` against the decoded raw Service and
+EndpointSlice files to replay the source-only classification.
+
+The EndpointSlice LIST request is bounded to 129 items and accepts at most
+128; a continuation token, absent/null `items`, duplicate slice UID/name,
+wrong namespace/service ownership label, unsupported address type, unknown
+readiness, empty address or malformed JSON returns UNKNOWN. Each request is
+HTTP GET only, redirects are rejected, each response is capped at 2 MiB, and
+all three reads share the caller's earlier deadline or the 30-second collector
+budget.
+
+**RBAC limitation:** Kubernetes RBAC cannot restrict EndpointSlice LIST by
+labelSelector. The reader identity can list every EndpointSlice in the
+namespace. The selector constrains the returned observation, not the
+authorization boundary. Keep the reader in a disposable/isolated namespace or
+put a narrower authenticated mediator in front of Kubernetes. The CLI does not
+accept or store credentials; the example uses a local `kubectl proxy`.
+
+The Service UID/resourceVersion fence detects Service replacement or drift
+during collection, but Service and EndpointSlice reads are not an atomic
+Kubernetes transaction. The collector reports only
+`READY_ENDPOINTS_OBSERVED`, `NO_READY_ENDPOINTS_OBSERVED`, or `UNKNOWN`.
+A zero-ready list does not establish backend root cause, dataplane failure,
+health, or recovery. `source_authenticated=false` remains explicit.
+
 ## Run disposable kind
 
 \`\`\`bash
