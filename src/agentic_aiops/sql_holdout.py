@@ -91,6 +91,137 @@ def _same_rows(left, right):
         for a, b in zip(left, right)))
 
 
+def _sql_tokens(query: str):
+    """Tokenize enough SQL syntax to identify CTE declarations safely.
+
+    String literals and comments are opaque tokens, so a word such as WITH
+    inside data cannot be mistaken for a nested CTE declaration.
+    """
+    tokens = []
+    index = 0
+    while index < len(query):
+        char = query[index]
+        if char.isspace():
+            index += 1
+            continue
+        if query.startswith("--", index):
+            end = query.find("\n", index + 2)
+            index = len(query) if end < 0 else end + 1
+            continue
+        if query.startswith("/*", index):
+            end = query.find("*/", index + 2)
+            if end < 0:
+                raise ValueError("unterminated SQL comment")
+            index = end + 2
+            continue
+        if char in ("'", '"', "\`"):
+            quote = char
+            index += 1
+            value = []
+            while index < len(query):
+                if query[index] == quote:
+                    if index + 1 < len(query) and query[index + 1] == quote:
+                        value.append(quote)
+                        index += 2
+                        continue
+                    index += 1
+                    break
+                value.append(query[index])
+                index += 1
+            else:
+                raise ValueError("unterminated SQL quote")
+            tokens.append(("quoted", "".join(value)))
+            continue
+        if char == "[":
+            index += 1
+            value = []
+            while index < len(query):
+                if query[index] == "]":
+                    if index + 1 < len(query) and query[index + 1] == "]":
+                        value.append("]")
+                        index += 2
+                        continue
+                    index += 1
+                    break
+                value.append(query[index])
+                index += 1
+            else:
+                raise ValueError("unterminated SQL identifier")
+            tokens.append(("quoted", "".join(value)))
+            continue
+        if char.isascii() and (char.isalpha() or char == "_"):
+            end = index + 1
+            while (end < len(query) and query[end].isascii()
+                   and (query[end].isalnum() or query[end] in "_$")):
+                end += 1
+            tokens.append(("word", query[index:end]))
+            index = end
+            continue
+        if char in "(),":
+            tokens.append(("punct", char))
+        else:
+            tokens.append(("other", char))
+        index += 1
+    return tokens
+
+
+def _skip_sql_parentheses(tokens, index):
+    if index >= len(tokens) or tokens[index] != ("punct", "("):
+        raise ValueError("expected SQL parenthesis")
+    depth = 0
+    while index < len(tokens):
+        if tokens[index] == ("punct", "("):
+            depth += 1
+        elif tokens[index] == ("punct", ")"):
+            depth -= 1
+            if depth == 0:
+                return index + 1
+        index += 1
+    raise ValueError("unbalanced SQL parentheses")
+
+
+def _is_sql_word(tokens, index, word):
+    return (index < len(tokens) and tokens[index][0] == "word"
+            and tokens[index][1].upper() == word)
+
+
+def _cte_names(query):
+    """Return every CTE name, including nested WITH clauses.
+
+    SQLite's authorizer emits SQLITE_READ for a CTE that shadows a real table,
+    so the callback alone cannot prove that the fixture table was read.
+    """
+    tokens = _sql_tokens(query)
+    names = set()
+    for start, token in enumerate(tokens):
+        if token[0] != "word" or token[1].upper() != "WITH":
+            continue
+        index = start + 1
+        if _is_sql_word(tokens, index, "RECURSIVE"):
+            index += 1
+        while True:
+            if index >= len(tokens) or tokens[index][0] not in ("word", "quoted"):
+                raise ValueError("invalid SQL CTE name")
+            names.add(tokens[index][1].casefold())
+            index += 1
+            if index < len(tokens) and tokens[index] == ("punct", "("):
+                index = _skip_sql_parentheses(tokens, index)
+            if not _is_sql_word(tokens, index, "AS"):
+                raise ValueError("invalid SQL CTE declaration")
+            index += 1
+            if (_is_sql_word(tokens, index, "NOT")
+                    and _is_sql_word(tokens, index + 1, "MATERIALIZED")):
+                index += 2
+            elif _is_sql_word(tokens, index, "MATERIALIZED"):
+                index += 1
+            index = _skip_sql_parentheses(tokens, index)
+            if index < len(tokens) and tokens[index] == ("punct", ","):
+                index += 1
+                continue
+            break
+    return names
+
+
 def evaluate_sql_case(fixture: Any, candidate: Any) -> dict[str, Any]:
     """Use a fresh in-memory DB with a fail-closed SELECT/READ authorizer.
 
@@ -111,6 +242,13 @@ def evaluate_sql_case(fixture: Any, candidate: Any) -> dict[str, Any]:
     }
     query = candidate.strip()
     if not re.match(r"(?:SELECT|WITH)\b", query, flags=re.IGNORECASE):
+        return report
+    try:
+        # A CTE can shadow an allowed fixture table and fool SQLite's
+        # SQLITE_READ authorizer callback into reporting a false dependency.
+        if _cte_names(query).intersection(allowed):
+            return report
+    except ValueError:
         return report
     conn = sqlite3.connect(":memory:")
     try:
