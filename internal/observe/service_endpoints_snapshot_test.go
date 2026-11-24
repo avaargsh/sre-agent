@@ -259,3 +259,63 @@ func TestReplayServiceEndpointsObservationRejectsLegacyReportSchema(t *testing.T
 		t.Fatalf("legacy report without the required version-fenced timeline must fail closed: %v", err)
 	}
 }
+
+
+func TestCollectServiceEndpointsSupportsOpaqueResourceVersions(t *testing.T) {
+	serviceVersion := "rv/opaque?x=1&y=2#fragment-β"
+	listVersion := "list/opaque?cursor=3&limit=0#fragment-γ"
+	service := strings.Replace(
+		serviceEndpointsService,
+		`"resourceVersion":"19"`,
+		`"resourceVersion":"`+serviceVersion+`"`,
+		1,
+	)
+	slices := strings.Replace(
+		serviceEndpointsSlices,
+		`"resourceVersion":"25"`,
+		`"resourceVersion":"`+listVersion+`"`,
+		1,
+	)
+	if service == serviceEndpointsService || slices == serviceEndpointsSlices {
+		t.Fatal("opaque resourceVersion fixture mutation did not apply")
+	}
+
+	var listQuery url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected method %s", r.Method)
+		}
+		switch r.URL.Path {
+		case "/api/v1/namespaces/demo/services/checkout-api":
+			_, _ = fmt.Fprint(w, service)
+		case "/apis/discovery.k8s.io/v1/namespaces/demo/endpointslices":
+			listQuery = r.URL.Query()
+			_, _ = fmt.Fprint(w, slices)
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	observation, err := CollectServiceEndpoints(context.Background(), serviceEndpointsConfig(server.URL))
+	if err != nil {
+		t.Fatalf("opaque resourceVersions should be preserved as strings: %v", err)
+	}
+	if listQuery.Get("resourceVersion") != serviceVersion ||
+		listQuery.Get("resourceVersionMatch") != "NotOlderThan" ||
+		listQuery.Get("labelSelector") != "kubernetes.io/service-name=checkout-api" ||
+		listQuery.Get("limit") != "129" {
+		t.Fatalf("opaque Service resourceVersion was not safely encoded: %s", listQuery.Encode())
+	}
+	if observation.Report.ServiceResourceVersion != serviceVersion ||
+		observation.Report.EndpointSliceListResourceVersion != listVersion {
+		t.Fatalf("opaque resourceVersions were not preserved in the report: %+v", observation.Report)
+	}
+	if _, err := ReplayServiceEndpointsObservation(
+		ServiceTarget{Namespace: "demo", Name: "checkout-api", UID: "service-uid-1"},
+		8080, map[string]string{"app": "checkout-api"}, observation,
+	); err != nil {
+		t.Fatalf("opaque resourceVersion capture did not replay: %v", err)
+	}
+}
