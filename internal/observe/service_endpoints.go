@@ -330,6 +330,7 @@ func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (Ser
 	if err != nil {
 		return ServiceEndpointsObservation{}, err
 	}
+	collectionCompleted := time.Now()
 	after, err := serviceIdentity(afterRaw, c.Target, c.ExpectedTargetPort, c.ExpectedSelector)
 	if err != nil {
 		return ServiceEndpointsObservation{}, err
@@ -341,7 +342,6 @@ func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (Ser
 	if bounded.Err() != nil {
 		return ServiceEndpointsObservation{}, unknownf("Service endpoint collection canceled or deadline exceeded")
 	}
-	collectionCompleted := time.Now()
 
 	selector := cloneSelector(c.ExpectedSelector)
 	report := ServiceEndpointsReport{
