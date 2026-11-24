@@ -81,9 +81,6 @@ func checkPolicy(p Policy)(*url.URL,time.Time,time.Time,error){
 }
 type response struct {
  Status string `json:"status"`
- Warnings []string `json:"warnings"`
- IsPartial bool `json:"isPartial"`
- PartialResponse bool `json:"partialResponse"`
  Data struct {
   ResultType string `json:"resultType"`
   Result []struct{
@@ -120,12 +117,12 @@ func query(ctx context.Context,p Policy,u *url.URL,start,end time.Time,threshold
  raw,err:=io.ReadAll(io.LimitReader(resp.Body,maxResponseSize+1))
  if err!=nil||len(raw)>maxResponseSize{return SourceEvidence{},false,errors.New("Prometheus response exceeds limit or failed")}
  if err:=sourcejson.Validate(raw);err!=nil{return SourceEvidence{},false,errors.New("invalid native Prometheus SLI JSON")}
+ if sourcejson.CheckPrometheusCompleteness(raw)!=nil{return SourceEvidence{},false,errors.New("warned, partial or invalid Prometheus SLI response")}
  var parsed response
  dec:=json.NewDecoder(bytes.NewReader(raw))
  if err:=dec.Decode(&parsed);err!=nil{return SourceEvidence{},false,errors.New("invalid Prometheus response JSON")}
  var extra any
  if !errors.Is(dec.Decode(&extra),io.EOF){return SourceEvidence{},false,errors.New("trailing Prometheus JSON")}
- if len(parsed.Warnings)>0||parsed.IsPartial||parsed.PartialResponse{return SourceEvidence{},false,errors.New("Prometheus returned warned or partial SLI evidence")}
  if parsed.Status!="success"||parsed.Data.ResultType!="matrix"||len(parsed.Data.Result)==0||len(parsed.Data.Result)>16{return SourceEvidence{},false,errors.New("missing or invalid Prometheus matrix")}
  expected:=int(p.Window/p.Step)+1
  keys:=map[string]bool{}
