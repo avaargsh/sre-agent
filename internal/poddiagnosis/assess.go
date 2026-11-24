@@ -32,8 +32,10 @@ type Report struct {
 // Assess requires a separately selected Pod identity and complete regular
 // container coverage. The caller owns JSON validation, source provenance,
 // freshness, and normalization of native Kubernetes state fields.
+const invalidSnapshotReason = "incomplete or mismatched pod snapshot"
+
 func Assess(expected Target, s Snapshot) Report {
- r:=Report{Status:"UNKNOWN", Reason:"incomplete or mismatched pod snapshot", Findings:[]Finding{}}
+ r:=Report{Status:"UNKNOWN", Reason:invalidSnapshotReason, Findings:[]Finding{}}
  if strings.TrimSpace(expected.Namespace)=="" || strings.TrimSpace(expected.Name)=="" || strings.TrimSpace(expected.UID)=="" || s.Target!=expected || strings.TrimSpace(s.ResourceVersion)=="" || len(s.Containers)==0 || len(s.Containers)>128 || len(s.Containers)!=len(s.Statuses) { return r }
  names:=make(map[string]bool,len(s.Containers))
  for _,name:=range s.Containers {
