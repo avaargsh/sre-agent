@@ -48,7 +48,10 @@ type PodLogsReport struct {
 // contain credentials, tokens, customer data or other secrets; treat Raw as
 // sensitive and never publish it to public artifacts or model prompts by default.
 type PodLogsObservation struct {
+ // Raw is the exact log response. The Pod snapshots are also sensitive.
  Raw []byte
+ BeforePodRaw []byte
+ AfterPodRaw []byte
  Report PodLogsReport
 }
 
@@ -153,5 +156,5 @@ func CollectPodLogs(ctx context.Context,c PodLogsConfig)(PodLogsObservation,erro
   report.BeforePodSHA256==""||report.AfterPodSHA256==""||report.LogsSHA256==""{
   return PodLogsObservation{},unknownf("incomplete Pod log identity receipt")
  }
- return PodLogsObservation{Raw:raw,Report:report},nil
+ return PodLogsObservation{Raw:raw,BeforePodRaw:before.Raw,AfterPodRaw:after.Raw,Report:report},nil
 }
