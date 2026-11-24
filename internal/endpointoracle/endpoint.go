@@ -122,6 +122,7 @@ func inspect(raw []byte,namespace,service,serviceUID string)(observation,error){
  ready:=0
  seenUIDs:=map[string]bool{}
  seenNames:=map[string]bool{}
+ seenGroups:=map[string]endpointGroup{}
  for _,item:=range list.Items{
   meta:=item.Metadata
   if meta.Name==""||len(meta.Name)>253||meta.UID==""||seenUIDs[meta.UID]||seenNames[meta.Name]||
@@ -151,11 +152,10 @@ func inspect(raw []byte,namespace,service,serviceUID string)(observation,error){
    if endpoint.Conditions.Ready==nil||len(endpoint.Addresses)==0||len(endpoint.Addresses)>16{
     return observation{},errors.New("ambiguous endpoint readiness or address")
    }
-   for _,address:=range endpoint.Addresses{
-    if !validEndpointAddress(item.AddressType,address){return observation{},errors.New("invalid EndpointSlice address or address family")}
-   }
    if err:=validateEndpointLifecycle(*endpoint.Conditions.Ready,endpoint.Conditions.Serving,endpoint.Conditions.Terminating);err!=nil{return observation{},err}
-   if *endpoint.Conditions.Ready{ready++}
+   fresh,err:=admitEndpointGroup(seenGroups,item.AddressType,endpoint.Addresses,*endpoint.Conditions.Ready)
+   if err!=nil{return observation{},err}
+   if fresh&&*endpoint.Conditions.Ready{ready++}
   }
  }
  return observation{ready:ready,version:list.Metadata.ResourceVersion},nil
