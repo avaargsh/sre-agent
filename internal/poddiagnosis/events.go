@@ -36,11 +36,13 @@ func AssessEvents(expected Target, raw []byte) (EventReport,error) {
  if err!=nil {return EventReport{},err}
  version,e1:=field[string](root,"apiVersion");kind,e2:=field[string](root,"kind")
  if e1!=nil || e2!=nil || version!="v1" || kind!="EventList" {return EventReport{},errInvalidPod}
- meta,err:=object(root["metadata"],"resourceVersion","continue")
+ meta,err:=object(root["metadata"],"resourceVersion","continue","remainingItemCount")
  if err!=nil {return EventReport{},err}
  rv,err:=field[string](meta,"resourceVersion")
  if err!=nil || strings.TrimSpace(rv)=="" {return EventReport{},errInvalidPod}
  if _,ok:=meta["continue"];ok {next,err:=field[string](meta,"continue");if err!=nil || next!="" {return EventReport{},errInvalidPod}}
+ // A nonzero or malformed remaining count contradicts complete evidence.
+ if _,ok:=meta["remainingItemCount"];ok {remaining,err:=field[int64](meta,"remainingItemCount");if err!=nil || remaining!=0 {return EventReport{},errInvalidPod}}
  items,err:=field[[]json.RawMessage](root,"items")
  if err!=nil || items==nil || len(items)>MaxEvents {return EventReport{},errInvalidPod}
  facts:=make([]EventFact,0,len(items))
