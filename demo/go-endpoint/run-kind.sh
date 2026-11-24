@@ -181,18 +181,25 @@ PY
 # Keep *all* warm-up probes as evidence; begin official fault samples only
 # after three consecutive real client failures (no quiet cherry-picking).
 probe_one() {
-  local status
-  status="$(kubectl -n golden-demo exec deploy/load-generator -c load -- \
-    curl --noproxy '*' -sS --connect-timeout 1 --max-time 3 -o /dev/null \
-      -w '%{http_code}' http://checkout-api:8080/healthz 2>/dev/null || true)"
-  [[ "$status" =~ ^[0-9]{3}$ ]] || { echo "invalid curl status: $status" >&2; return 1; }
-  printf '%d\n' "$((10#$status))"
+  local result
+  # Separate kubectl exec transport from the completed remote curl process.
+  result="$(kubectl -n golden-demo exec deploy/load-generator -c load -- sh -c '
+    rc=0
+    status=$(curl --noproxy "*" -sS --connect-timeout 1 --max-time 3 -o /dev/null \
+      -w "%{http_code}" http://checkout-api:8080/healthz) || rc=$?
+    printf "%s:%s\n" "$rc" "$status"
+  ')" || { echo "probe exec failed" >&2; return 1; }
+  case "$result" in
+    0:[1-5][0-9][0-9]) printf '%s\n' "${result#*:}" ;;
+    7:000|28:000) printf '0\n' ;;
+    *) echo "probe did not return admissible HTTP evidence" >&2; return 1 ;;
+  esac
 }
 wait_http_failure() {
   local file="$1" i code consecutive=0
   : > "$file"
   for i in $(seq 1 45); do
-    code="$(probe_one)"
+    code="$(probe_one)" || return 1
     printf '%s\n' "$code" >> "$file"
     if (( code<200 || code>=300 )); then
       consecutive=$((consecutive+1))
@@ -232,11 +239,8 @@ probe() {
   local dir="$1" phase="$2" n code
   : > "$dir/$phase-probes.txt"
   for n in 1 2 3; do
-    code="$(kubectl -n golden-demo exec deploy/load-generator -c load -- \
-      curl --noproxy '*' -sS --connect-timeout 1 --max-time 3 -o /dev/null \
-      -w '%{http_code}' http://checkout-api:8080/healthz 2>/dev/null || true)"
-    [[ "$code" =~ ^[0-9]{3}$ ]] || { echo "invalid curl status: $code" >&2; return 1; }
-    printf '%d\n' "$((10#$code))" >> "$dir/$phase-probes.txt"
+    code="$(probe_one)" || return 1
+    printf '%s\n' "$code" >> "$dir/$phase-probes.txt"
     sleep 0.25
   done
 }
