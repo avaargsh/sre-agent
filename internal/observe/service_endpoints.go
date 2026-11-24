@@ -13,6 +13,7 @@ import (
 
 	"github.com/avaargsh/sre-agent/internal/endpointoracle"
 	"github.com/avaargsh/sre-agent/internal/oracle"
+	"github.com/avaargsh/sre-agent/internal/sourcejson"
 )
 
 // ServiceTarget is an independently selected Kubernetes Service identity.
@@ -120,6 +121,11 @@ func serviceIdentity(raw []byte, target ServiceTarget, expectedPort int, selecto
 func ReplayServiceEndpoints(target ServiceTarget, expectedTargetPort int, expectedSelector map[string]string, serviceBeforeRaw, endpointSlicesRaw, serviceAfterRaw []byte) (endpointoracle.Prediction, error) {
 	if err := validateServiceEndpointsSelection(target, expectedTargetPort, expectedSelector); err != nil {
 		return endpointoracle.Prediction{}, err
+	}
+	for _, raw := range [][]byte{serviceBeforeRaw, endpointSlicesRaw, serviceAfterRaw} {
+		if len(raw) == 0 || len(raw) > maxResponseBytes || sourcejson.Validate(raw) != nil {
+			return endpointoracle.Prediction{}, unknownf("invalid or oversized native Service/EndpointSlice JSON")
+		}
 	}
 	before, err := serviceIdentity(serviceBeforeRaw, target, expectedTargetPort, expectedSelector)
 	if err != nil {
