@@ -7,6 +7,7 @@ identity, grant writes, or establish root cause in arbitrary production incident
 import json
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 MAX_RESPONSE_BYTES = 2 << 20
@@ -15,6 +16,16 @@ ENDPOINT_LIST_PATH = (
     "?labelSelector=kubernetes.io%2Fservice-name%3Dcheckout-api&limit=129"
 )
 VERSION_RE = re.compile(r"[1-9][0-9]{0,31}", re.ASCII)
+
+
+@dataclass(frozen=True)
+class NumberToken:
+    """Preserve JSON number spelling and distinguish it from bool/string."""
+    lexeme: str
+
+
+def reject_nonfinite(token):
+    raise ValueError(f"invalid JSON number constant {token}")
 
 
 def unique_object(pairs):
@@ -33,7 +44,11 @@ def read_list(path):
     raw = source.read_bytes()
     if not raw or len(raw) > MAX_RESPONSE_BYTES:
         raise ValueError("empty or oversized EndpointSlice response")
-    data = json.loads(raw, object_pairs_hook=unique_object)
+    data = json.loads(
+        raw.decode("utf-8"), object_pairs_hook=unique_object,
+        parse_int=NumberToken, parse_float=NumberToken,
+        parse_constant=reject_nonfinite,
+    )
     if not isinstance(data, dict) or data.get("kind") != "EndpointSliceList":
         raise ValueError("expected a Kubernetes EndpointSliceList")
     metadata = data.get("metadata")
@@ -46,7 +61,7 @@ def read_list(path):
         raise ValueError("paginated list: cannot claim complete exact snapshot")
     if "remainingItemCount" in metadata:
         remaining = metadata["remainingItemCount"]
-        if type(remaining) is not int or remaining != 0:
+        if remaining != NumberToken("0"):
             raise ValueError("invalid or incomplete remainingItemCount")
     items = data.get("items")
     if not isinstance(items, list) or len(items) > 128:
