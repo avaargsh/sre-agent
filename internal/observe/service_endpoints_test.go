@@ -177,6 +177,28 @@ func TestCollectServiceEndpointsRejectsServiceIdentityOrVersionDrift(t *testing.
 	}
 }
 
+func TestCollectServiceEndpointsRejectsZeroServiceResourceVersionBeforeListing(t *testing.T) {
+    zeroVersion := strings.Replace(
+        serviceEndpointsService, `"resourceVersion":"19"`,
+        `"resourceVersion":"0"`, 1,
+    )
+    srv, calls := serviceEndpointsServer(t, zeroVersion, serviceEndpointsSlices, zeroVersion)
+    defer srv.Close()
+    got, err := CollectServiceEndpoints(context.Background(), serviceEndpointsConfig(srv.URL))
+    if !errors.Is(err, ErrUnknown) || got.EndpointSlicesRaw != nil || calls.Load() != 1 {
+        t.Fatalf("zero Service resourceVersion must stop before list: %+v %v calls=%d", got, err, calls.Load())
+    }
+
+    target := ServiceTarget{Namespace: "demo", Name: "checkout-api", UID: "service-uid-1"}
+    if _, err := ReplayServiceEndpoints(
+        target, 8080, map[string]string{"app": "checkout-api"},
+        []byte(zeroVersion), []byte(serviceEndpointsSlices), []byte(zeroVersion),
+    ); !errors.Is(err, ErrUnknown) {
+        t.Fatalf("zero Service resourceVersion must not replay as a snapshot: %v", err)
+    }
+}
+
+
 func TestCollectServiceEndpointsRejectsWrongInitialUIDBeforeListing(t *testing.T) {
 	srv, calls := serviceEndpointsServer(t, strings.Replace(serviceEndpointsService, "service-uid-1", "other-service", 1), serviceEndpointsSlices, serviceEndpointsService)
 	defer srv.Close()
