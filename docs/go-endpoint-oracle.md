@@ -106,7 +106,9 @@ for the ordered Service GET →
 EndpointSlice LIST → Service GET sequence. `collection_started_at` and the
 existing `observed_at` field bound the overall capture window. `ReplayServiceEndpointsObservation`
 recomputes the prediction and checks that the timeline, request fence, response
-versions and hashes agree with the archived raw bytes. This is a bounded
+versions and hashes agree with the archived raw bytes. It also rejects replay
+windows longer than the same 30-second collector budget; ordered timestamps
+alone are not sufficient to establish a bounded capture. This is a bounded
 cross-resource freshness association, not an atomic multi-resource
 transaction or source authentication; `source_authenticated=false` remains
 explicit. No unpinned fallback is attempted if the API server rejects or
