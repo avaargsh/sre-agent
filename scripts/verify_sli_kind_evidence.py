@@ -31,6 +31,15 @@ def unique(pairs):
     return result
 
 
+def canonical_fields(obj, fields):
+    """Reject aliases of consumed schema fields, not case-sensitive map keys."""
+    require(type(obj) is dict, "invalid source object")
+    names = {field.casefold(): field for field in fields}
+    for key in obj:
+        canonical = names.get(key.casefold())
+        require(canonical is None or key == canonical, "noncanonical source field")
+
+
 def number(value):
     return type(value) in (int, float) and math.isfinite(value)
 
@@ -52,6 +61,8 @@ def verify_report(report, expected):
         raw = base64.b64decode(entry["raw_response_base64"], validate=True)
         require(len(raw) <= 2 << 20 and hashlib.sha256(raw).hexdigest() == entry["response_sha256"], "source digest or size mismatch")
         source = json.loads(raw.decode("utf-8"), object_pairs_hook=unique)
+        canonical_fields(source, ("status", "data", "warnings", "isPartial", "partialResponse"))
+        canonical_fields(source["data"], ("resultType", "result"))
         require(source["status"] == "success" and source["data"]["resultType"] == "matrix", "invalid matrix")
         require(source.get("warnings", []) == [] and source.get("isPartial", False) is False
                 and source.get("partialResponse", False) is False, "incomplete source")
@@ -59,6 +70,7 @@ def verify_report(report, expected):
         require(type(rows) is list and 1 <= len(rows) <= 16, "invalid series count")
         seen, samples = set(), []
         for row in rows:
+            canonical_fields(row, ("metric", "values"))
             metric = row["metric"]
             require(type(metric) is dict and all(k and type(v) is str for k, v in metric.items()), "invalid labels")
             labels = tuple(sorted(metric.items()))
