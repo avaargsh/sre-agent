@@ -5,7 +5,6 @@ import (
  "crypto/sha256"
  "encoding/hex"
  "encoding/json"
- "fmt"
  "io"
  "mime"
  "net/http"
@@ -92,8 +91,9 @@ func getRawText(ctx context.Context,hc *http.Client,source *url.URL,path,token s
  }
  defer res.Body.Close()
  if res.StatusCode!=http.StatusOK{return nil,unknownf("Pod log response status %d",res.StatusCode)}
- mediaType,_,err:=mime.ParseMediaType(res.Header.Get("Content-Type"))
- if err!=nil||mediaType!="text/plain"{return nil,unknownf("Pod log response is not text/plain")}
+ mediaType,params,err:=mime.ParseMediaType(res.Header.Get("Content-Type"))
+ charset:=strings.ToLower(params["charset"])
+ if err!=nil||mediaType!="text/plain"||(charset!=""&&charset!="utf-8"&&charset!="utf8"){return nil,unknownf("Pod log response is not UTF-8 text/plain")}
  if res.ContentLength>int64(maxBytes){return nil,unknownf("Pod log response exceeds byte budget")}
  raw,err:=io.ReadAll(io.LimitReader(res.Body,int64(maxBytes)+1))
  if err!=nil||len(raw)==0||len(raw)>=maxBytes{return nil,unknownf("Pod log response is empty, truncated or exceeds byte budget")}
@@ -153,6 +153,5 @@ func CollectPodLogs(ctx context.Context,c PodLogsConfig)(PodLogsObservation,erro
   report.BeforePodSHA256==""||report.AfterPodSHA256==""||report.LogsSHA256==""{
   return PodLogsObservation{},unknownf("incomplete Pod log identity receipt")
  }
- _=fmt.Sprintf // keep imports stable if report diagnostics are extended
  return PodLogsObservation{Raw:raw,Report:report},nil
 }
