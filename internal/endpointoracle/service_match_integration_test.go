@@ -26,7 +26,7 @@ func TestEvaluateRequiresFullServiceSourceAgreement(t *testing.T) {
  t.Run("formatting only",func(t *testing.T){
   e,p:=episode(t,false)
   raw,err:=checkedRaw(e.During.Service);if err!=nil{t.Fatal(err)}
-  changed:=strings.ReplaceAll(string(raw),`,"spec"`,`,\n "spec"`)
+  changed:=strings.ReplaceAll(string(raw),`,"spec"`,",\n \"spec\"")
   e.During.Service=snap([]byte(changed))
   if _,err:=Evaluate(e,p);err!=nil{t.Fatalf("formatting-only JSON rejected: %v",err)}
  })
