@@ -266,6 +266,8 @@ score=json.loads((p/'evaluation.json').read_text())
 assert pred['classification']==sys.argv[2],pred
 assert score['verdict']==sys.argv[3],score
 assert score['production_causality_verified']==False
+assert score['episode_sha256']==hashlib.sha256((p/'episode.json').read_bytes()).hexdigest()
+assert score['prediction_sha256']==hashlib.sha256((p/'prediction.json').read_bytes()).hexdigest()
 for phase in ('before','during','after'):
   for field in ('service','endpoint_slices'):
     src=e[phase][field]
