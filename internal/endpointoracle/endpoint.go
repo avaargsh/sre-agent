@@ -15,8 +15,8 @@ import (
  "reflect"
  "strings"
 
- "github.com/avaargsh/sre-agent/internal/evidence"
  "github.com/avaargsh/sre-agent/internal/oracle"
+ "github.com/avaargsh/sre-agent/internal/sourcejson"
 )
 
 const maxRaw=2<<20
@@ -97,25 +97,28 @@ func snap(raw []byte)oracle.Snapshot{
 }
 func inspect(raw []byte,namespace,service string)(observation,error){
  if len(raw)==0||len(raw)>maxRaw{return observation{},errors.New("EndpointSlice response size invalid")}
- if err:=evidence.ValidateUniqueJSONObject(raw);err!=nil{return observation{},errors.New("ambiguous EndpointSlice JSON keys")}
+ if err:=sourcejson.Validate(raw);err!=nil{return observation{},errors.New("ambiguous or malformed EndpointSlice JSON")}
  dec:=json.NewDecoder(bytes.NewReader(raw))
  var list sliceList
  if err:=dec.Decode(&list);err!=nil{return observation{},errors.New("invalid EndpointSlice JSON")}
  var extra any
  if !errors.Is(dec.Decode(&extra),io.EOF){return observation{},errors.New("trailing EndpointSlice JSON")}
- if list.Kind!="EndpointSliceList"||list.Metadata.ResourceVersion==""||list.Metadata.Continue!=""||len(list.Items)>128{
+ if list.Kind!="EndpointSliceList"||list.Metadata.ResourceVersion==""||list.Metadata.Continue!=""||list.Items==nil||len(list.Items)>128{
   return observation{},errors.New("EndpointSlice list is incomplete or wrong kind")
  }
  ready:=0
- seen:=map[string]bool{}
+ seenUIDs:=map[string]bool{}
+ seenNames:=map[string]bool{}
  for _,item:=range list.Items{
   meta:=item.Metadata
-  if meta.Name==""||meta.UID==""||seen[meta.UID]||meta.Namespace!=namespace||
+  if meta.Name==""||len(meta.Name)>253||meta.UID==""||seenUIDs[meta.UID]||seenNames[meta.Name]||
+   meta.Namespace!=namespace||meta.Labels==nil||
    meta.Labels["kubernetes.io/service-name"]!=service||
    (item.AddressType!="IPv4"&&item.AddressType!="IPv6"&&item.AddressType!="FQDN"){
    return observation{},errors.New("invalid or off-scope EndpointSlice membership")
   }
-  seen[meta.UID]=true
+  seenUIDs[meta.UID]=true
+  seenNames[meta.Name]=true
   if len(item.Endpoints)>256{return observation{},errors.New("EndpointSlice too many endpoints")}
   for _,endpoint:=range item.Endpoints{
    if endpoint.Conditions.Ready==nil||len(endpoint.Addresses)==0||len(endpoint.Addresses)>16{

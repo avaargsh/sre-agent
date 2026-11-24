@@ -29,11 +29,30 @@ kubectl config --kubeconfig="$OBS" set-credentials observer --token="$TOKEN" >/d
 kubectl config --kubeconfig="$OBS" set-context observer --cluster=endpoint-kind --user=observer >/dev/null
 kubectl config --kubeconfig="$OBS" use-context observer >/dev/null
 chmod 0600 "$OBS"
+
+# The CLI deliberately accepts no Kubernetes token. kubectl proxy authenticates
+# with the disposable read-only kubeconfig and exposes only a loopback endpoint.
+PROXY_PID=""
 restore() {
+  if [[ -n "$PROXY_PID" ]]; then
+    kill "$PROXY_PID" >/dev/null 2>&1 || true
+    wait "$PROXY_PID" 2>/dev/null || true
+  fi
   kubectl -n golden-demo scale deploy/checkout-api --replicas=2 >/dev/null 2>&1 || true
   rm -f "$OBS" /tmp/go-endpoint-ca.crt
 }
 trap restore EXIT
+
+kubectl --kubeconfig="$OBS" proxy --address=127.0.0.1 --port=18001 >/tmp/go-endpoint-kube-proxy.log 2>&1 &
+PROXY_PID=$!
+for attempt in $(seq 1 30); do
+  if curl --noproxy '*' -fsS http://127.0.0.1:18001/api/v1/namespaces/golden-demo/services/checkout-api >/dev/null; then break; fi
+  sleep 1
+done
+curl --noproxy '*' -fsS http://127.0.0.1:18001/api/v1/namespaces/golden-demo/services/checkout-api >/dev/null || {
+  cat /tmp/go-endpoint-kube-proxy.log >&2
+  exit 1
+}
 
 # kubectl resource-printer JSON returns a generic List with empty RV;
 # use the actual discovery.k8s.io LIST API for an auditable collection RV
@@ -55,6 +74,31 @@ service() {
     kubectl --kubeconfig="$OBS" -n golden-demo get svc checkout-api -o json > "$dest"
   fi
 }
+capture_observer() {
+  local dir="$1" uid capture
+  uid="$(kubectl -n golden-demo get svc checkout-api -o jsonpath='{.metadata.uid}')"
+  capture="$dir/observer-capture.json"
+  /tmp/sre-agent-g2g capture-service-endpoints --namespace golden-demo --service checkout-api --uid "$uid" --kube-api http://127.0.0.1:18001 --expected-target-port 8080 --expected-selector app=checkout-api --timeout 15s > "$capture"
+  python3 - "$capture" "$dir" <<'PY'
+import base64,json,pathlib,sys
+capture=json.loads(pathlib.Path(sys.argv[1]).read_text())
+assert capture.get("schema_version")=="sre.service-endpoints-capture/v1"
+report=capture["report"]
+assert report["source_authenticated"] is False
+assert report["classification"] in ("READY_ENDPOINTS_OBSERVED","NO_READY_ENDPOINTS_OBSERVED","UNKNOWN")
+for field,name in (
+  ("service_before_raw","observed-service.json"),
+  ("endpoint_slices_raw","observed-endpointslices.json"),
+  ("service_after_raw","observed-service-after.json"),
+):
+  raw=base64.b64decode(capture[field],validate=True)
+  assert 0<len(raw)<=2*1024*1024
+  pathlib.Path(sys.argv[2],name).write_bytes(raw)
+pathlib.Path(sys.argv[2],"observer-report.json").write_text(json.dumps(report,sort_keys=True,indent=2)+"\n")
+print("PASS: live Service/EndpointSlice collector",report["classification"],"ready endpoints",report["ready_endpoints"])
+PY
+}
+
 ready_count() {
   python3 - "$1" <<'PY'
 import json,sys
@@ -152,8 +196,7 @@ snapshot() {
 # Kubernetes resourceVersionMatch=Exact. Both original files are archived.
 snapshot_during() {
   local dir="$1" exact_path
-  service observer "$dir/observed-service.json"
-  slices observer "$dir/observed-endpointslices.json"
+  capture_observer "$dir"
   exact_path="$(python3 demo/go-endpoint/pin_during.py "$dir/observed-endpointslices.json")"
   service admin "$dir/during-service.json"
   kubectl get --raw "$exact_path" > "$dir/during-endpointslices.json"
