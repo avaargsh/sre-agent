@@ -133,3 +133,20 @@ def test_cli_malformed_case_identity_returns_hold(tmp_path, case):
     assert not proc.stdout.strip()
     assert "HOLD" in proc.stderr
     assert "Traceback" not in proc.stderr
+
+
+@pytest.mark.parametrize("doublings,expected_status", [(5, "COMPLETED"), (7, "REJECTED")])
+def test_sql_intermediate_value_budget(doublings, expected_status):
+    f = {
+        "schema_version": "sre.sql.holdout-case/v1", "case_id": "cpu-budget",
+        "tables": [{"name": "incidents", "columns": [{"name": "message", "type": "TEXT"}],
+                    "rows": [["x" * 1024]]}],
+        "expected_rows": [[1024 * 2**doublings]],
+    }
+    ctes = ["s0(v) AS (SELECT message FROM incidents)"]
+    for n in range(1, doublings + 1):
+        ctes.append(f"s{n}(v) AS (SELECT v || v FROM s{n-1})")
+    report = evaluate_sql_case(f, "WITH " + ", ".join(ctes) + f" SELECT length(v) FROM s{doublings}")
+    assert report["execution_status"] == expected_status
+    assert report["exact_result_match"] is (expected_status == "COMPLETED")
+    assert report["admission"] == "HOLD"
