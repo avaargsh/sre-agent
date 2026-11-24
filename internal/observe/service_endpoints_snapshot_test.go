@@ -320,3 +320,26 @@ func TestCollectServiceEndpointsSupportsOpaqueResourceVersions(t *testing.T) {
 		t.Fatalf("opaque resourceVersion capture did not replay: %v", err)
 	}
 }
+
+
+func TestReplayServiceEndpointsObservationRejectsOverlongCollectionWindow(t *testing.T) {
+	server, _ := serviceEndpointsServer(t, serviceEndpointsService, serviceEndpointsSlices, serviceEndpointsService)
+	defer server.Close()
+
+	observation, err := CollectServiceEndpoints(context.Background(), serviceEndpointsConfig(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := time.Parse(time.RFC3339Nano, observation.Report.CollectionStartedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation.Report.ObservedAt = started.Add(maxCollectionDuration + time.Nanosecond).UTC().Format(time.RFC3339Nano)
+
+	if _, err := ReplayServiceEndpointsObservation(
+		ServiceTarget{Namespace: "demo", Name: "checkout-api", UID: "service-uid-1"},
+		8080, map[string]string{"app": "checkout-api"}, observation,
+	); !errors.Is(err, ErrUnknown) {
+		t.Fatalf("replay must reject a capture window beyond the collector budget: %v", err)
+	}
+}
