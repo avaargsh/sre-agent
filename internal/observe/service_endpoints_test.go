@@ -72,7 +72,7 @@ func TestCollectServiceEndpointsPreservesExactReadOnlyEvidence(t *testing.T) {
 		t.Fatal("collector did not preserve exact source bytes")
 	}
 	r := got.Report
-	if r.SchemaVersion != "sre.service-endpoints/v1" || r.Target != (ServiceTarget{Namespace: "demo", Name: "checkout-api", UID: "service-uid-1"}) ||
+	if r.SchemaVersion != "sre.service-endpoints/v2" || r.Target != (ServiceTarget{Namespace: "demo", Name: "checkout-api", UID: "service-uid-1"}) ||
 		r.ServiceResourceVersion != "19" || r.EndpointSliceListResourceVersion != "25" ||
 		r.ReadyEndpoints != 1 || r.Classification != "READY_ENDPOINTS_OBSERVED" ||
 		r.ExpectedTargetPort != 8080 || r.ExpectedSelector["app"] != "checkout-api" || r.SourceAuthenticated {
