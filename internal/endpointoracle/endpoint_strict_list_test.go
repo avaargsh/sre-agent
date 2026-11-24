@@ -50,3 +50,18 @@ func TestRejectEndpointSliceDuplicateNamesAndMissingMetadataLabels(t *testing.T)
 		t.Fatal("accepted EndpointSlice without explicit service ownership labels")
 	}
 }
+
+func TestRejectMalformedUTF8AndCaseFoldConflicts(t *testing.T) {
+	_, _, service, _ := fixture(t, 1)
+	cases := map[string][]byte{
+		"invalid-utf8": []byte{0xff, 0xfe},
+		"casefold-conflict": []byte(`{"kind":"EndpointSliceList","Kind":"EndpointSliceList","metadata":{"resourceVersion":"25"},"items":[]}`),
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Diagnose(service, raw, 8080, map[string]string{"app": "checkout-api"}); err == nil {
+				t.Fatal("accepted malformed or ambiguous EndpointSlice JSON")
+			}
+		})
+	}
+}
