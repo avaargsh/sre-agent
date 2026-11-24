@@ -5,17 +5,20 @@ Only a disposable kind LAB tool. It does not authenticate Kubernetes source
 identity, grant writes, or establish root cause in arbitrary production incidents.
 """
 import json
-import re
 import sys
+from urllib.parse import urlencode
 from dataclasses import dataclass
 from pathlib import Path
 
 MAX_RESPONSE_BYTES = 2 << 20
 ENDPOINT_LIST_PATH = (
     "/apis/discovery.k8s.io/v1/namespaces/golden-demo/endpointslices"
-    "?labelSelector=kubernetes.io%2Fservice-name%3Dcheckout-api&limit=129"
 )
-VERSION_RE = re.compile(r"[1-9][0-9]{0,31}", re.ASCII)
+ENDPOINT_LIST_QUERY = {
+    "labelSelector": "kubernetes.io/service-name=checkout-api",
+    "limit": "129",
+}
+MAX_RESOURCE_VERSION_BYTES = 256
 
 
 @dataclass(frozen=True)
@@ -55,8 +58,13 @@ def read_list(path):
     if not isinstance(metadata, dict):
         raise ValueError("missing EndpointSlice list metadata")
     version = metadata.get("resourceVersion")
-    if not isinstance(version, str) or VERSION_RE.fullmatch(version) is None:
-        raise ValueError("invalid/nondecimal resourceVersion; cannot pin snapshot")
+    if (
+        not isinstance(version, str)
+        or not version
+        or version == "0"
+        or len(version.encode("utf-8")) > MAX_RESOURCE_VERSION_BYTES
+    ):
+        raise ValueError("invalid/oversized opaque resourceVersion; cannot pin snapshot")
     if "continue" in metadata and metadata["continue"] != "":
         raise ValueError("paginated list: cannot claim complete exact snapshot")
     if "remainingItemCount" in metadata:
@@ -72,7 +80,12 @@ def read_list(path):
 def main(argv):
     if len(argv) == 1:
         _, version = read_list(argv[0])
-        print(f"{ENDPOINT_LIST_PATH}&resourceVersion={version}&resourceVersionMatch=Exact")
+        query = urlencode({
+            **ENDPOINT_LIST_QUERY,
+            "resourceVersion": version,
+            "resourceVersionMatch": "Exact",
+        })
+        print(f"{ENDPOINT_LIST_PATH}?{query}")
         return 0
     if len(argv) == 3 and argv[0] == "--verify":
         observer, observed_version = read_list(argv[1])
