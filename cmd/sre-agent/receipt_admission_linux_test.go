@@ -1,4 +1,4 @@
-//go:build linux && sre_file_hardening
+//go:build linux
 
 package main
 
