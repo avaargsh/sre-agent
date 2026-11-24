@@ -46,8 +46,11 @@ func state(raw []byte, allowEmpty bool) (string,string,error) {
  if len(m)!=1 {return "","",errInvalidPod}
  for kind,payload:=range m {
   if kind!="waiting" && kind!="running" && kind!="terminated" {return "","",errInvalidPod}
-  details,err:=object(payload,"reason")
+  details,err:=object(payload,"reason","exitCode")
   if err!=nil {return "","",err}
+  if kind=="terminated" {
+   if _,err:=field[int32](details,"exitCode");err!=nil {return "","",err}
+  }
   reason:=""
   if _,ok:=details["reason"];ok {reason,err=field[string](details,"reason");if err!=nil {return "","",err}}
   return kind,reason,nil
@@ -81,7 +84,7 @@ func AssessNative(expected Target,raw []byte) (NativeReport,error) {
  }
  for _,entry:=range statuses {
   m,err:=object(entry,"name","ready","restartCount","state","lastState");if err!=nil {return NativeReport{},err}
-  name,e1:=field[string](m,"name");ready,e2:=field[bool](m,"ready");restarts,e3:=field[int](m,"restartCount")
+  name,e1:=field[string](m,"name");ready,e2:=field[bool](m,"ready");restarts,e3:=field[int32](m,"restartCount")
   kind,reason,e4:=state(m["state"],false)
   if e1!=nil || e2!=nil || e3!=nil || e4!=nil {return NativeReport{},errInvalidPod}
   previous:=""
@@ -90,7 +93,7 @@ func AssessNative(expected Target,raw []byte) (NativeReport,error) {
    if err!=nil {return NativeReport{},err}
    if previousKind=="terminated" {previous=previousReason}
   }
-  snapshot.Statuses=append(snapshot.Statuses,ContainerStatus{Name:name,State:kind,Reason:reason,LastTerminationReason:previous,RestartCount:restarts,Ready:ready})
+  snapshot.Statuses=append(snapshot.Statuses,ContainerStatus{Name:name,State:kind,Reason:reason,LastTerminationReason:previous,RestartCount:int(restarts),Ready:ready})
  }
  assessment:=Assess(expected,snapshot)
  if assessment.Reason==invalidSnapshotReason {return NativeReport{},errInvalidPod}
