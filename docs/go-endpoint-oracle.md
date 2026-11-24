@@ -84,10 +84,12 @@ sre-agent capture-service-endpoints \
   --timeout 15s > /secure/path/service-endpoints-capture.json
 ```
 
-The capture envelope includes the exact pre/post Service and EndpointSlice
-response bytes as base64 JSON byte fields, plus SHA-256 digests, Service and
-EndpointSlice-list resourceVersions, ready endpoint count and an observation
-classification. The EndpointSlice LIST is requested with the first Service
+The capture envelope remains `sre.service-endpoints-capture/v1`; its nested
+report is now `sre.service-endpoints/v2` because the request fence and ordered
+read timeline are required for complete replay. It includes the exact pre/post
+Service and EndpointSlice response bytes as base64 JSON byte fields, plus
+SHA-256 digests, Service and EndpointSlice-list resourceVersions, ready endpoint
+count and an observation classification. The EndpointSlice LIST is requested with the first Service
 resourceVersion and `resourceVersionMatch=NotOlderThan`, retaining the bounded
 `limit=129`. The pre/post Service GET fence still requires the same UID,
 resourceVersion and exact bytes; the LIST freshness lower bound uses that
@@ -107,10 +109,9 @@ recomputes the prediction and checks that the timeline, request fence, response
 versions and hashes agree with the archived raw bytes. This is a bounded
 cross-resource freshness association, not an atomic multi-resource
 transaction or source authentication; `source_authenticated=false` remains
-explicit. If an API server ignores `resourceVersionMatch`, the nonzero version
-plus bounded `limit` retains the legacy exact-list behavior; an unavailable
-version fails closed. Protect the output: it is evidence, not a public
-diagnostic artifact. `observe.ReplayServiceEndpointsObservation` validates the
+explicit. No unpinned fallback is attempted if the API server rejects or
+cannot honor the requested match semantics. Protect the output: it is evidence,
+not a public diagnostic artifact. `observe.ReplayServiceEndpointsObservation` validates the
 complete capture report, ordered read timeline, request fence, response
 versions and hashes. The lower-level `observe.ReplayServiceEndpoints` function
 revalidates both Service snapshots, exact-byte/resourceVersion equality,
