@@ -17,9 +17,9 @@ const cliServiceEndpointService = `{"metadata":{"namespace":"demo","name":"check
 const cliServiceEndpointSlices = `{"kind":"EndpointSliceList","metadata":{"resourceVersion":"25","continue":""},"items":[{"metadata":{"uid":"slice-uid-1","name":"checkout-api-abc","namespace":"demo","labels":{"kubernetes.io/service-name":"checkout-api"}},"addressType":"IPv4","endpoints":[{"addresses":["10.0.0.10"],"conditions":{"ready":true}}]}]}`
 
 type cliServiceEndpointsCapture struct {
-	SchemaVersion string `json:"schema_version"`
-	Report observe.ServiceEndpointsReport `json:"report"`
-	ServiceBeforeRaw []byte `json:"service_before_raw"`
+	SchemaVersion     string `json:"schema_version"`
+	Report            observe.ServiceEndpointsReport `json:"report"`
+	ServiceBeforeRaw  []byte `json:"service_before_raw"`
 	EndpointSlicesRaw []byte `json:"endpoint_slices_raw"`
 	ServiceAfterRaw []byte `json:"service_after_raw"`
 }
