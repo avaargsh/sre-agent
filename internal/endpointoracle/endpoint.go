@@ -83,6 +83,12 @@ func EvaluateRaw(episodeRaw,predictionRaw []byte)(Result,error){
  if sourcejson.Validate(episodeRaw)!=nil||sourcejson.Validate(predictionRaw)!=nil{
   return Result{},errors.New("malformed or ambiguous Episode/Prediction JSON")
  }
+ if err:=validateCanonicalJSONFields(episodeRaw,reflect.TypeOf(Episode{}));err!=nil{
+  return Result{},errors.New("non-canonical Episode field name")
+ }
+ if err:=validateCanonicalJSONFields(predictionRaw,reflect.TypeOf(Prediction{}));err!=nil{
+  return Result{},errors.New("non-canonical Prediction field name")
+ }
  var e Episode
  var p Prediction
  if err:=decodeEndpointEnvelope(episodeRaw,&e);err!=nil{return Result{},errors.New("invalid Episode envelope")}
