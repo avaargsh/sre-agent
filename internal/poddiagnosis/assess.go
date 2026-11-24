@@ -37,6 +37,12 @@ const invalidSnapshotReason = "incomplete or mismatched pod snapshot"
 func Assess(expected Target, s Snapshot) Report {
  r:=Report{Status:"UNKNOWN", Reason:invalidSnapshotReason, Findings:[]Finding{}}
  if strings.TrimSpace(expected.Namespace)=="" || strings.TrimSpace(expected.Name)=="" || strings.TrimSpace(expected.UID)=="" || s.Target!=expected || strings.TrimSpace(s.ResourceVersion)=="" || len(s.Containers)==0 || len(s.Containers)>128 || len(s.Containers)!=len(s.Statuses) { return r }
+ // Pod phase is an enum, not the kubectl display status. Reject malformed
+ // snapshots before exposing any diagnostic signal.
+ switch s.Phase {
+ case "Pending", "Running", "Succeeded", "Failed", "Unknown":
+ default: return r
+ }
  names:=make(map[string]bool,len(s.Containers))
  for _,name:=range s.Containers {
   if strings.TrimSpace(name)=="" || names[name] {return r}
