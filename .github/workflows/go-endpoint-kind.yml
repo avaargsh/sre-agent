@@ -15,6 +15,7 @@ on:
       - "internal/endpointoracle/**"
       - "internal/observe/service_endpoints.go"
       - "internal/observe/service_endpoints_test.go"
+      - "internal/observe/service_endpoints_snapshot_test.go"
       - "cmd/sre-agent/endpoint_oracle.go"
       - "cmd/sre-agent/service_endpoints_cli.go"
       - "cmd/sre-agent/service_endpoints_cli_test.go"
