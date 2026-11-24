@@ -40,6 +40,22 @@ def unique_object(pairs):
     return result
 
 
+def validate_unicode(value):
+    """Reject unpaired UTF-16 surrogates anywhere in decoded JSON evidence."""
+    if isinstance(value, str):
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise ValueError("invalid Unicode scalar value in EndpointSlice JSON") from exc
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            validate_unicode(key)
+            validate_unicode(item)
+    elif isinstance(value, list):
+        for item in value:
+            validate_unicode(item)
+
+
 def read_list(path):
     source = Path(path)
     if source.stat().st_size > MAX_RESPONSE_BYTES:
@@ -52,6 +68,7 @@ def read_list(path):
         parse_int=NumberToken, parse_float=NumberToken,
         parse_constant=reject_nonfinite,
     )
+    validate_unicode(data)
     if not isinstance(data, dict) or data.get("kind") != "EndpointSliceList":
         raise ValueError("expected a Kubernetes EndpointSliceList")
     metadata = data.get("metadata")
