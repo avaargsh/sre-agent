@@ -125,7 +125,7 @@ func serviceIdentity(raw []byte, target ServiceTarget, expectedPort int, selecto
 	if err != nil {
 		return oracle.Prediction{}, unknownf("invalid or incomplete Service response")
 	}
-	if got.Namespace != target.Namespace || got.Service != target.Name || got.ServiceUID != target.UID || got.ResourceVersion == "" || got.ResourceVersion == "0" {
+	if got.Namespace != target.Namespace || got.Service != target.Name || got.ServiceUID != target.UID || got.ResourceVersion == "" || got.ResourceVersion == "0" || len(got.ResourceVersion) > 256 {
 		return oracle.Prediction{}, unknownf("Service response does not match independently selected identity")
 	}
 	return got, nil
