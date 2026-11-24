@@ -46,6 +46,8 @@ func TestEvaluateRawRejectsUnconsumedFields(t *testing.T) {
   {"unknown prediction field",episodeRaw,[]byte(strings.TrimSuffix(string(predictionRaw),"}")+`,"evidence_attestation":"signed"}`)},
   {"noncanonical root field alias",[]byte(strings.Replace(string(episodeRaw),`"schema_version":`,`"SCHEMA_VERSION":`,1)),predictionRaw},
   {"noncanonical nested field alias",[]byte(strings.Replace(string(episodeRaw),`"probes":`,`"PROBES":`,1)),predictionRaw},
+  {"noncanonical prediction root alias",episodeRaw,[]byte(strings.Replace(string(predictionRaw),`"classification":`,`"CLASSIFICATION":`,1))},
+  {"noncanonical nested prediction alias",episodeRaw,[]byte(strings.Replace(string(predictionRaw),`"service_uid":`,`"SERVICE_UID":`,1))},
  }
  for _,tc:=range cases{
   t.Run(tc.name,func(t *testing.T){
