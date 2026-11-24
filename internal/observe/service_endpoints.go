@@ -313,9 +313,8 @@ func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (Ser
 	query := url.Values{}
 	query.Set("labelSelector", "kubernetes.io/service-name="+c.Target.Name)
 	query.Set("limit", strconv.Itoa(129)) // 128 accepted plus one to detect overflow.
-	// Kubernetes LIST NotOlderThan guarantees the collection snapshot is not
-	// older than the supplied Service RV. With limit set, older API servers
-	// that ignore resourceVersionMatch retain the legacy Exact semantics.
+	// Ask the API server for a collection snapshot no older than the
+	// selected Service version. Never retry without this freshness fence.
 	query.Set("resourceVersion", before.ResourceVersion)
 	query.Set("resourceVersionMatch", "NotOlderThan")
 	slicesPath := "/apis/discovery.k8s.io/v1/namespaces/" + c.Target.Namespace + "/endpointslices?" + query.Encode()
