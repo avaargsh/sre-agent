@@ -114,7 +114,7 @@ def _sql_tokens(query: str):
                 raise ValueError("unterminated SQL comment")
             index = end + 2
             continue
-        if char in ("'", '"', "\`"):
+        if char in ("'", '"', chr(96)):
             quote = char
             index += 1
             value = []
