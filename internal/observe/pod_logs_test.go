@@ -106,7 +106,10 @@ func TestCollectPodLogsRejectsInvalidResponses(t *testing.T) {
   {"forbidden",http.StatusForbidden,"text/plain",[]byte("denied")},
   {"empty",http.StatusOK,"text/plain",nil},
   {"wrong-content-type",http.StatusOK,"application/json",[]byte("{}")},
+  {"wrong-charset",http.StatusOK,"text/plain; charset=iso-8859-1",[]byte("log")},
   {"invalid-utf8",http.StatusOK,"text/plain",[]byte{0xff,0xfe}},
+  {"invalid-timestamp",http.StatusOK,"text/plain",[]byte("not-rfc3339 log\\n")},
+  {"too-many-lines",http.StatusOK,"text/plain",[]byte(strings.Repeat("2026-11-24T10:00:00Z log\\n",81))},
   {"at-byte-limit",http.StatusOK,"text/plain",bytes.Repeat([]byte("x"),maxPodLogBytes)},
   {"over-byte-limit",http.StatusOK,"text/plain",bytes.Repeat([]byte("x"),maxPodLogBytes+1)},
  }
