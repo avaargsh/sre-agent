@@ -64,8 +64,9 @@ func TestCaptureServiceEndpointsEmitsReplayableExactBytes(t *testing.T) {
 	}
 	if got.Report.Classification != "READY_ENDPOINTS_OBSERVED" || got.Report.SourceAuthenticated ||
 		len(got.Report.ReadTimeline) != 3 ||
-		got.Report.ReadTimeline[1].RequestResourceVersion != "19" ||
-		got.Report.ReadTimeline[1].RequestResourceVersionMatch != "NotOlderThan" ||
+		got.Report.ReadTimeline[1].RequestResourceVersion != "" ||
+		got.Report.ReadTimeline[1].RequestResourceVersionMatch != "" ||
+		got.Report.ReadTimeline[1].RequestConsistency != "MOST_RECENT" ||
 		got.Report.ReadTimeline[1].RequestLabelSelector != "kubernetes.io/service-name=checkout-api" ||
 		got.Report.ReadTimeline[1].RequestLimit != 129 ||
 		serviceReads != 2 || sliceReads != 1 {
