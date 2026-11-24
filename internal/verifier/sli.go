@@ -87,7 +87,7 @@ type response struct {
  Data struct {
   ResultType string `json:"resultType"`
   Result []struct{
-   Metric map[string]string `json:"metric"`
+   Metric map[string]*string `json:"metric"`
    Values [][]json.RawMessage `json:"values"`
   } `json:"result"`
  } `json:"data"`
@@ -129,6 +129,12 @@ func query(ctx context.Context,p Policy,u *url.URL,start,end time.Time,threshold
  allHealthy:=true
  samples:=0
  for _,series:=range parsed.Data.Result{
+  // Missing or null metric objects and null label values are not valid
+  // labelsets. Keep explicit empty strings and unlabelled aggregates valid.
+  if series.Metric==nil{return SourceEvidence{},false,errors.New("missing Prometheus metric label set")}
+  for name,value:=range series.Metric{
+   if name==""||value==nil{return SourceEvidence{},false,errors.New("invalid Prometheus metric label")}
+  }
   labels,err:=json.Marshal(series.Metric)
   if err!=nil{return SourceEvidence{},false,err}
   if keys[string(labels)]{return SourceEvidence{},false,errors.New("duplicate Prometheus metric label set")}
