@@ -160,12 +160,20 @@ wait_ready() {
 wait_zero_pods() {
   local file="$1" i
   for i in $(seq 1 75); do
-    kubectl -n golden-demo get pods -l app=checkout-api -o json > "$file"
+    kubectl get --raw '/api/v1/namespaces/golden-demo/pods?labelSelector=app%3Dcheckout-api&limit=1' > "$file" || return 1
     if python3 - "$file" <<'PY'
 import json,sys
 p=json.load(open(sys.argv[1]))
-assert p.get("kind") in ("List","PodList")
-sys.exit(0 if len(p.get("items",[]))==0 else 1)
+if not isinstance(p,dict) or p.get("kind")!="PodList" or p.get("apiVersion")!="v1":
+    sys.exit(1)
+m=p.get("metadata")
+if not isinstance(m,dict):
+    sys.exit(1)
+rv=m.get("resourceVersion")
+remaining=m.get("remainingItemCount",0)
+complete=(isinstance(rv,str) and rv not in ("","0") and
+          m.get("continue","")=="" and type(remaining) is int and remaining==0)
+sys.exit(0 if complete and p.get("items")==[] else 1)
 PY
     then
       echo "PASS: test-admin observed zero checkout Pods"
