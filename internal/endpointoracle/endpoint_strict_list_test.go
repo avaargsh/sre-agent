@@ -80,3 +80,86 @@ func TestRejectEndpointSliceListWithOversizedResourceVersion(t *testing.T) {
 		t.Fatal("accepted oversized opaque EndpointSlice resourceVersion")
 	}
 }
+
+
+
+func TestDiagnoseRejectsServiceResourceVersionsOutsideSnapshotBudget(t *testing.T) {
+	_, _, service, endpointSlices := fixture(t, 1)
+	cases := map[string]string{
+		"zero": "0",
+		"oversized": strings.Repeat("β", 129), // 258 UTF-8 bytes.
+	}
+	for name, version := range cases {
+		t.Run(name, func(t *testing.T) {
+			changed := strings.Replace(
+				string(service),
+				`"resourceVersion":"19"`,
+				`"resourceVersion":"`+version+`"`,
+				1,
+			)
+			if changed == string(service) {
+				t.Fatal("Service resourceVersion fixture mutation did not apply")
+			}
+			if _, err := Diagnose(
+				[]byte(changed), endpointSlices, 8080,
+				map[string]string{"app": "checkout-api"},
+			); err == nil {
+				t.Fatal("accepted Service resourceVersion outside the cross-resource snapshot budget")
+			}
+		})
+	}
+}
+
+func TestDiagnoseAcceptsOpaqueServiceResourceVersionAtByteLimit(t *testing.T) {
+	_, _, service, endpointSlices := fixture(t, 1)
+	version := strings.Repeat("β", 128) // Exactly 256 UTF-8 bytes.
+	changed := strings.Replace(
+		string(service),
+		`"resourceVersion":"19"`,
+		`"resourceVersion":"`+version+`"`,
+		1,
+	)
+	if changed == string(service) {
+		t.Fatal("Service resourceVersion fixture mutation did not apply")
+	}
+	if _, err := Diagnose(
+		[]byte(changed), endpointSlices, 8080,
+		map[string]string{"app": "checkout-api"},
+	); err != nil {
+		t.Fatalf("accepted opaque Service resourceVersion at the documented byte limit: %v", err)
+	}
+}
+
+func TestEvaluateRejectsInvalidServiceResourceVersionInEveryPhase(t *testing.T) {
+	for _, phaseName := range []string{"before", "during", "after"} {
+		t.Run(phaseName, func(t *testing.T) {
+			episode, prediction := episode(t, false)
+			var phase *Phase
+			switch phaseName {
+			case "before":
+				phase = &episode.Before
+			case "during":
+				phase = &episode.During
+			case "after":
+				phase = &episode.After
+			}
+			raw, err := checkedRaw(phase.Service)
+			if err != nil {
+				t.Fatal(err)
+			}
+			changed := strings.Replace(
+				string(raw),
+				`"resourceVersion":"19"`,
+				`"resourceVersion":"0"`,
+				1,
+			)
+			if changed == string(raw) {
+				t.Fatal("Service resourceVersion fixture mutation did not apply")
+			}
+			phase.Service = snap([]byte(changed))
+			if _, err := Evaluate(episode, prediction); err == nil {
+				t.Fatal("accepted an Episode phase with zero Service resourceVersion")
+			}
+		})
+	}
+}
