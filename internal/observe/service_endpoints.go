@@ -77,21 +77,27 @@ func cloneSelector(in map[string]string) map[string]string {
 	return out
 }
 
-func validateServiceEndpointsConfig(c ServiceEndpointsConfig) (*url.URL, error) {
-	target := c.Target
+func validateServiceEndpointsSelection(target ServiceTarget, expectedTargetPort int, expectedSelector map[string]string) error {
 	if !nameOK(target.Namespace) || !nameOK(target.Name) || !eventSelectorUID.MatchString(target.UID) {
-		return nil, unknownf("invalid expected Service namespace/name/UID")
+		return unknownf("invalid expected Service namespace/name/UID")
 	}
-	if c.ExpectedTargetPort < 1 || c.ExpectedTargetPort > 65535 {
-		return nil, unknownf("invalid expected Service targetPort")
+	if expectedTargetPort < 1 || expectedTargetPort > 65535 {
+		return unknownf("invalid expected Service targetPort")
 	}
-	if len(c.ExpectedSelector) == 0 || len(c.ExpectedSelector) > 32 {
-		return nil, unknownf("missing or oversized expected Service selector")
+	if len(expectedSelector) == 0 || len(expectedSelector) > 32 {
+		return unknownf("missing or oversized expected Service selector")
 	}
-	for key, value := range c.ExpectedSelector {
+	for key, value := range expectedSelector {
 		if value == "" || !selectorLabelOK(key, value) {
-			return nil, unknownf("invalid expected Service selector")
+			return unknownf("invalid expected Service selector")
 		}
+	}
+	return nil
+}
+
+func validateServiceEndpointsConfig(c ServiceEndpointsConfig) (*url.URL, error) {
+	if err := validateServiceEndpointsSelection(c.Target, c.ExpectedTargetPort, c.ExpectedSelector); err != nil {
+		return nil, err
 	}
 	u, err := endpoint(c.KubernetesURL)
 	if err != nil {
@@ -110,6 +116,38 @@ func serviceIdentity(raw []byte, target ServiceTarget, expectedPort int, selecto
 	}
 	return got, nil
 }
+
+func ReplayServiceEndpoints(target ServiceTarget, expectedTargetPort int, expectedSelector map[string]string, serviceBeforeRaw, endpointSlicesRaw, serviceAfterRaw []byte) (endpointoracle.Prediction, error) {
+	if err := validateServiceEndpointsSelection(target, expectedTargetPort, expectedSelector); err != nil {
+		return endpointoracle.Prediction{}, err
+	}
+	before, err := serviceIdentity(serviceBeforeRaw, target, expectedTargetPort, expectedSelector)
+	if err != nil {
+		return endpointoracle.Prediction{}, err
+	}
+	after, err := serviceIdentity(serviceAfterRaw, target, expectedTargetPort, expectedSelector)
+	if err != nil {
+		return endpointoracle.Prediction{}, err
+	}
+	if before.ResourceVersion != after.ResourceVersion ||
+		!bytes.Equal(serviceBeforeRaw, serviceAfterRaw) ||
+		before.CurrentTargetPort != after.CurrentTargetPort ||
+		!reflect.DeepEqual(before.CurrentSelector, after.CurrentSelector) {
+		return endpointoracle.Prediction{}, unknownf("Service changed during EndpointSlice collection")
+	}
+	prediction, err := endpointoracle.Diagnose(serviceBeforeRaw, endpointSlicesRaw, expectedTargetPort, expectedSelector)
+	if err != nil {
+		return endpointoracle.Prediction{}, unknownf("invalid or incomplete EndpointSlice evidence")
+	}
+	if prediction.Service.ServiceUID != target.UID ||
+		prediction.Service.ResourceVersion != before.ResourceVersion ||
+		prediction.ExpectedSelector == nil ||
+		!reflect.DeepEqual(prediction.ExpectedSelector, expectedSelector) {
+		return endpointoracle.Prediction{}, unknownf("Service and EndpointSlice evidence do not share the selected identity")
+	}
+	return prediction, nil
+}
+
 
 // CollectServiceEndpoints reads one Service, its label-selected EndpointSlice
 // list, and the Service again. A changed UID, resourceVersion or exact source
@@ -157,25 +195,9 @@ func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (Ser
 	if err != nil {
 		return ServiceEndpointsObservation{}, err
 	}
-	after, err := serviceIdentity(afterRaw, c.Target, c.ExpectedTargetPort, c.ExpectedSelector)
+	prediction, err := ReplayServiceEndpoints(c.Target, c.ExpectedTargetPort, c.ExpectedSelector, beforeRaw, slicesRaw, afterRaw)
 	if err != nil {
 		return ServiceEndpointsObservation{}, err
-	}
-	if before.ResourceVersion != after.ResourceVersion ||
-		!bytes.Equal(beforeRaw, afterRaw) ||
-		before.CurrentTargetPort != after.CurrentTargetPort ||
-		!reflect.DeepEqual(before.CurrentSelector, after.CurrentSelector) {
-		return ServiceEndpointsObservation{}, unknownf("Service changed during EndpointSlice collection")
-	}
-	prediction, err := endpointoracle.Diagnose(beforeRaw, slicesRaw, c.ExpectedTargetPort, c.ExpectedSelector)
-	if err != nil {
-		return ServiceEndpointsObservation{}, unknownf("invalid or incomplete EndpointSlice evidence")
-	}
-	if prediction.Service.ServiceUID != c.Target.UID ||
-		prediction.Service.ResourceVersion != before.ResourceVersion ||
-		prediction.ExpectedSelector == nil ||
-		!reflect.DeepEqual(prediction.ExpectedSelector, c.ExpectedSelector) {
-		return ServiceEndpointsObservation{}, unknownf("Service and EndpointSlice evidence do not share the selected identity")
 	}
 	if bounded.Err() != nil {
 		return ServiceEndpointsObservation{}, unknownf("Service endpoint collection canceled or deadline exceeded")
