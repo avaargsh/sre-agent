@@ -97,3 +97,16 @@ def test_verify_admin_re_read_exact_snapshot(tmp_path):
     admin.write_text(json.dumps(drift), encoding="utf-8")
     mismatch = call(tmp_path, "--verify", observer, admin)
     assert mismatch.returncode != 0
+
+
+def test_reject_unpaired_surrogate_in_unrelated_source_field(tmp_path):
+    observer = tmp_path / "surrogate.json"
+    observer.write_text(
+        '{"kind":"EndpointSliceList","metadata":{"resourceVersion":"123",'
+        '"annotations":{"note":"\\ud800"}},"items":[]}',
+        encoding="utf-8",
+    )
+    result = call(tmp_path, observer)
+    assert result.returncode == 3
+    assert "UNKNOWN:" in result.stderr
+    assert "Traceback" not in result.stderr
