@@ -11,15 +11,6 @@ import (
  "github.com/avaargsh/sre-agent/internal/alertintake"
 )
 
-func boundedAlertFile(path string,max int)([]byte,error){
- file,err:=os.Open(path)
- if err!=nil{return nil,err}
- defer file.Close()
- raw,err:=io.ReadAll(io.LimitReader(file,int64(max)+1))
- if err!=nil||len(raw)==0||len(raw)>max{return nil,fmt.Errorf("missing, unreadable or oversized file")}
- return raw,nil
-}
-
 // investigateAlert only accepts an exact replay of the operator-reviewed
 // plan built from original Alertmanager bytes. It never derives credentials,
 // source endpoints, scope, query or permission from the untrusted alert.
