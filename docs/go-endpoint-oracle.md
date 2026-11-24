@@ -85,40 +85,43 @@ sre-agent capture-service-endpoints \
 ```
 
 The capture envelope remains `sre.service-endpoints-capture/v1`; its nested
-report is now `sre.service-endpoints/v2` because the request fence and ordered
-read timeline are required for complete replay. It includes the exact pre/post
-Service and EndpointSlice response bytes as base64 JSON byte fields, plus
-SHA-256 digests, Service and EndpointSlice-list resourceVersions, ready endpoint
-count and an observation classification. The EndpointSlice LIST is requested with the first Service
-resourceVersion and `resourceVersionMatch=NotOlderThan`, retaining the bounded
-`limit=129`. The pre/post Service GET fence still requires the same UID,
-resourceVersion and exact bytes; the LIST freshness lower bound uses that
-stable Service object's resourceVersion. The collector rejects the zero sentinel and applies a conservative 256-byte
-bound to opaque Service and collection resourceVersions; it never parses or
-compares them numerically. Freshness is taken from the EndpointSlice collection
-`metadata.resourceVersion`, not individual item resourceVersions (which track
-when each item was last updated). The API server's collection resourceVersion
-is therefore required to be no older than the Service snapshot; an expired version (HTTP 410) fails
-closed without falling back to an unpinned LIST. The report records the request
-resourceVersion/match, label selector and limit, returned collection
-resourceVersion, per-read response digest, and UTC start/completion timestamps
-for the ordered Service GET →
-EndpointSlice LIST → Service GET sequence. `collection_started_at` and the
-existing `observed_at` field bound the overall capture window. `ReplayServiceEndpointsObservation`
-recomputes the prediction and checks that the timeline, request fence, response
-versions and hashes agree with the archived raw bytes. It also rejects replay
-windows longer than the same 30-second collector budget; ordered timestamps
-alone are not sufficient to establish a bounded capture. This is a bounded
-cross-resource freshness association, not an atomic multi-resource
-transaction or source authentication; `source_authenticated=false` remains
-explicit. No unpinned fallback is attempted if the API server rejects or
-cannot honor the requested match semantics. Protect the output: it is evidence,
-not a public diagnostic artifact. `observe.ReplayServiceEndpointsObservation` validates the
-complete capture report, ordered read timeline, request fence, response
-versions and hashes. The lower-level `observe.ReplayServiceEndpoints` function
-revalidates both Service snapshots, exact-byte/resourceVersion equality,
-selected UID and the EndpointSlice list before recomputing the source-only
-prediction. The
+report is `sre.service-endpoints/v3`. It includes the exact pre/post Service
+and EndpointSlice response bytes as base64 JSON byte fields, SHA-256 digests,
+Service and EndpointSlice-list resourceVersions, ready endpoint count and an
+observation classification. The EndpointSlice LIST is bounded to
+`limit=129` and a Service-name label selector, but deliberately sends no
+`resourceVersion` or `resourceVersionMatch` query parameter. With a limit set
+and ResourceVersion unset, Kubernetes uses the Most Recent list semantics.
+The Service GET resourceVersion is not used as an EndpointSlice LIST lower
+bound: Kubernetes ResourceVersions are only comparable within the same
+resource type, and Service and EndpointSlice are different types. The pre/post
+Service GET fence instead requires the same UID, resourceVersion and exact
+bytes, proving that the selected Service configuration remained unchanged
+across the bounded observation interval. This is not an atomic cross-resource
+transaction and does not prove that the EndpointSlice controller had already
+reconciled every upstream Pod change.
+
+The collector rejects empty/zero Service and collection resourceVersions and
+applies a conservative 256-byte UTF-8 bound to the opaque metadata values; it
+never parses or orders them numerically. Freshness metadata is taken from the
+EndpointSlice collection `metadata.resourceVersion`, not individual item
+resourceVersions (which track when each item was last updated). The report
+records the effective `MOST_RECENT` list consistency mode, label selector and
+limit, returned collection resourceVersion, per-read response digest, and UTC
+start/completion timestamps for the ordered Service GET → EndpointSlice LIST
+→ Service GET sequence. `collection_started_at` and the existing
+`observed_at` field bound the overall capture window.
+`ReplayServiceEndpointsObservation` recomputes the prediction and checks that
+the timeline, list semantics, response versions and hashes agree with the
+archived raw bytes. It also rejects replay windows longer than the same
+30-second collector budget; ordered timestamps alone are not sufficient to
+establish a bounded capture. The report keeps
+`source_authenticated=false`; it is evidence, not a public diagnostic
+artifact. `observe.ReplayServiceEndpointsObservation` validates the complete
+capture report, ordered read timeline, read semantics, response versions and
+hashes. The lower-level `observe.ReplayServiceEndpoints` function revalidates
+both Service snapshots, exact-byte/resourceVersion equality, selected UID and
+the EndpointSlice list before recomputing the source-only prediction. The
 `diagnose-endpoints` command can also replay the decoded raw Service and
 EndpointSlice files.
 
