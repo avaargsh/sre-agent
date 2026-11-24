@@ -108,7 +108,10 @@ func query(ctx context.Context,p Policy,u *url.URL,start,end time.Time,threshold
  if err!=nil{return SourceEvidence{},false,err}
  req.Header.Set("Accept","application/json")
  var hc http.Client
- if p.Client!=nil{hc=*p.Client}else{hc.Timeout=10*time.Second}
+ if p.Client!=nil{hc=*p.Client}
+ // Bound each source read without mutating the caller or replacing its transport.
+ if hc.Timeout<=0{hc.Timeout=10*time.Second}
+ if hc.Timeout>30*time.Second{hc.Timeout=30*time.Second}
  hc.CheckRedirect=func(_ *http.Request,_ []*http.Request)error{return http.ErrUseLastResponse}
  resp,err:=hc.Do(req)
  if err!=nil{return SourceEvidence{},false,fmt.Errorf("Prometheus transport failed: %T",err)}
