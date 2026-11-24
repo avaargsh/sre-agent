@@ -72,11 +72,17 @@ func TestCollectServiceEndpointsPreservesExactReadOnlyEvidence(t *testing.T) {
 		t.Fatal("collector did not preserve exact source bytes")
 	}
 	r := got.Report
-	if r.SchemaVersion != "sre.service-endpoints/v1" || r.Target != (ServiceTarget{Namespace: "demo", Name: "checkout-api", UID: "service-uid-1"}) ||
+	if r.SchemaVersion != "sre.service-endpoints/v3" || r.Target != (ServiceTarget{Namespace: "demo", Name: "checkout-api", UID: "service-uid-1"}) ||
 		r.ServiceResourceVersion != "19" || r.EndpointSliceListResourceVersion != "25" ||
 		r.ReadyEndpoints != 1 || r.Classification != "READY_ENDPOINTS_OBSERVED" ||
 		r.ExpectedTargetPort != 8080 || r.ExpectedSelector["app"] != "checkout-api" || r.SourceAuthenticated {
 		t.Fatalf("wrong report: %+v", r)
+	}
+	if len(r.ReadTimeline) != 3 ||
+		r.ReadTimeline[1].RequestConsistency != "MOST_RECENT" ||
+		r.ReadTimeline[1].RequestResourceVersion != "" ||
+		r.ReadTimeline[1].RequestResourceVersionMatch != "" {
+		t.Fatalf("report does not describe the Most Recent list contract: %+v", r.ReadTimeline)
 	}
 	if r.ServiceBeforeSHA256 != fmt.Sprintf("%x", sha256.Sum256(got.ServiceBeforeRaw)) ||
 		r.EndpointSlicesSHA256 != fmt.Sprintf("%x", sha256.Sum256(got.EndpointSlicesRaw)) ||
@@ -176,6 +182,24 @@ func TestCollectServiceEndpointsRejectsServiceIdentityOrVersionDrift(t *testing.
 		})
 	}
 }
+
+func TestReplayServiceEndpointsRejectsZeroServiceResourceVersion(t *testing.T) {
+    zeroVersion := strings.Replace(
+        serviceEndpointsService, `"resourceVersion":"19"`,
+        `"resourceVersion":"0"`, 1,
+    )
+    if zeroVersion == serviceEndpointsService {
+        t.Fatal("zero-RV fixture mutation did not apply")
+    }
+    target := ServiceTarget{Namespace: "demo", Name: "checkout-api", UID: "service-uid-1"}
+    if _, err := ReplayServiceEndpoints(
+        target, 8080, map[string]string{"app": "checkout-api"},
+        []byte(zeroVersion), []byte(serviceEndpointsSlices), []byte(zeroVersion),
+    ); !errors.Is(err, ErrUnknown) {
+        t.Fatalf("zero Service resourceVersion must not replay as a snapshot: %v", err)
+    }
+}
+
 
 func TestCollectServiceEndpointsRejectsWrongInitialUIDBeforeListing(t *testing.T) {
 	srv, calls := serviceEndpointsServer(t, strings.Replace(serviceEndpointsService, "service-uid-1", "other-service", 1), serviceEndpointsSlices, serviceEndpointsService)

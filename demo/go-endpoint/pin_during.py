@@ -5,17 +5,23 @@ Only a disposable kind LAB tool. It does not authenticate Kubernetes source
 identity, grant writes, or establish root cause in arbitrary production incidents.
 """
 import json
-import re
+import os
+import stat
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlencode
 
 MAX_RESPONSE_BYTES = 2 << 20
 ENDPOINT_LIST_PATH = (
     "/apis/discovery.k8s.io/v1/namespaces/golden-demo/endpointslices"
-    "?labelSelector=kubernetes.io%2Fservice-name%3Dcheckout-api&limit=129"
 )
-VERSION_RE = re.compile(r"[1-9][0-9]{0,31}", re.ASCII)
+ENDPOINT_LIST_QUERY = {
+    "labelSelector": "kubernetes.io/service-name=checkout-api",
+    "limit": "129",
+}
+MAX_RESOURCE_VERSION_BYTES = 256
+MAX_JSON_DEPTH = 64
 
 
 @dataclass(frozen=True)
@@ -37,26 +43,72 @@ def unique_object(pairs):
     return result
 
 
-def read_list(path):
-    source = Path(path)
-    if source.stat().st_size > MAX_RESPONSE_BYTES:
-        raise ValueError("EndpointSlice list exceeds bounded response size")
-    raw = source.read_bytes()
+def validate_unicode(value):
+    """Reject unpaired surrogates and excessive nesting in decoded JSON evidence."""
+    pending = [(value, 0)]
+    while pending:
+        current, depth = pending.pop()
+        if depth > MAX_JSON_DEPTH:
+            raise ValueError("EndpointSlice JSON nesting exceeds the safe depth limit")
+        if isinstance(current, str):
+            try:
+                current.encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise ValueError("invalid Unicode scalar value in EndpointSlice JSON") from exc
+        elif isinstance(current, dict):
+            for key, item in current.items():
+                pending.append((key, depth + 1))
+                pending.append((item, depth + 1))
+        elif isinstance(current, list):
+            pending.extend((item, depth + 1) for item in current)
+
+
+def read_bounded_regular_file(path):
+    if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_NONBLOCK"):
+        raise ValueError("safe no-follow, nonblocking file access is unavailable")
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("EndpointSlice evidence must be a regular file")
+        if info.st_size > MAX_RESPONSE_BYTES:
+            raise ValueError("EndpointSlice list exceeds bounded response size")
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = -1
+            raw = stream.read(MAX_RESPONSE_BYTES + 1)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
     if not raw or len(raw) > MAX_RESPONSE_BYTES:
         raise ValueError("empty or oversized EndpointSlice response")
-    data = json.loads(
-        raw.decode("utf-8"), object_pairs_hook=unique_object,
-        parse_int=NumberToken, parse_float=NumberToken,
-        parse_constant=reject_nonfinite,
-    )
+    return raw
+
+
+def read_list(path):
+    source = Path(path)
+    raw = read_bounded_regular_file(source)
+    try:
+        data = json.loads(
+            raw.decode("utf-8"), object_pairs_hook=unique_object,
+            parse_int=NumberToken, parse_float=NumberToken,
+            parse_constant=reject_nonfinite,
+        )
+    except RecursionError as exc:
+        raise ValueError("EndpointSlice JSON nesting exceeds the parser limit") from exc
+    validate_unicode(data)
     if not isinstance(data, dict) or data.get("kind") != "EndpointSliceList":
         raise ValueError("expected a Kubernetes EndpointSliceList")
     metadata = data.get("metadata")
     if not isinstance(metadata, dict):
         raise ValueError("missing EndpointSlice list metadata")
     version = metadata.get("resourceVersion")
-    if not isinstance(version, str) or VERSION_RE.fullmatch(version) is None:
-        raise ValueError("invalid/nondecimal resourceVersion; cannot pin snapshot")
+    if (
+        not isinstance(version, str)
+        or not version
+        or version == "0"
+        or len(version.encode("utf-8")) > MAX_RESOURCE_VERSION_BYTES
+    ):
+        raise ValueError("invalid/oversized opaque resourceVersion; cannot pin snapshot")
     if "continue" in metadata and metadata["continue"] != "":
         raise ValueError("paginated list: cannot claim complete exact snapshot")
     if "remainingItemCount" in metadata:
@@ -72,7 +124,12 @@ def read_list(path):
 def main(argv):
     if len(argv) == 1:
         _, version = read_list(argv[0])
-        print(f"{ENDPOINT_LIST_PATH}&resourceVersion={version}&resourceVersionMatch=Exact")
+        query = urlencode({
+            **ENDPOINT_LIST_QUERY,
+            "resourceVersion": version,
+            "resourceVersionMatch": "Exact",
+        })
+        print(f"{ENDPOINT_LIST_PATH}?{query}")
         return 0
     if len(argv) == 3 and argv[0] == "--verify":
         observer, observed_version = read_list(argv[1])

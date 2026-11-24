@@ -1,8 +1,8 @@
-# SRE Agent — Go-native Migration Plan (updated 2026-11-23)
+# SRE Agent — Go-native Migration Plan (updated 2026-11-24)
 
 ## Repository baseline and migration policy
 
-Pinned development baseline for this update: `avaargsh/sre-agent` `main@6b8898dcb6b1cc7be906192dfa9042484854b5be`. The repository now includes Go read-only alert planning/investigation, source-integrity verification, independent SLI and fault Oracles, RCA review and signed-evidence **lab** contracts, alongside the historic Python `agentic-aiops` reference and CPU-only GRPO evidence utilities. These modules are not equivalent to a validated end-to-end Go product. No exact-head integrated Python 3.11/3.12 + Go + kind result has been observed for that pinned `main` commit. The historic M1 evidence is **not** validation of the Go implementation; Python remains as the compatibility oracle. Do not silently update `stack.lock.json` or rewrite frozen historic evidence.
+Pinned development baseline for this update: `avaargsh/sre-agent` `main@5de0398bf3c8b56da653731bef92846771b57304`. The repository now includes Go read-only alert planning/investigation, source-integrity verification, independent SLI and fault Oracles, RCA review and signed-evidence **lab** contracts, alongside the historic Python `agentic-aiops` reference and CPU-only GRPO evidence utilities. These modules are not equivalent to a validated end-to-end Go product. No exact-head integrated Python 3.11/3.12 + Go + kind result has been observed for that pinned `main` commit. The historic M1 evidence is **not** validation of the Go implementation; Python remains as the compatibility oracle. Do not silently update `stack.lock.json` or rewrite frozen historic evidence.
 
 ## Product ownership
 

@@ -19,6 +19,8 @@ import (
 // ServiceTarget is an independently selected Kubernetes Service identity.
 // The UID is required because a Service can be deleted and recreated under
 // the same namespace/name.
+const maxServiceResourceVersionBytes = 256
+
 type ServiceTarget struct {
 	Namespace string `json:"namespace"`
 	Name      string `json:"name"`
@@ -37,23 +39,38 @@ type ServiceEndpointsConfig struct {
 	Client              *http.Client
 }
 
-// ServiceEndpointsReport contains source identity and observation metadata.
-// It deliberately makes no source-authentication, root-cause, health or
-// recovery claim.
+// ServiceEndpointsRead records one bounded Kubernetes API read and its exact response binding.
+type ServiceEndpointsRead struct {
+	Name                         string `json:"name"`
+	StartedAt                    string `json:"started_at"`
+	CompletedAt                  string `json:"completed_at"`
+	RequestConsistency           string `json:"request_consistency,omitempty"`
+	RequestResourceVersion       string `json:"request_resource_version,omitempty"`
+	RequestResourceVersionMatch  string `json:"request_resource_version_match,omitempty"`
+	RequestLabelSelector         string `json:"request_label_selector,omitempty"`
+	RequestLimit                 int    `json:"request_limit,omitempty"`
+	ResponseResourceVersion      string `json:"response_resource_version"`
+	ResponseSHA256               string `json:"response_sha256"`
+}
+
+// ServiceEndpointsReport contains source identity, read consistency and observation metadata.
+// It deliberately makes no source-authentication, root-cause, health or recovery claim.
 type ServiceEndpointsReport struct {
-	SchemaVersion                string            `json:"schema_version"`
-	Target                       ServiceTarget     `json:"target"`
-	ExpectedTargetPort           int               `json:"expected_target_port"`
-	ExpectedSelector             map[string]string `json:"expected_selector"`
-	ServiceResourceVersion           string            `json:"service_resource_version"`
-	EndpointSliceListResourceVersion string            `json:"endpoint_slice_list_resource_version"`
-	ReadyEndpoints               int               `json:"ready_endpoints"`
-	Classification               string            `json:"classification"`
-	ServiceBeforeSHA256          string            `json:"service_before_sha256"`
-	EndpointSlicesSHA256         string            `json:"endpoint_slices_sha256"`
-	ServiceAfterSHA256           string            `json:"service_after_sha256"`
-	ObservedAt                   string            `json:"observed_at"`
-	SourceAuthenticated          bool              `json:"source_authenticated"`
+	SchemaVersion                    string                  `json:"schema_version"`
+	Target                           ServiceTarget           `json:"target"`
+	ExpectedTargetPort               int                     `json:"expected_target_port"`
+	ExpectedSelector                 map[string]string       `json:"expected_selector"`
+	ServiceResourceVersion           string                  `json:"service_resource_version"`
+	EndpointSliceListResourceVersion string                  `json:"endpoint_slice_list_resource_version"`
+	ReadyEndpoints                   int                     `json:"ready_endpoints"`
+	Classification                   string                  `json:"classification"`
+	ServiceBeforeSHA256              string                  `json:"service_before_sha256"`
+	EndpointSlicesSHA256             string                  `json:"endpoint_slices_sha256"`
+	ServiceAfterSHA256               string                  `json:"service_after_sha256"`
+	CollectionStartedAt              string                  `json:"collection_started_at"`
+	ReadTimeline                     []ServiceEndpointsRead  `json:"read_timeline"`
+	ObservedAt                       string                  `json:"observed_at"`
+	SourceAuthenticated              bool                    `json:"source_authenticated"`
 }
 
 // ServiceEndpointsObservation preserves the exact bytes from all three
@@ -112,7 +129,7 @@ func serviceIdentity(raw []byte, target ServiceTarget, expectedPort int, selecto
 	if err != nil {
 		return oracle.Prediction{}, unknownf("invalid or incomplete Service response")
 	}
-	if got.Namespace != target.Namespace || got.Service != target.Name || got.ServiceUID != target.UID || got.ResourceVersion == "" {
+	if got.Namespace != target.Namespace || got.Service != target.Name || got.ServiceUID != target.UID || got.ResourceVersion == "" || got.ResourceVersion == "0" || len(got.ResourceVersion) > maxServiceResourceVersionBytes {
 		return oracle.Prediction{}, unknownf("Service response does not match independently selected identity")
 	}
 	return got, nil
@@ -155,11 +172,123 @@ func ReplayServiceEndpoints(target ServiceTarget, expectedTargetPort int, expect
 	return prediction, nil
 }
 
+// parseCaptureTime accepts only canonical UTC RFC3339Nano timestamps emitted by the collector.
+func parseCaptureTime(raw string) (time.Time, error) {
+	parsed, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil || parsed.UTC().Format(time.RFC3339Nano) != raw {
+		return time.Time{}, unknownf("invalid or non-canonical capture timestamp")
+	}
+	return parsed, nil
+}
+
+// ReplayServiceEndpointsObservation verifies that the report's read timeline,
+// effective list consistency mode, response versions and digests describe the
+// supplied exact raw bytes. It does not authenticate the Kubernetes API server
+// or prove that the server honored the requested read semantics.
+func ReplayServiceEndpointsObservation(target ServiceTarget, expectedTargetPort int, expectedSelector map[string]string, observation ServiceEndpointsObservation) (endpointoracle.Prediction, error) {
+	report := observation.Report
+	if err := validateServiceEndpointsSelection(target, expectedTargetPort, expectedSelector); err != nil {
+		return endpointoracle.Prediction{}, err
+	}
+	if report.SchemaVersion != "sre.service-endpoints/v3" ||
+		report.Target != target ||
+		report.ExpectedTargetPort != expectedTargetPort ||
+		!reflect.DeepEqual(report.ExpectedSelector, expectedSelector) ||
+		report.SourceAuthenticated ||
+		len(report.ReadTimeline) != 3 {
+		return endpointoracle.Prediction{}, unknownf("invalid Service endpoint capture report")
+	}
+
+	prediction, err := ReplayServiceEndpoints(
+		target, expectedTargetPort, expectedSelector,
+		observation.ServiceBeforeRaw, observation.EndpointSlicesRaw, observation.ServiceAfterRaw,
+	)
+	if err != nil {
+		return endpointoracle.Prediction{}, err
+	}
+	before, err := serviceIdentity(observation.ServiceBeforeRaw, target, expectedTargetPort, expectedSelector)
+	if err != nil {
+		return endpointoracle.Prediction{}, err
+	}
+	after, err := serviceIdentity(observation.ServiceAfterRaw, target, expectedTargetPort, expectedSelector)
+	if err != nil {
+		return endpointoracle.Prediction{}, err
+	}
+
+	if report.ServiceResourceVersion != before.ResourceVersion ||
+		report.EndpointSliceListResourceVersion != prediction.ListResourceVersion ||
+		report.ReadyEndpoints != prediction.ReadyEndpoints ||
+		report.Classification != prediction.Classification ||
+		report.ServiceBeforeSHA256 != digestSource(observation.ServiceBeforeRaw) ||
+		report.EndpointSlicesSHA256 != digestSource(observation.EndpointSlicesRaw) ||
+		report.ServiceAfterSHA256 != digestSource(observation.ServiceAfterRaw) {
+		return endpointoracle.Prediction{}, unknownf("capture report does not bind exact source bytes and replay result")
+	}
+
+	reads := report.ReadTimeline
+	wantNames := []string{"service_get_before", "endpoint_slice_list", "service_get_after"}
+	wantVersions := []string{before.ResourceVersion, prediction.ListResourceVersion, after.ResourceVersion}
+	wantDigests := []string{
+		digestSource(observation.ServiceBeforeRaw),
+		digestSource(observation.EndpointSlicesRaw),
+		digestSource(observation.ServiceAfterRaw),
+	}
+	for i := range reads {
+		if reads[i].Name != wantNames[i] ||
+			reads[i].ResponseResourceVersion != wantVersions[i] ||
+			reads[i].ResponseSHA256 != wantDigests[i] {
+			return endpointoracle.Prediction{}, unknownf("capture read timeline does not match source evidence")
+		}
+	}
+	if reads[0].RequestConsistency != "" ||
+		reads[0].RequestResourceVersion != "" || reads[0].RequestResourceVersionMatch != "" ||
+		reads[0].RequestLabelSelector != "" || reads[0].RequestLimit != 0 ||
+		reads[1].RequestConsistency != "MOST_RECENT" ||
+		reads[1].RequestResourceVersion != "" || reads[1].RequestResourceVersionMatch != "" ||
+		reads[1].RequestLabelSelector != "kubernetes.io/service-name="+target.Name ||
+		reads[1].RequestLimit != 129 ||
+		reads[2].RequestConsistency != "" ||
+		reads[2].RequestResourceVersion != "" || reads[2].RequestResourceVersionMatch != "" ||
+		reads[2].RequestLabelSelector != "" || reads[2].RequestLimit != 0 {
+		return endpointoracle.Prediction{}, unknownf("EndpointSlice LIST must use Most Recent semantics without cross-resource ResourceVersion comparison")
+	}
+
+	collectionStart, err := parseCaptureTime(report.CollectionStartedAt)
+	if err != nil {
+		return endpointoracle.Prediction{}, err
+	}
+	collectionEnd, err := parseCaptureTime(report.ObservedAt)
+	if err != nil || collectionEnd.Before(collectionStart) ||
+		collectionEnd.Sub(collectionStart) > maxCollectionDuration {
+		return endpointoracle.Prediction{}, unknownf("invalid or over-budget Service endpoint collection time window")
+	}
+	previousEnd := collectionStart
+	for _, read := range reads {
+		started, err := parseCaptureTime(read.StartedAt)
+		if err != nil {
+			return endpointoracle.Prediction{}, err
+		}
+		completed, err := parseCaptureTime(read.CompletedAt)
+		if err != nil || completed.Before(started) || started.Before(previousEnd) {
+			return endpointoracle.Prediction{}, unknownf("invalid or overlapping source read intervals")
+		}
+		previousEnd = completed
+	}
+	if collectionEnd.Before(previousEnd) {
+		return endpointoracle.Prediction{}, unknownf("collection window ends before final source read")
+	}
+	return prediction, nil
+}
+
 // CollectServiceEndpoints reads one Service, its label-selected EndpointSlice
-// list, and the Service again. A changed UID, resourceVersion or exact source
-// bytes invalidates the entire observation. EndpointSlice LIST authorization
-// remains namespace-wide in Kubernetes RBAC; labelSelector is not an access
-// control boundary. Use only an isolated namespace or a narrower mediator.
+// list, and the Service again. The EndpointSlice list uses the API's default
+// Most Recent consistency semantics. The Service GET resourceVersion is not
+// sent as a list lower bound because ResourceVersions from different resource
+// types are not comparable. A changed Service UID, version or exact bytes
+// invalidates the observation. This bounded sequence is not an atomic
+// cross-resource snapshot. EndpointSlice LIST authorization remains
+// namespace-wide in Kubernetes RBAC; labelSelector is not an access control
+// boundary. Use only an isolated namespace or a narrower mediator.
 func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (ServiceEndpointsObservation, error) {
 	u, err := validateServiceEndpointsConfig(c)
 	if err != nil {
@@ -172,8 +301,11 @@ func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (Ser
 	}
 	hc := client(Config{Client: c.Client})
 	servicePath := "/api/v1/namespaces/" + c.Target.Namespace + "/services/" + c.Target.Name
+	collectionStarted := time.Now()
 
+	beforeStarted := time.Now()
 	beforeRaw, err := getRawJSON(bounded, hc, u, servicePath, c.BearerToken)
+	beforeCompleted := time.Now()
 	if err != nil {
 		return ServiceEndpointsObservation{}, err
 	}
@@ -188,8 +320,14 @@ func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (Ser
 	query := url.Values{}
 	query.Set("labelSelector", "kubernetes.io/service-name="+c.Target.Name)
 	query.Set("limit", strconv.Itoa(129)) // 128 accepted plus one to detect overflow.
+	// With resourceVersion unset and limit set, Kubernetes LIST uses its
+	// Most Recent consistency semantics. Do not compare the Service RV with
+	// the EndpointSlice collection RV: they are different resource types.
 	slicesPath := "/apis/discovery.k8s.io/v1/namespaces/" + c.Target.Namespace + "/endpointslices?" + query.Encode()
+
+	slicesStarted := time.Now()
 	slicesRaw, err := getRawJSON(bounded, hc, u, slicesPath, c.BearerToken)
+	slicesCompleted := time.Now()
 	if err != nil {
 		return ServiceEndpointsObservation{}, err
 	}
@@ -197,7 +335,14 @@ func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (Ser
 		return ServiceEndpointsObservation{}, unknownf("Service endpoint collection canceled or deadline exceeded")
 	}
 
+	afterStarted := time.Now()
 	afterRaw, err := getRawJSON(bounded, hc, u, servicePath, c.BearerToken)
+	afterCompleted := time.Now()
+	if err != nil {
+		return ServiceEndpointsObservation{}, err
+	}
+	collectionCompleted := time.Now()
+	after, err := serviceIdentity(afterRaw, c.Target, c.ExpectedTargetPort, c.ExpectedSelector)
 	if err != nil {
 		return ServiceEndpointsObservation{}, err
 	}
@@ -211,7 +356,7 @@ func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (Ser
 
 	selector := cloneSelector(c.ExpectedSelector)
 	report := ServiceEndpointsReport{
-		SchemaVersion: "sre.service-endpoints/v1",
+		SchemaVersion: "sre.service-endpoints/v3",
 		Target: c.Target,
 		ExpectedTargetPort: c.ExpectedTargetPort,
 		ExpectedSelector: selector,
@@ -222,16 +367,47 @@ func CollectServiceEndpoints(ctx context.Context, c ServiceEndpointsConfig) (Ser
 		ServiceBeforeSHA256: digestSource(beforeRaw),
 		EndpointSlicesSHA256: digestSource(slicesRaw),
 		ServiceAfterSHA256: digestSource(afterRaw),
-		ObservedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		CollectionStartedAt: collectionStarted.UTC().Format(time.RFC3339Nano),
+		ReadTimeline: []ServiceEndpointsRead{
+			{
+				Name: "service_get_before",
+				StartedAt: beforeStarted.UTC().Format(time.RFC3339Nano),
+				CompletedAt: beforeCompleted.UTC().Format(time.RFC3339Nano),
+				ResponseResourceVersion: before.ResourceVersion,
+				ResponseSHA256: digestSource(beforeRaw),
+			},
+			{
+				Name: "endpoint_slice_list",
+				StartedAt: slicesStarted.UTC().Format(time.RFC3339Nano),
+				CompletedAt: slicesCompleted.UTC().Format(time.RFC3339Nano),
+				RequestConsistency: "MOST_RECENT",
+				RequestLabelSelector: "kubernetes.io/service-name="+c.Target.Name,
+				RequestLimit: 129,
+				ResponseResourceVersion: prediction.ListResourceVersion,
+				ResponseSHA256: digestSource(slicesRaw),
+			},
+			{
+				Name: "service_get_after",
+				StartedAt: afterStarted.UTC().Format(time.RFC3339Nano),
+				CompletedAt: afterCompleted.UTC().Format(time.RFC3339Nano),
+				ResponseResourceVersion: after.ResourceVersion,
+				ResponseSHA256: digestSource(afterRaw),
+			},
+		},
+		ObservedAt: collectionCompleted.UTC().Format(time.RFC3339Nano),
 		SourceAuthenticated: false,
 	}
-	if bounded.Err() != nil {
-		return ServiceEndpointsObservation{}, unknownf("Service endpoint collection canceled or deadline exceeded")
-	}
-	return ServiceEndpointsObservation{
+	observation := ServiceEndpointsObservation{
 		ServiceBeforeRaw: beforeRaw,
 		EndpointSlicesRaw: slicesRaw,
 		ServiceAfterRaw: afterRaw,
 		Report: report,
-	}, nil
+	}
+	if _, err := ReplayServiceEndpointsObservation(c.Target, c.ExpectedTargetPort, c.ExpectedSelector, observation); err != nil {
+		return ServiceEndpointsObservation{}, err
+	}
+	if bounded.Err() != nil {
+		return ServiceEndpointsObservation{}, unknownf("Service endpoint collection canceled or deadline exceeded")
+	}
+	return observation, nil
 }

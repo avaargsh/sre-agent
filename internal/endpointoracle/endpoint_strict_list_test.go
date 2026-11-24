@@ -2,6 +2,7 @@ package endpointoracle
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -61,6 +62,101 @@ func TestRejectMalformedUTF8AndCaseFoldConflicts(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if _, err := Diagnose(service, raw, 8080, map[string]string{"app": "checkout-api"}); err == nil {
 				t.Fatal("accepted malformed or ambiguous EndpointSlice JSON")
+			}
+		})
+	}
+}
+
+func TestRejectEndpointSliceListWithZeroResourceVersion(t *testing.T) {
+	raw := []byte(`{"kind":"EndpointSliceList","metadata":{"resourceVersion":"0"},"items":[]}`)
+	if _, err := inspect(raw, "golden-demo", "checkout-api", "svc-1"); err == nil {
+		t.Fatal("accepted zero resourceVersion, which cannot serve as an exact-version replay token")
+	}
+}
+
+func TestRejectEndpointSliceListWithOversizedResourceVersion(t *testing.T) {
+	raw := []byte(`{"kind":"EndpointSliceList","metadata":{"resourceVersion":"` + strings.Repeat("β", 129) + `"},"items":[]}`)
+	if _, err := inspect(raw, "golden-demo", "checkout-api", "svc-1"); err == nil {
+		t.Fatal("accepted oversized opaque EndpointSlice resourceVersion")
+	}
+}
+
+func TestDiagnoseRejectsServiceResourceVersionsOutsideMetadataBudget(t *testing.T) {
+	_, _, service, endpointSlices := fixture(t, 1)
+	cases := map[string]string{
+		"zero": "0",
+		"oversized": strings.Repeat("β", 129), // 258 UTF-8 bytes.
+	}
+	for name, version := range cases {
+		t.Run(name, func(t *testing.T) {
+			changed := strings.Replace(
+				string(service),
+				`"resourceVersion":"19"`,
+				`"resourceVersion":"`+version+`"`,
+				1,
+			)
+			if changed == string(service) {
+				t.Fatal("Service resourceVersion fixture mutation did not apply")
+			}
+			if _, err := Diagnose(
+				[]byte(changed), endpointSlices, 8080,
+				map[string]string{"app": "checkout-api"},
+			); err == nil {
+				t.Fatal("accepted Service resourceVersion outside the bounded Service metadata budget")
+			}
+		})
+	}
+}
+
+func TestDiagnoseAcceptsOpaqueServiceResourceVersionAtByteLimit(t *testing.T) {
+	_, _, service, endpointSlices := fixture(t, 1)
+	version := strings.Repeat("β", 128) // Exactly 256 UTF-8 bytes.
+	changed := strings.Replace(
+		string(service),
+		`"resourceVersion":"19"`,
+		`"resourceVersion":"`+version+`"`,
+		1,
+	)
+	if changed == string(service) {
+		t.Fatal("Service resourceVersion fixture mutation did not apply")
+	}
+	if _, err := Diagnose(
+		[]byte(changed), endpointSlices, 8080,
+		map[string]string{"app": "checkout-api"},
+	); err != nil {
+		t.Fatalf("accepted opaque Service resourceVersion at the documented byte limit: %v", err)
+	}
+}
+
+func TestEvaluateRejectsInvalidServiceResourceVersionInEveryPhase(t *testing.T) {
+	for _, phaseName := range []string{"before", "during", "after"} {
+		t.Run(phaseName, func(t *testing.T) {
+			ep, prediction := episode(t, false)
+			var phase *Phase
+			switch phaseName {
+			case "before":
+				phase = &ep.Before
+			case "during":
+				phase = &ep.During
+			case "after":
+				phase = &ep.After
+			}
+			raw, err := checkedRaw(phase.Service)
+			if err != nil {
+				t.Fatal(err)
+			}
+			changed := strings.Replace(
+				string(raw),
+				`"resourceVersion":"19"`,
+				`"resourceVersion":"0"`,
+				1,
+			)
+			if changed == string(raw) {
+				t.Fatal("Service resourceVersion fixture mutation did not apply")
+			}
+			phase.Service = snap([]byte(changed))
+			if _, err := Evaluate(ep, prediction); err == nil {
+				t.Fatal("accepted an Episode phase with zero Service resourceVersion")
 			}
 		})
 	}
