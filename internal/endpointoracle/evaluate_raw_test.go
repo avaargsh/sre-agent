@@ -40,9 +40,8 @@ func TestEvaluateRawBindsExactInputBytes(t *testing.T) {
 	}
 }
 
-// replaceJSONOnce makes a malformed-input fixture fail during test setup if
-// its source key is absent. This prevents a no-op strings.Replace from
-// accidentally testing the unchanged, valid JSON document.
+// replaceJSONOnce fails during test setup if its source key is absent. This
+// prevents a no-op replacement from accidentally testing unchanged valid JSON.
 func replaceJSONOnce(t *testing.T, raw, old, replacement string) []byte {
 	t.Helper()
 	if !strings.Contains(raw, old) {
@@ -66,8 +65,8 @@ func appendJSONRootField(t *testing.T, raw, field string) []byte {
 func TestEvaluateRawRejectsAmbiguousEnvelopes(t *testing.T) {
 	validPrediction := []byte(`{}`)
 	for _, tc := range []struct {
-		name                  string
-		episode, prediction   []byte
+		name                string
+		episode, prediction []byte
 	}{
 		{"duplicate episode key", []byte(`{"schema_version":"sre.endpoint-oracle/v1","schema_version":"bad"}`), validPrediction},
 		{"case-fold episode key", []byte(`{"schema_version":"sre.endpoint-oracle/v1","SchemaVersion":"bad"}`), validPrediction},
