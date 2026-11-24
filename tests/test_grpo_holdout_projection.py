@@ -238,3 +238,46 @@ def test_symlinked_source_is_rejected_before_projection(tmp_path):
             output=prompts, manifest=manifest,
         )
     assert not prompts.exists() and not manifest.exists()
+
+
+def test_projection_rejects_symlinked_parent_component_before_read(tmp_path):
+    real_parent = tmp_path / "real"
+    real_parent.mkdir()
+    dataset = real_parent / "episodes.jsonl"
+    dataset.write_bytes(SAMPLE.read_bytes())
+    alias_parent = tmp_path / "alias"
+    alias_parent.symlink_to(real_parent, target_is_directory=True)
+    prompts = tmp_path / "prompts.jsonl"
+    manifest = tmp_path / "projection.json"
+
+    with pytest.raises(ValueError, match="symlink|component"):
+        project_holdout_prompts(
+            alias_parent / dataset.name,
+            expected_dataset_sha256=sha(dataset),
+            output=prompts, manifest=manifest,
+        )
+    assert not prompts.exists() and not manifest.exists()
+
+
+def test_projection_replay_rejects_parent_symlink_and_hardlink_alias(tmp_path):
+    dataset, prompts, manifest, _, pins = fixtures(tmp_path)
+    real_parent = tmp_path / "real"
+    real_parent.mkdir()
+    moved_dataset = real_parent / dataset.name
+    dataset.replace(moved_dataset)
+    alias_parent = tmp_path / "alias"
+    alias_parent.symlink_to(real_parent, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink|component"):
+        verify_holdout_projection(
+            alias_parent / dataset.name, prompts, manifest, **pins,
+        )
+
+    # Even different path names are not independent artifacts if they share
+    # one inode. The verifier must detect that before checking the second pin.
+    hardlink = tmp_path / "dataset-hardlink.jsonl"
+    os.link(moved_dataset, hardlink)
+    with pytest.raises(ValueError, match="distinct"):
+        verify_holdout_projection(
+            moved_dataset, hardlink, manifest, **pins,
+        )
