@@ -150,3 +150,27 @@ def test_sql_intermediate_value_budget(doublings, expected_status):
     assert report["execution_status"] == expected_status
     assert report["exact_result_match"] is (expected_status == "COMPLETED")
     assert report["admission"] == "HOLD"
+
+
+@pytest.mark.parametrize("query", [
+    "SELECT 2",
+    "WITH literal AS (SELECT 2) SELECT * FROM literal",
+    "SELECT 1 + 1",
+    "SELECT 2 UNION ALL SELECT 3 LIMIT 1",
+])
+def test_unscoped_literal_query_cannot_pass_result_oracle(query):
+    # Same output as Oracle but no read dependency on an allowed table.
+    result = evaluate_sql_case(fixture(), query)
+    assert result["execution_status"] == "REJECTED"
+    assert result["exact_result_match"] is False
+    assert result["admission"] == "HOLD"
+
+
+def test_empty_table_count_is_still_a_valid_read_dependency():
+    case = fixture()
+    case["tables"][0]["rows"] = []
+    case["expected_rows"] = [[0]]
+    result = evaluate_sql_case(case, "SELECT COUNT(*) FROM incidents")
+    assert result["execution_status"] == "COMPLETED"
+    assert result["exact_result_match"] is True
+    assert result["admission"] == "HOLD"
