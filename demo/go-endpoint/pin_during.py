@@ -5,6 +5,8 @@ Only a disposable kind LAB tool. It does not authenticate Kubernetes source
 identity, grant writes, or establish root cause in arbitrary production incidents.
 """
 import json
+import os
+import stat
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,13 +63,30 @@ def validate_unicode(value):
             pending.extend((item, depth + 1) for item in current)
 
 
-def read_list(path):
-    source = Path(path)
-    if source.stat().st_size > MAX_RESPONSE_BYTES:
-        raise ValueError("EndpointSlice list exceeds bounded response size")
-    raw = source.read_bytes()
+def read_bounded_regular_file(path):
+    if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_NONBLOCK"):
+        raise ValueError("safe no-follow, nonblocking file access is unavailable")
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("EndpointSlice evidence must be a regular file")
+        if info.st_size > MAX_RESPONSE_BYTES:
+            raise ValueError("EndpointSlice list exceeds bounded response size")
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = -1
+            raw = stream.read(MAX_RESPONSE_BYTES + 1)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
     if not raw or len(raw) > MAX_RESPONSE_BYTES:
         raise ValueError("empty or oversized EndpointSlice response")
+    return raw
+
+
+def read_list(path):
+    source = Path(path)
+    raw = read_bounded_regular_file(source)
     try:
         data = json.loads(
             raw.decode("utf-8"), object_pairs_hook=unique_object,
