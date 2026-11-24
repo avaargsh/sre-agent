@@ -229,3 +229,28 @@ def test_valid_unicode_preserved():
     report = evaluate_sql_case(f, "SELECT message FROM incidents WHERE message='故障🚨'")
     assert report["execution_status"] == "COMPLETED"
     assert report["exact_result_match"] is True
+
+
+
+def test_aggregate_result_payload_budget_is_enforced_incrementally():
+    # Each returned cell is within the 1 KiB cell contract, and the row count
+    # is within 256, but the aggregate result would exceed the 1 MiB budget.
+    # A bulk fetchmany(257) materializes all ~3 MiB before rejecting anything.
+    case = {
+        "schema_version": "sre.sql.holdout-case/v1", "case_id": "cpu-result-budget",
+        "tables": [{"name": "incidents",
+                    "columns": [{"name": "message", "type": "TEXT"}],
+                    "rows": [["x" * 1024]]}],
+        "expected_rows": [],
+    }
+    columns = ", ".join(f"a.message AS c{i}" for i in range(12))
+    query = (
+        "SELECT " + columns
+        + " FROM incidents a CROSS JOIN incidents b CROSS JOIN incidents c"
+        + " CROSS JOIN incidents d CROSS JOIN incidents e CROSS JOIN incidents f"
+        + " LIMIT 256"
+    )
+    report = evaluate_sql_case(case, query)
+    assert report["execution_status"] == "REJECTED"
+    assert report["exact_result_match"] is False
+    assert report["admission"] == "HOLD"
