@@ -37,7 +37,7 @@ def fixture():
     return capture
 
 
-@pytest.mark.parametrize("mutation", ["none", "digest", "timeline_digest", "version", "uid", "changed_service"])
+@pytest.mark.parametrize("mutation", ["none", "digest", "timeline_digest", "version", "uid", "changed_service", "offset_time", "noncanonical_fraction", "canonical_nanoseconds"])
 def test_capture_binding(tmp_path, mutation):
     capture = fixture()
     report = capture["report"]
@@ -49,6 +49,24 @@ def test_capture_binding(tmp_path, mutation):
         report["service_resource_version"] = "999"
     elif mutation == "uid":
         report["target"]["uid"] = "other"
+    elif mutation == "offset_time":
+        report["collection_started_at"] = "2026-11-24T00:00:00+00:00"
+        report["observed_at"] = "2026-11-24T00:00:01+00:00"
+        for read in report["read_timeline"]:
+            read["started_at"] = "2026-11-24T00:00:00+00:00"
+            read["completed_at"] = "2026-11-24T00:00:00+00:00"
+    elif mutation == "noncanonical_fraction":
+        report["collection_started_at"] = "2026-11-24T00:00:00.100Z"
+        report["observed_at"] = "2026-11-24T00:00:01.100Z"
+        for read in report["read_timeline"]:
+            read["started_at"] = "2026-11-24T00:00:00.100Z"
+            read["completed_at"] = "2026-11-24T00:00:00.100Z"
+    elif mutation == "canonical_nanoseconds":
+        report["collection_started_at"] = "2026-11-24T00:00:00.123456789Z"
+        report["observed_at"] = "2026-11-24T00:00:01.123456789Z"
+        for read in report["read_timeline"]:
+            read["started_at"] = "2026-11-24T00:00:00.123456789Z"
+            read["completed_at"] = "2026-11-24T00:00:00.123456789Z"
     elif mutation == "changed_service":
         raw = base64.b64decode(capture["service_after_raw"]) + b" "
         capture["service_after_raw"] = base64.b64encode(raw).decode()
@@ -57,7 +75,7 @@ def test_capture_binding(tmp_path, mutation):
     src = tmp_path / "capture.json"
     src.write_text(json.dumps(capture), encoding="utf-8")
     result = subprocess.run([sys.executable, str(SCRIPT), str(src), str(tmp_path), UID], capture_output=True, text=True, timeout=10)
-    if mutation == "none":
+    if mutation in ("none", "canonical_nanoseconds"):
         assert result.returncode == 0, result.stderr
         assert (tmp_path / "observed-endpointslices.json").read_bytes() == base64.b64decode(capture["endpoint_slices_raw"])
     else:
