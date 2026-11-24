@@ -67,12 +67,29 @@ type metadata struct {
  ResourceVersion string `json:"resourceVersion"`
  Generation int64 `json:"generation"`
 }
+// sourceLabels preserves the difference between an explicit empty label and
+// an invalid null value. encoding/json otherwise silently coerces null map
+// values into empty strings when decoding map[string]string.
+type sourceLabels map[string]string
+
+func (labels *sourceLabels) UnmarshalJSON(raw []byte) error {
+ var decoded map[string]*string
+ if err:=json.Unmarshal(raw,&decoded);err!=nil||decoded==nil{return unknownf("invalid source label object")}
+ result:=make(sourceLabels,len(decoded))
+ for key,value:=range decoded {
+  if value==nil{return unknownf("null source label value")}
+  result[key]=*value
+ }
+ *labels=result
+ return nil
+}
+
 type deployment struct {
  Metadata metadata `json:"metadata"`
  Spec struct {
   Replicas *int `json:"replicas"`
   Selector struct{
-  MatchLabels map[string]string `json:"matchLabels"`
+  MatchLabels sourceLabels `json:"matchLabels"`
   MatchExpressions []json.RawMessage `json:"matchExpressions"`
  } `json:"selector"`
  } `json:"spec"`
@@ -121,7 +138,7 @@ type promResult struct {
  Data struct {
   ResultType string `json:"resultType"`
   Result []struct{
-    Metric map[string]string `json:"metric"`
+    Metric sourceLabels `json:"metric"`
     Value []json.RawMessage `json:"value"`
   } `json:"result"`
  } `json:"data"`
