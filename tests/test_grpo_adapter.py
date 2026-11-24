@@ -134,25 +134,37 @@ def test_symlinks_or_unexpected_executable_files_rejected(tmp_path):
         load(directory, pins)
 
 
+def test_optional_readme_must_be_a_regular_non_symlink_file(tmp_path):
+    directory, pins = create_adapter(tmp_path)
+    outside = tmp_path / "outside-readme.md"
+    outside.write_text("not part of the pinned adapter")
+    (directory / "README.md").symlink_to(outside)
+    with pytest.raises(ValueError, match="symlink"):
+        load(directory, pins)
+
+
 def test_adapter_files_read_only_once_and_never_reopened_after_pin(tmp_path, monkeypatch):
     directory, pins = create_adapter(tmp_path)
-    watched = {
-        directory/"adapter_config.json", directory/"adapter_model.safetensors",
-    }
-    calls = {p: 0 for p in watched}
+    watched = {"adapter_config.json", "adapter_model.safetensors"}
+    calls = {name: 0 for name in watched}
+    directory_stat = directory.stat()
+    directory_identity = (directory_stat.st_dev, directory_stat.st_ino)
     import agentic_aiops.grpo_adapter as adapter_module
     original = adapter_module.os.open
 
     def trace(path, flags, *args, **kwargs):
-        if Path(path) in calls:
-            calls[Path(path)] += 1
+        parent_fd = kwargs.get("dir_fd")
+        if parent_fd is not None and Path(path).name in calls:
+            parent = adapter_module.os.fstat(parent_fd)
+            if (parent.st_dev, parent.st_ino) == directory_identity:
+                calls[Path(path).name] += 1
         return original(path, flags, *args, **kwargs)
 
     monkeypatch.setattr(adapter_module.os, "open", trace)
     frozen = load(directory, pins)
     with staged_pinned_adapter(frozen) as staged:
         assert (Path(staged)/"adapter_model.safetensors").is_file()
-    assert calls == {path: 1 for path in watched}
+    assert calls == {name: 1 for name in watched}
 
 
 def shaped_safetensors(entries):
