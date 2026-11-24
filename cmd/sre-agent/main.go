@@ -16,7 +16,7 @@ import (
 
 func run(args []string, stdout, stderr io.Writer) int {
  if len(args) == 0 {
-  fmt.Fprintln(stderr, "usage: sre-agent verify-bundle|plan-alert|investigate-alert|verify-alert-evidence|investigate|verify-sli|collect-changes|review-rca|capture-pod|replay-pod|verify-pod-report|diagnose-service|evaluate-oracle|diagnose-endpoints|evaluate-endpoints|diagnose-dns|evaluate-dns|evaluate-networkpolicy|index-evidence|sign-evidence|verify-evidence|verify-evidence-authorized|record-release-lab|read-release-lab [options]")
+  fmt.Fprintln(stderr, "usage: sre-agent verify-bundle|plan-alert|investigate-alert|verify-alert-evidence|investigate|verify-sli|collect-changes|review-rca|capture-pod|replay-pod|verify-pod-report|capture-events|replay-events|diagnose-service|evaluate-oracle|diagnose-endpoints|evaluate-endpoints|diagnose-dns|evaluate-dns|evaluate-networkpolicy|index-evidence|sign-evidence|verify-evidence|verify-evidence-authorized|record-release-lab|read-release-lab [options]")
   return 2
  }
  if args[0] == "plan-alert" { return planAlert(args[1:], stdout, stderr) }
@@ -28,6 +28,8 @@ func run(args []string, stdout, stderr io.Writer) int {
  if args[0] == "review-rca" { return reviewRCA(args[1:], stdout, stderr) }
  if args[0] == "capture-pod" { return capturePod(args[1:], stdout, stderr) }
  if args[0] == "replay-pod" { return replayPod(args[1:], os.Stdin, stdout, stderr) }
+ if args[0] == "capture-events" { return captureEvents(args[1:], stdout, stderr) }
+ if args[0] == "replay-events" { return replayEvents(args[1:], os.Stdin, stdout, stderr) }
  if args[0] == "verify-pod-report" { return verifyPodReport(args[1:], os.Stdin, stdout, stderr) }
  if args[0] == "diagnose-service" { return diagnoseService(args[1:], stdout, stderr) }
  if args[0] == "evaluate-oracle" { return evaluateOracle(args[1:], stdout, stderr) }
@@ -42,7 +44,7 @@ func run(args []string, stdout, stderr io.Writer) int {
  if args[0] == "verify-evidence-authorized" { return verifyEvidenceAuthorized(args[1:], stdout, stderr) }
  if args[0] == "record-release-lab" { return recordReleaseLab(args[1:], stdout, stderr) }
  if args[0] == "read-release-lab" { return readReleaseLab(args[1:], stdout, stderr) }
- if args[0] != "verify-bundle" { fmt.Fprintln(stderr, "usage: sre-agent verify-bundle|plan-alert|investigate-alert|verify-alert-evidence|investigate|verify-sli|collect-changes|review-rca|capture-pod|replay-pod|verify-pod-report|diagnose-service|evaluate-oracle|diagnose-endpoints|evaluate-endpoints|diagnose-dns|evaluate-dns|evaluate-networkpolicy|index-evidence|sign-evidence|verify-evidence|verify-evidence-authorized|record-release-lab|read-release-lab [options]"); return 2 }
+ if args[0] != "verify-bundle" { fmt.Fprintln(stderr, "usage: sre-agent verify-bundle|plan-alert|investigate-alert|verify-alert-evidence|investigate|verify-sli|collect-changes|review-rca|capture-pod|replay-pod|verify-pod-report|capture-events|replay-events|diagnose-service|evaluate-oracle|diagnose-endpoints|evaluate-endpoints|diagnose-dns|evaluate-dns|evaluate-networkpolicy|index-evidence|sign-evidence|verify-evidence|verify-evidence-authorized|record-release-lab|read-release-lab [options]"); return 2 }
  flags := flag.NewFlagSet("verify-bundle", flag.ContinueOnError)
  flags.SetOutput(stderr)
  path := flags.String("file", "", "bundle JSON file (use - for stdin)")
