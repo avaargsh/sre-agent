@@ -296,3 +296,36 @@ def test_exact_tree_log_and_manifest_are_private_regular_files(repo):
     assert stat.S_IMODE((out / "python-pytest.log").stat().st_mode) == 0o600
     assert not (out / "manifest.json").is_symlink()
     assert receipt["status"] == "PASS"
+
+
+@pytest.mark.parametrize("flag", ["assume-unchanged", "skip-worktree"])
+def test_hidden_index_flag_blocks_modified_tracked_source(repo, flag):
+    shell("git", "update-index", "--" + flag, "demo.txt", cwd=repo)
+    (repo / "demo.txt").write_text("hidden modification\n")
+    # Demonstrate that ordinary porcelain status misses the modified bytes.
+    assert shell("git", "status", "--porcelain", "--untracked-files=normal", cwd=repo) == ""
+    proc, receipt, _ = invoke(repo)
+    assert proc.returncode != 0
+    assert receipt["status"] == "HOLD"
+    assert receipt["checks"] == []
+    assert "index" in receipt["reason"]
+
+
+@pytest.mark.parametrize("flag", ["assume-unchanged", "skip-worktree"])
+def test_test_command_can_not_hide_tracked_mutation_with_index_flag(repo, flag):
+    (repo / "pytest.py").write_text(
+        "import subprocess\n"
+        "from pathlib import Path\n"
+        f"subprocess.run(['git', 'update-index', '--{flag}', 'demo.txt'], check=True)\n"
+        "Path('demo.txt').write_text('hidden mutation during tests\\n')\n"
+        "raise SystemExit(0)\n"
+    )
+    shell("git", "add", ".", cwd=repo)
+    shell("git", "-c", "user.name=Test", "-c", "user.email=test@example.org",
+          "commit", "-qm", "hidden-mutation-test", cwd=repo)
+    proc, receipt, _ = invoke(repo)
+    assert proc.returncode != 0
+    assert receipt["status"] == "FAIL"
+    assert receipt["post_run_tree_clean"] is False
+    assert receipt["checks"][0]["return_code"] == 0
+    assert "during verification" in receipt["reason"]
