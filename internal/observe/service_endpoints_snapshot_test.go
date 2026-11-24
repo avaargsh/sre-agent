@@ -173,3 +173,21 @@ func TestCollectServiceEndpointsFailsClosedWhenPinnedListVersionExpires(t *testi
 		t.Fatalf("expired pinned snapshot must fail closed without fallback or partial evidence: %+v err=%v calls=%d", observation, err, calls)
 	}
 }
+
+func TestCollectServiceEndpointsRejectsZeroServiceResourceVersionBeforeList(t *testing.T) {
+	zeroVersion := strings.Replace(serviceEndpointsService, `"resourceVersion":"19"`, `"resourceVersion":"0"`, 1)
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = fmt.Fprint(w, zeroVersion)
+	}))
+	defer server.Close()
+
+	observation, err := CollectServiceEndpoints(context.Background(), serviceEndpointsConfig(server.URL))
+	if !errors.Is(err, ErrUnknown) ||
+		observation.ServiceBeforeRaw != nil ||
+		observation.EndpointSlicesRaw != nil ||
+		calls != 1 {
+		t.Fatalf("zero RV must not weaken the cross-resource snapshot fence: %+v err=%v calls=%d", observation, err, calls)
+	}
+}
