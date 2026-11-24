@@ -66,6 +66,15 @@ const maxPredictionBytes=6<<20
 // EvaluateRaw validates the exact serialized inputs, evaluates their typed
 // contents, and binds the successful result to the original input bytes.
 // The digests establish byte identity only; they do not authenticate provenance.
+func decodeEndpointEnvelope(raw []byte,dst any)error{
+ decoder:=json.NewDecoder(bytes.NewReader(raw))
+ decoder.DisallowUnknownFields()
+ if err:=decoder.Decode(dst);err!=nil{return err}
+ var trailing any
+ if !errors.Is(decoder.Decode(&trailing),io.EOF){return errors.New("trailing envelope JSON")}
+ return nil
+}
+
 func EvaluateRaw(episodeRaw,predictionRaw []byte)(Result,error){
  if len(episodeRaw)==0||len(episodeRaw)>maxEpisodeBytes||
   len(predictionRaw)==0||len(predictionRaw)>maxPredictionBytes{
@@ -76,8 +85,8 @@ func EvaluateRaw(episodeRaw,predictionRaw []byte)(Result,error){
  }
  var e Episode
  var p Prediction
- if err:=json.Unmarshal(episodeRaw,&e);err!=nil{return Result{},errors.New("invalid Episode envelope")}
- if err:=json.Unmarshal(predictionRaw,&p);err!=nil{return Result{},errors.New("invalid Prediction envelope")}
+ if err:=decodeEndpointEnvelope(episodeRaw,&e);err!=nil{return Result{},errors.New("invalid Episode envelope")}
+ if err:=decodeEndpointEnvelope(predictionRaw,&p);err!=nil{return Result{},errors.New("invalid Prediction envelope")}
  result,err:=Evaluate(e,p)
  if err!=nil{return Result{},err}
  episodeDigest:=sha256.Sum256(episodeRaw)
