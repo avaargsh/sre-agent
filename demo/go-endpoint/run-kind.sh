@@ -10,7 +10,8 @@ kubectl apply -f demo/go-endpoint/reader-role.yaml
 kubectl -n golden-demo rollout status deploy/checkout-api --timeout=180s
 kubectl -n golden-demo scale deploy/load-generator --replicas=1
 kubectl -n golden-demo rollout status deploy/load-generator --timeout=120s
-go build -o /tmp/sre-agent-g2g ./cmd/sre-agent
+SRE_AGENT_BIN=/tmp/sre-agent-g2g
+go build -o "$SRE_AGENT_BIN" ./cmd/sre-agent
 
 SA=system:serviceaccount:golden-demo:sre-endpoint-reader
 test "$(kubectl auth can-i get services/checkout-api --as="$SA" -n golden-demo)" = yes
@@ -100,32 +101,40 @@ PY
 }
 
 ready_count() {
-  python3 - "$1" <<'PY'
-import json,sys
-data=json.load(open(sys.argv[1]))
-assert data.get('kind')=='EndpointSliceList'
-assert data['metadata']['resourceVersion']
-assert not data['metadata'].get('continue')
-items=data['items']
-assert len(items)<=128
-total=0
-for item in items:
-  assert item['metadata']['namespace']=='golden-demo'
-  assert item['metadata']['labels']['kubernetes.io/service-name']=='checkout-api'
-  for endpoint in item.get('endpoints',[]):
-    assert isinstance(endpoint.get('conditions',{}).get('ready'),bool)
-    total+=int(endpoint['conditions']['ready'])
-print(total)
-PY
+  local file="$1" prediction
+  service admin "$file.service.json" || return 1
+  prediction="$("$SRE_AGENT_BIN" diagnose-endpoints \
+    --observed-service "$file.service.json" --observed-endpointslices "$file" \
+    --expected-target-port 8080 --expected-selector app=checkout-api --out -)" || return $?
+  printf '%s\n' "$prediction" | python3 -c '
+import json, sys
+p = json.load(sys.stdin)
+if not isinstance(p, dict) or p.get("schema_version") != "sre.endpoint-observation/v1":
+    sys.exit(1)
+count = p.get("ready_endpoints")
+if type(count) is not int or not 0 <= count <= 128 * 256:
+    sys.exit(1)
+classification = p.get("classification")
+if classification == "UNKNOWN":
+    sys.exit(3)
+if classification != ("READY_ENDPOINTS_OBSERVED" if count else "NO_READY_ENDPOINTS_OBSERVED"):
+    sys.exit(1)
+print(count)
+'
 }
 wait_ready() {
-  local goal="$1" file="$2" n count
+  local goal="$1" file="$2" n count rc
   for n in $(seq 1 75); do
-    slices admin "$file"
-    count="$(ready_count "$file")"
-    if [[ "$goal" == "positive" && "$count" -gt 0 ]] || [[ "$goal" == "zero" && "$count" -eq 0 ]]; then
-      echo "EndpointSlice Ready endpoints: $count ($goal)"
-      return 0
+    slices admin "$file" || return 1
+    if count="$(ready_count "$file")"; then
+      if [[ "$goal" == "positive" && "$count" -gt 0 ]] || [[ "$goal" == "zero" && "$count" -eq 0 ]]; then
+        echo "EndpointSlice Ready endpoints: $count ($goal)"
+        return 0
+      fi
+    else
+      rc=$?
+      if [[ "$rc" -ne 3 ]]; then return "$rc"; fi
+      echo "UNKNOWN: preflight sample not admissible; waiting for steady state" >&2
     fi
     sleep 2
   done
