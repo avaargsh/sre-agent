@@ -12,6 +12,15 @@ The Go `observe.CollectPod(ctx, PodConfig)` library entrypoint now performs a bo
 
 The CLI capture/replay commands and disposable-kind acceptance scripts for named Pod reads and namespace-scoped Events List are implemented. The scripts and workflow were merged through PR #60; local Bash syntax, workflow YAML and fixture/RBAC checks pass, but no GitHub Actions run or live kind execution is recorded. Remaining acceptance: run the exact-head workflow, verify real CrashLoopBackOff/healthy controls and Events RBAC denials, then obtain independent review. Freshness and cross-source identity binding remain follow-up work. No model or Kubernetes writes.
 
+
+## Bounded current-container log tail (library development slice)
+
+`observe.CollectPodLogs(ctx, PodLogsConfig)` captures a read-only current-container tail for an independently selected namespace/name/UID and regular container name. It validates the Pod with the existing native Pod adapter before and after the name-scoped `pods/{name}/log` GET; a UID replacement or missing container on either side returns UNKNOWN and no log artifact. The log request explicitly asks for timestamps, a caller-selected 1–200 line tail, and a fixed 64 KiB `limitBytes`. The client accepts only HTTP 200 `text/plain` with absent or UTF-8 charset, valid UTF-8 body, nonempty content below the byte limit, and no redirects. All three reads share the earlier of the caller deadline and the collector's 30-second collection budget.
+
+The observation preserves exact log bytes plus exact pre/post Pod source bytes, SHA-256 digests, Pod resourceVersions, selected container, requested tail size, byte limit and collection time. These bytes are sensitive: Pod snapshots can expose environment/configuration and logs can expose credentials or customer data. Do not publish them to public artifacts or model prompts by default; apply a separately reviewed redaction/export policy. A digest proves byte consistency only. This adapter does not authenticate the API server, prove freshness, prove completeness beyond the requested tail, or establish causality, health or recovery. It does not change Evidence v1 or grant any Kubernetes write permission.
+
+Focused tests cover read-only query scope, bearer forwarding, exact raw preservation, pre/post UID fencing, absent containers, invalid content type/UTF-8, empty and byte-limit responses, redirects, invalid target scope and caller deadline cancellation. Exact-head full Go CI and disposable-kind execution remain required before acceptance.
+
 ## CLI capture and pinned replay
 
 `capture-pod --kube-api URL --namespace NS --pod NAME --uid UID` writes validated original response bytes to stdout. The current CLI expects an operator-controlled authenticated proxy (e.g. local kubectl proxy in a disposable test environment); it does not accept bearer credentials or custom CA flags. Set a private output directory, use umask 077 and shell noclobber when redirecting sensitive raw bytes. Stdout redirection is not atomic artifact publication; on nonzero exit discard the partial file. Do not expose the proxy publicly.
