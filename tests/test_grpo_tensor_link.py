@@ -96,17 +96,19 @@ def test_wrong_tensor_bytes_rejected_despite_perfect_manifest_metadata(tmp_path)
         )
 
 
-def test_missing_or_duplicate_semantic_slot_rejected_during_capture(tmp_path):
+def test_missing_or_duplicate_semantic_slot_rejected_before_capture(tmp_path):
     for changes, match in [
-        ({"missing": True}, "tensor set"),
+        ({"missing": True}, "A/B parameter pair"),
         ({"duplicate": True}, "duplicate"),
     ]:
         p = tmp_path / str(len(list(tmp_path.iterdir())))
         p.mkdir()
         directory, pins = create_adapter(p)
         model = Model(**changes)
-        post = snapshot_lora_parameters(model, tensor_bytes=lambda t: t.payload)
+        # The pre-snapshot itself validates the semantic parameter set, so
+        # invalid models must fail before a tensor map can be constructed.
         with pytest.raises(ValueError, match=match):
+            post = snapshot_lora_parameters(model, tensor_bytes=lambda t: t.payload)
             capture_posttraining_tensor_map(
                 model, base_model=MODEL, base_revision=REV,
                 post_snapshot=post,
