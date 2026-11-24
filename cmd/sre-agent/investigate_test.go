@@ -9,6 +9,7 @@ import (
  "path/filepath"
  "strings"
  "testing"
+ "sync/atomic"
  "time"
  "github.com/avaargsh/sre-agent/internal/evidence"
 )
@@ -45,4 +46,36 @@ func TestInvestigateUnknownDoesNotWriteArtifact(t *testing.T){
  exit:=run([]string{"investigate","--kube-api",srv.URL,"--prometheus",srv.URL,"--namespace","golden-demo","--deployment","checkout-api","--incident-id","inc-001","--summary","latency","--out",path},&stdout,&stderr)
  if exit!=3||!strings.Contains(stderr.String(),"UNKNOWN:"){t.Fatalf("exit=%d stderr=%s",exit,stderr.String())}
  if _,err:=os.Stat(path);!os.IsNotExist(err){t.Fatal("created evidence file for UNKNOWN collection")}
+}
+
+
+func TestInvestigateExistingOutputSkipsObservation(t *testing.T) {
+ dir := t.TempDir()
+ for _, alias := range []bool{false, true} {
+  name := "regular"
+  if alias { name = "symlink" }
+  t.Run(name, func(t *testing.T) {
+   target := filepath.Join(dir, name+".json")
+   original := []byte("preserved evidence")
+   source := target
+   if alias { source = filepath.Join(dir, "protected.json") }
+   if err := os.WriteFile(source, original, 0600); err != nil { t.Fatal(err) }
+   if alias { if err := os.Symlink(source, target); err != nil { t.Fatal(err) } }
+   var hits atomic.Int32
+   srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    hits.Add(1)
+    w.WriteHeader(http.StatusForbidden)
+   }))
+   defer srv.Close()
+   var stdout, stderr bytes.Buffer
+   exit := run([]string{"investigate", "--kube-api", srv.URL, "--prometheus", srv.URL,
+    "--namespace", "golden-demo", "--deployment", "checkout-api",
+    "--incident-id", "inc-001", "--summary", "latency", "--out", target}, &stdout, &stderr)
+   if exit != 1 || stdout.Len() != 0 { t.Fatalf("existing output: exit=%d stderr=%s", exit, stderr.String()) }
+   if hits.Load() != 0 { t.Fatalf("existing output triggered %d reads", hits.Load()) }
+   got, err := os.ReadFile(source)
+   if err != nil || !bytes.Equal(got, original) { t.Fatalf("existing evidence changed: %q %v", got, err) }
+   if alias { if got, err := os.Readlink(target); err != nil || got != source { t.Fatal("existing alias changed") } }
+  })
+ }
 }
