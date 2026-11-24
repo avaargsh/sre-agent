@@ -101,6 +101,19 @@ func TestCollectServiceEndpointsReportsNoReadyEndpointsWithoutRootCauseClaim(t *
 	}
 }
 
+func TestCollectServiceEndpointsAbstainsOnServiceConfigurationMismatch(t *testing.T) {
+	mismatched := strings.Replace(serviceEndpointsService, `"targetPort":8080`, `"targetPort":9090`, 1)
+	srv, _ := serviceEndpointsServer(t, mismatched, serviceEndpointsSlices, mismatched)
+	defer srv.Close()
+	got, err := CollectServiceEndpoints(context.Background(), serviceEndpointsConfig(srv.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Report.Classification != "UNKNOWN" || got.Report.ReadyEndpoints != 1 {
+		t.Fatalf("Service config mismatch must abstain while preserving raw endpoint observation: %+v", got.Report)
+	}
+}
+
 func TestCollectServiceEndpointsRejectsServiceIdentityOrVersionDrift(t *testing.T) {
 	cases := map[string]string{
 		"uid-replaced": strings.Replace(serviceEndpointsService, "service-uid-1", "service-uid-2", 1),
