@@ -2,6 +2,7 @@ package endpointoracle
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -70,5 +71,12 @@ func TestRejectEndpointSliceListWithZeroResourceVersion(t *testing.T) {
 	raw := []byte(`{"kind":"EndpointSliceList","metadata":{"resourceVersion":"0"},"items":[]}`)
 	if _, err := inspect(raw, "golden-demo", "checkout-api", "svc-1"); err == nil {
 		t.Fatal("accepted zero resourceVersion, which cannot serve as a cross-resource snapshot")
+	}
+}
+
+func TestRejectEndpointSliceListWithOversizedResourceVersion(t *testing.T) {
+	raw := []byte(`{"kind":"EndpointSliceList","metadata":{"resourceVersion":"` + strings.Repeat("x", 257) + `"},"items":[]}`)
+	if _, err := inspect(raw, "golden-demo", "checkout-api", "svc-1"); err == nil {
+		t.Fatal("accepted oversized opaque EndpointSlice resourceVersion")
 	}
 }
