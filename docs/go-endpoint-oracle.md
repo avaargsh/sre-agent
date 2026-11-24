@@ -96,7 +96,8 @@ older than the Service snapshot; an expired version (HTTP 410) fails
 closed without falling back to an unpinned LIST. The report records the request
 resourceVersion/match, returned collection resourceVersion, per-read response
 digest, and UTC start/completion timestamps for the ordered Service GET →
-EndpointSlice LIST → Service GET sequence. `ReplayServiceEndpointsObservation`
+EndpointSlice LIST → Service GET sequence. `collection_started_at` and the
+existing `observed_at` field bound the overall capture window. `ReplayServiceEndpointsObservation`
 recomputes the prediction and checks that the timeline, request fence, response
 versions and hashes agree with the archived raw bytes. This is a bounded
 cross-resource freshness association, not an atomic multi-resource
