@@ -67,7 +67,6 @@ func TestRejectMalformedUTF8AndCaseFoldConflicts(t *testing.T) {
 }
 
 func TestRejectEndpointSliceListWithZeroResourceVersion(t *testing.T) {
-	_, _, _, _ = fixture(t, 1)
 	raw := []byte(`{"kind":"EndpointSliceList","metadata":{"resourceVersion":"0"},"items":[]}`)
 	if _, err := inspect(raw, "golden-demo", "checkout-api", "svc-1"); err == nil {
 		t.Fatal("accepted zero resourceVersion, which cannot serve as a cross-resource snapshot")
