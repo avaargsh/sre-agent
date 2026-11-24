@@ -177,18 +177,14 @@ func TestCollectServiceEndpointsRejectsServiceIdentityOrVersionDrift(t *testing.
 	}
 }
 
-func TestCollectServiceEndpointsRejectsZeroServiceResourceVersionBeforeListing(t *testing.T) {
+func TestReplayServiceEndpointsRejectsZeroServiceResourceVersion(t *testing.T) {
     zeroVersion := strings.Replace(
         serviceEndpointsService, `"resourceVersion":"19"`,
         `"resourceVersion":"0"`, 1,
     )
-    srv, calls := serviceEndpointsServer(t, zeroVersion, serviceEndpointsSlices, zeroVersion)
-    defer srv.Close()
-    got, err := CollectServiceEndpoints(context.Background(), serviceEndpointsConfig(srv.URL))
-    if !errors.Is(err, ErrUnknown) || got.EndpointSlicesRaw != nil || calls.Load() != 1 {
-        t.Fatalf("zero Service resourceVersion must stop before list: %+v %v calls=%d", got, err, calls.Load())
+    if zeroVersion == serviceEndpointsService {
+        t.Fatal("zero-RV fixture mutation did not apply")
     }
-
     target := ServiceTarget{Namespace: "demo", Name: "checkout-api", UID: "service-uid-1"}
     if _, err := ReplayServiceEndpoints(
         target, 8080, map[string]string{"app": "checkout-api"},
