@@ -54,12 +54,6 @@ curl --noproxy '*' -fsS http://127.0.0.1:18001/version >/dev/null || {
   exit 1
 }
 
-restore() {
-  kubectl -n golden-demo scale deploy/checkout-api --replicas=2 >/dev/null 2>&1 || true
-  rm -f "$OBS" /tmp/go-endpoint-ca.crt
-}
-trap restore EXIT
-
 # kubectl resource-printer JSON returns a generic List with empty RV;
 # use the actual discovery.k8s.io LIST API for an auditable collection RV
 # and explicit pagination. Never weaken source replay to accept empty RV.
