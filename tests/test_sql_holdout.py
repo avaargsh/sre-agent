@@ -140,7 +140,7 @@ def test_sql_intermediate_value_budget(doublings, expected_status):
     f = {
         "schema_version": "sre.sql.holdout-case/v1", "case_id": "cpu-budget",
         "tables": [{"name": "incidents", "columns": [{"name": "message", "type": "TEXT"}],
-                    "rows": [["x" * 1024]]}],
+                    "rows": [["x" * 1024], ["y" * 1024], ["z" * 1024]]}],
         "expected_rows": [[1024 * 2**doublings]],
     }
     ctes = ["s0(v) AS (SELECT message FROM incidents)"]
