@@ -130,9 +130,8 @@ def capture_shadow_holdout(
         choice = choices[0]
         message = choice.get("message")
         finish = choice.get("finish_reason")
-        if (type(message) is not dict or finish != "stop" or
-                "tool_calls" in message or "function_call" in message or
-                ("role" in message and message["role"] != "assistant")):
+        if (type(message) is not dict or set(message) != {"role", "content"}
+                or message["role"] != "assistant" or finish != "stop"):
             raise ValueError("unexpected non-text or incomplete response")
         completion = message.get("content")
         if type(completion) is not str or len(completion.encode("utf-8")) > 8192:
