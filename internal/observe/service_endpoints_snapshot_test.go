@@ -133,6 +133,9 @@ func TestReplayServiceEndpointsObservationValidatesReadAndRawEvidenceBinding(t *
 			capture.Report.ReadTimeline[1].RequestResourceVersion = "19"
 			capture.Report.ReadTimeline[1].RequestResourceVersionMatch = "NotOlderThan"
 		},
+		"request-consistency-forged": func(capture *ServiceEndpointsObservation) {
+			capture.Report.ReadTimeline[1].RequestConsistency = "NOT_OLDER_THAN"
+		},
 		"request-match-weakened": func(capture *ServiceEndpointsObservation) {
 			capture.Report.ReadTimeline[1].RequestResourceVersionMatch = "Exact"
 		},
