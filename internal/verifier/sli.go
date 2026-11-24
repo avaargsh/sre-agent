@@ -17,6 +17,7 @@ import (
  "net/http"
  "net/url"
  "strconv"
+ "strings"
  "time"
  "github.com/avaargsh/sre-agent/internal/sourcejson"
 )
@@ -147,6 +148,9 @@ func query(ctx context.Context,p Policy,u *url.URL,start,end time.Time,threshold
    if err:=json.Unmarshal(point[0],&timestamp);err!=nil||!finite(timestamp){return SourceEvidence{},false,errors.New("invalid sample timestamp")}
    if math.Abs(timestamp-float64(start.Add(time.Duration(i)*p.Step).Unix()))>0.001{return SourceEvidence{},false,errors.New("misaligned or missing Prometheus sample")}
    if err:=json.Unmarshal(point[1],&value);err!=nil{return SourceEvidence{},false,errors.New("invalid sample encoding")}
+   // Go accepts hexadecimal floats and underscore separators; neither is
+   // a native Prometheus decimal sample representation.
+   if strings.ContainsAny(value,"xX_"){return SourceEvidence{},false,errors.New("invalid decimal SLI sample encoding")}
    number,err:=strconv.ParseFloat(value,64)
    if err!=nil||!finite(number)||number<0{return SourceEvidence{},false,errors.New("non-finite or negative SLI sample")}
    if ((mode=="latency"||mode=="age")&&number>threshold)||(mode=="traffic"&&number<threshold){allHealthy=false}
