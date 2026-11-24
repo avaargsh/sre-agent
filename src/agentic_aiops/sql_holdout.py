@@ -11,6 +11,7 @@ _CASE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}\Z")
 _TYPES = {"INTEGER", "REAL", "TEXT"}
 _FUNCTIONS = {"count", "sum", "avg", "min", "max", "lower", "upper", "length", "abs", "round", "coalesce"}
 _MAX_ROWS = 256
+_SURROGATE = re.compile(r"[\ud800-\udfff]")
 
 
 def _ident(value: Any) -> str:
@@ -22,7 +23,8 @@ def _ident(value: Any) -> str:
 def _value(value: Any) -> bool:
     return (value is None or type(value) is int and abs(value) <= 2**53
             or type(value) is float and math.isfinite(value)
-            or type(value) is str and len(value) <= 1024 and "\x00" not in value)
+            or type(value) is str and len(value) <= 1024 and "\x00" not in value
+            and _SURROGATE.search(value) is None)
 
 
 def _rows(value: Any, width: int, limit: int) -> list[list]:
@@ -95,7 +97,8 @@ def evaluate_sql_case(fixture: Any, candidate: Any) -> dict[str, Any]:
     never authenticates model identity or grants execution/routing authority.
     """
     case_id, tables, allowed, expected = _fixture(fixture)
-    if type(candidate) is not str or not 0 < len(candidate) <= 4096 or "\x00" in candidate:
+    if (type(candidate) is not str or not 0 < len(candidate) <= 4096
+            or "\x00" in candidate or _SURROGATE.search(candidate) is not None):
         raise ValueError("invalid candidate query")
     report = {
         "schema_version": "sre.sql.evaluation/v1", "case_id": case_id,
