@@ -86,6 +86,15 @@ capture=json.loads(pathlib.Path(sys.argv[1]).read_text())
 assert capture.get("schema_version")=="sre.service-endpoints-capture/v1"
 report=capture["report"]
 assert report["source_authenticated"] is False
+reads=report["read_timeline"]
+assert [r["name"] for r in reads] == ["service_get_before","endpoint_slice_list","service_get_after"]
+assert reads[1]["request_resource_version"] == report["service_resource_version"]
+assert reads[1]["request_resource_version_match"] == "NotOlderThan"
+assert reads[1]["response_resource_version"] == report["endpoint_slice_list_resource_version"]
+assert report["collection_started_at"] <= reads[0]["started_at"] <= reads[0]["completed_at"]
+assert reads[0]["completed_at"] <= reads[1]["started_at"] <= reads[1]["completed_at"]
+assert reads[1]["completed_at"] <= reads[2]["started_at"] <= reads[2]["completed_at"]
+assert reads[2]["completed_at"] <= report["collection_completed_at"] == report["observed_at"]
 assert report["classification"] in ("READY_ENDPOINTS_OBSERVED","NO_READY_ENDPOINTS_OBSERVED","UNKNOWN")
 for field,name in (
   ("service_before_raw","observed-service.json"),
