@@ -16,4 +16,4 @@ def test_sli_kind_requires_all_three_verdicts_and_artifacts():
     assert "test \"$STATUS\" -eq 4" in workflow
     assert "('/tmp/go-sli-unhealthy.json', 'UNHEALTHY')" in workflow
     assert "            /tmp/go-sli-unhealthy.json" in workflow
-    assert "curl -fsS http://127.0.0.1:19090/-/ready >/dev/null" in workflow
+    assert "\n          curl -fsS http://127.0.0.1:19090/-/ready >/dev/null\n" in workflow
