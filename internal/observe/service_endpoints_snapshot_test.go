@@ -280,7 +280,7 @@ func TestCollectServiceEndpointsSupportsOpaqueResourceVersions(t *testing.T) {
 		t.Fatal("opaque resourceVersion fixture mutation did not apply")
 	}
 
-	var listQuery url.Values
+	listQueryCh := make(chan url.Values, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Errorf("unexpected method %s", r.Method)
@@ -289,7 +289,7 @@ func TestCollectServiceEndpointsSupportsOpaqueResourceVersions(t *testing.T) {
 		case "/api/v1/namespaces/demo/services/checkout-api":
 			_, _ = fmt.Fprint(w, service)
 		case "/apis/discovery.k8s.io/v1/namespaces/demo/endpointslices":
-			listQuery = r.URL.Query()
+			listQueryCh <- r.URL.Query()
 			_, _ = fmt.Fprint(w, slices)
 		default:
 			t.Errorf("unexpected path %s", r.URL.Path)
@@ -302,6 +302,7 @@ func TestCollectServiceEndpointsSupportsOpaqueResourceVersions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("opaque resourceVersions should be preserved as strings: %v", err)
 	}
+	listQuery := <-listQueryCh
 	if listQuery.Get("resourceVersion") != serviceVersion ||
 		listQuery.Get("resourceVersionMatch") != "NotOlderThan" ||
 		listQuery.Get("labelSelector") != "kubernetes.io/service-name=checkout-api" ||
