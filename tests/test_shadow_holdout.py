@@ -88,7 +88,7 @@ def test_model_mismatch_fails_without_publishing(tmp_path):
 def test_tool_call_response_is_rejected(tmp_path):
     def sample(payload):
         return {"model":payload["model"], "choices":[{"finish_reason":"tool_calls",
-                "message":{"content":None,"tool_calls":[{"id":"x"}]}}]}
+                "message":{"role":"assistant","content":None,"tool_calls":[{"id":"x"}]}}]}
     with pytest.raises(ValueError):
         capture(tmp_path, sample)
     assert not (tmp_path / "capture.json").exists()
@@ -137,7 +137,7 @@ def test_manifest_collision_never_unlinks_concurrent_prediction(tmp_path, monkey
 
     def sample(payload):
         return {"model": payload["model"], "choices": [{"finish_reason": "stop",
-                "message": {"content": "{}"}}]}
+                "message": {"role": "assistant", "content": "{}"}}]}
 
     with pytest.raises(FileExistsError):
         capture(tmp_path, sample)
