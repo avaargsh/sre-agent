@@ -60,6 +60,7 @@ type Assessment struct {
  Evidence []SourceEvidence `json:"evidence"`
 }
 const maxResponseSize = 2 << 20
+const maxAssessmentDuration = 30 * time.Second
 func finite(x float64)bool{return !math.IsNaN(x)&&!math.IsInf(x,0)}
 func checkPolicy(p Policy)(*url.URL,time.Time,time.Time,error){
  if p.Now==nil {p.Now=time.Now}
@@ -90,6 +91,7 @@ type response struct {
  } `json:"data"`
 }
 func query(ctx context.Context,p Policy,u *url.URL,start,end time.Time,threshold float64,mode string)(SourceEvidence,bool,error){
+ if err:=ctx.Err();err!=nil{return SourceEvidence{},false,err}
  api:=*u
  api.Path="/api/v1/query_range"
  q:=url.Values{}
@@ -154,12 +156,18 @@ func query(ctx context.Context,p Policy,u *url.URL,start,end time.Time,threshold
   }
  }
  digest:=sha256.Sum256(raw)
- return SourceEvidence{Query:name,ResponseSHA256:hex.EncodeToString(digest[:]),RawResponseBase64:base64.StdEncoding.EncodeToString(raw),Series:len(parsed.Data.Result),Samples:samples},allHealthy,nil
+ evidence:=SourceEvidence{Query:name,ResponseSHA256:hex.EncodeToString(digest[:]),RawResponseBase64:base64.StdEncoding.EncodeToString(raw),Series:len(parsed.Data.Result),Samples:samples}
+ // Even a transport that returns bytes after cancellation cannot publish them.
+ if err:=ctx.Err();err!=nil{return SourceEvidence{},false,err}
+ return evidence,allHealthy,nil
 }
 // Assess never reads an Agent-generated success statement. HEALTHY means only
 // that the inspected bounded SLI window meets operator-selected constraints.
 // UNKNOWN cannot authorize automation or compensation.
 func Assess(ctx context.Context,p Policy) Assessment{
+ // All three reads share one deadline; earlier caller deadlines still win.
+ ctx,cancel:=context.WithTimeout(ctx,maxAssessmentDuration)
+ defer cancel()
  report:=Assessment{Status:Unknown,Reason:"insufficient independently verified SLI",MaxLatencySeconds:p.MaxLatencySeconds,MinTrafficPerSecond:p.MinTrafficPerSecond,MaxSampleAgeSeconds:p.MaxSampleAgeSeconds,Evidence:[]SourceEvidence{}}
  u,start,end,err:=checkPolicy(p)
  if err!=nil{report.Reason=err.Error();return report}
@@ -173,6 +181,7 @@ func Assess(ctx context.Context,p Policy) Assessment{
  age,okAge,err:=query(ctx,p,u,start,end,p.MaxSampleAgeSeconds,"age")
  if err!=nil{report.Reason=err.Error();return report}
  report.Evidence=append(report.Evidence,age)
+ if err:=ctx.Err();err!=nil{report.Reason=err.Error();return report}
  if !okAge{report.Reason="one or more Prometheus scrape samples exceed freshness budget";return report}
  if !okTraffic{report.Reason="insufficient observed request traffic";return report}
  if !okLatency{report.Status=Unhealthy;report.Reason="one or more observed latency samples breach SLI threshold";return report}
