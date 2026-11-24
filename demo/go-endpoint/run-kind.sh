@@ -85,6 +85,7 @@ import base64,datetime,json,pathlib,sys
 capture=json.loads(pathlib.Path(sys.argv[1]).read_text())
 assert capture.get("schema_version")=="sre.service-endpoints-capture/v1"
 report=capture["report"]
+assert report["schema_version"] == "sre.service-endpoints/v2"
 assert report["source_authenticated"] is False
 reads=report["read_timeline"]
 assert [r["name"] for r in reads] == ["service_get_before","endpoint_slice_list","service_get_after"]
