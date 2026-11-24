@@ -42,8 +42,12 @@ def read_list(path):
     version = metadata.get("resourceVersion")
     if not isinstance(version, str) or VERSION_RE.fullmatch(version) is None:
         raise ValueError("invalid/nondecimal resourceVersion; cannot pin snapshot")
-    if metadata.get("continue") not in (None, ""):
+    if "continue" in metadata and metadata["continue"] != "":
         raise ValueError("paginated list: cannot claim complete exact snapshot")
+    if "remainingItemCount" in metadata:
+        remaining = metadata["remainingItemCount"]
+        if type(remaining) is not int or remaining != 0:
+            raise ValueError("invalid or incomplete remainingItemCount")
     items = data.get("items")
     if not isinstance(items, list) or len(items) > 128:
         raise ValueError("incomplete/oversized EndpointSlice membership")
