@@ -29,6 +29,9 @@ func TestCollectPodLogsUsesBoundedTailAndUIDFence(t *testing.T) {
 		if r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer readonly-test" {
 			t.Errorf("unexpected request method/auth: %s %q", r.Method, r.Header.Get("Authorization"))
 		}
+		if strings.HasSuffix(r.URL.Path, "/log") && r.Header.Get("Accept") != "text/plain" {
+			t.Errorf("unexpected log Accept header: %q", r.Header.Get("Accept"))
+		}
 		switch r.URL.Path {
 		case "/api/v1/namespaces/demo/pods/checkout-1":
 			n := podReads.Add(1)
@@ -71,7 +74,10 @@ func TestCollectPodLogsUsesBoundedTailAndUIDFence(t *testing.T) {
 	if got.Report.BeforeResourceVersion != "42" || got.Report.AfterResourceVersion != "43" {
 		t.Fatalf("pre/post resource versions not retained: %+v", got.Report)
 	}
-	if got.Report.LogsSHA256 != fmt.Sprintf("%x", sha256.Sum256(got.Raw)) || got.Report.SourceAuthenticated {
+	if got.Report.LogsSHA256 != fmt.Sprintf("%x", sha256.Sum256(got.Raw)) ||
+		got.Report.BeforePodSHA256 != fmt.Sprintf("%x", sha256.Sum256(got.BeforePodRaw)) ||
+		got.Report.AfterPodSHA256 != fmt.Sprintf("%x", sha256.Sum256(got.AfterPodRaw)) ||
+		got.Report.SourceAuthenticated {
 		t.Fatalf("wrong digest or authority flags: %+v", got.Report)
 	}
 }
