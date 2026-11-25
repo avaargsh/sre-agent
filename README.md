@@ -63,6 +63,28 @@ changes). This supports investigation but does not establish causal order,
 source authenticity or recovery. Leap seconds and timestamps without
 explicit offsets are not parsed.
 
+### Offline Go Endpoint observation summary
+
+After collecting a `sre.service-endpoints-capture/v1` archive with the Go
+`sre-agent capture-service-endpoints` command, summarize the local file:
+
+```bash
+agentic-aiops render-endpoint-capture /secure/path/service-endpoints-capture.json
+```
+
+The JSON `endpoint-observation-summary/v1` includes the reported Service
+identity, classification, ready endpoint count, timestamps and SHA-256
+bindings. It checks the three archived source byte digests against the
+supplied report and requires identical before/after Service bytes. Raw
+source bodies are not printed. Invalid inputs produce exit 2 without a
+partial summary. Use an operator-selected regular file.
+
+This is a display of reported observations, not a Go Oracle replay or
+native Kubernetes schema validator. Matching self-reported digests do not
+authenticate a source, validate the reported endpoint count or timestamps,
+prove a root cause, or authorize execution. The four authority flags remain
+false. See [Go Endpoint observation](docs/go-endpoint-oracle.md).
+
 ## Golden Incident v0.1
 
 ```text
