@@ -76,10 +76,21 @@ service() {
   fi
 }
 capture_observer() {
-  local dir="$1" uid capture
-  uid="$(kubectl -n golden-demo get svc checkout-api -o jsonpath='{.metadata.uid}')"
+  local dir="$1" uid capture pin
+  uid="$(kubectl -n golden-demo get svc checkout-api -o jsonpath='{.metadata.uid}')" || return 1
   capture="$dir/observer-capture.json"
-  /tmp/sre-agent-g2g capture-service-endpoints --namespace golden-demo --service checkout-api --uid "$uid" --kube-api http://127.0.0.1:18001 --expected-target-port 8080 --expected-selector app=checkout-api --timeout 15s > "$capture"
+  # Create-only, private capture/pin/receipt files. The lab pin records local
+  # byte continuity immediately after capture, not independent provenance.
+  (umask 077; set -o noclobber
+    "$SRE_AGENT_BIN" capture-service-endpoints --namespace golden-demo --service checkout-api --uid "$uid" --kube-api http://127.0.0.1:18001 --expected-target-port 8080 --expected-selector app=checkout-api --timeout 15s > "$capture" &&
+    python3 demo/go-endpoint/check_replay.py pin "$capture" > "$dir/observer-capture.sha256"
+  ) || return 1
+  pin="$(cat "$dir/observer-capture.sha256")" || return 1
+  (umask 077; set -o noclobber
+    "$SRE_AGENT_BIN" replay-service-endpoints --capture "$capture" --sha256 "$pin" \
+      --namespace golden-demo --service checkout-api --uid "$uid" \
+      --expected-target-port 8080 --expected-selector app=checkout-api > "$dir/observer-replay.json"
+  ) || return 1
   python3 demo/go-endpoint/verify_capture.py "$capture" "$dir" "$uid"
 }
 
@@ -274,6 +285,11 @@ PY
    --observed-endpointslices "$dir/observed-endpointslices.json" \
    --expected-target-port 8080 --expected-selector app=checkout-api \
    --out "$dir/prediction.json"
+ # The same archive must survive replay and agree with the separate native
+ # prediction before an independent episode can receive a verdict.
+ python3 demo/go-endpoint/check_replay.py verify \
+   "$dir/observer-capture.json" "$dir/observer-capture.sha256" \
+   "$dir/observer-replay.json" "$dir/prediction.json" || return 1
  /tmp/sre-agent-g2g evaluate-endpoints \
    --episode "$dir/episode.json" --prediction "$dir/prediction.json" \
    --out "$dir/evaluation.json"
