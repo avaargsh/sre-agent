@@ -1,8 +1,8 @@
 # Agentic AIOps
 
-> **Go experimental development baseline (2026-11-24, main@4a336e0):** The Go CLI supports scoped Alertmanager `plan-alert`, **read-only** Kubernetes/Prometheus `investigate-alert`, offline `verify-alert-evidence`, SLI and fault Oracles, RCA human-review policy verification, and laboratory-only signed evidence controls. PRs #104–#106 hardened native JSON field admission across Observer, SLI and Service/EndpointSlice Oracles; case-insensitive aliases are checked against typed schemas while case-sensitive map keys and opaque `json.RawMessage` remain data. These are independently integrated development features, not an end-to-end production-approved Go SRE Agent. The legacy Python Golden Incident is a separate historical demo, **not proof the Go CLI has a production remediation workflow**. See [Go rewrite plan](docs/go-rewrite-plan.md) and [SRE Golden Incident P0 acceptance plan](docs/sre-p0-golden-path.md).
+> **Go experimental development baseline (2026-11-25):** The Go CLI supports scoped Alertmanager `plan-alert`, **read-only** Kubernetes/Prometheus `investigate-alert`, offline `verify-alert-evidence`, SLI and fault Oracles, RCA human-review policy verification, laboratory-only signed evidence controls, and native Service/EndpointSlice capture plus digest-pinned offline Oracle replay. The disposable-Kind Golden Incident harness now gates its independent Episode evaluation on the frozen native replay receipt matching the separate endpoint prediction. PRs #104–#106 hardened native JSON field admission across Observer, SLI and Service/EndpointSlice Oracles; case-insensitive aliases are checked against typed schemas while case-sensitive map keys and opaque `json.RawMessage` remain data. These are independently integrated development features, not an end-to-end production-approved Go SRE Agent. The legacy Python Golden Incident is a separate historical demo, **not proof the Go CLI has a production remediation workflow**. See [Go rewrite plan](docs/go-rewrite-plan.md) and [SRE Golden Incident P0 acceptance plan](docs/sre-p0-golden-path.md).
 >
-> These are **development features**, not authenticated alert provenance, independent RCA truth, verified production recovery, or permission to modify a real cluster. #11 SFT/GRPO remains Draft and CPU-only validation does not prove GPU training. The code baseline `4a336e0` has **not** yet received full-repository Go race/vet/build and live Kind proof; pre-merge or isolated-package checks must not be called final-`main` certification.
+> These are **development features**, not authenticated alert provenance, independent RCA truth, verified production recovery, or permission to modify a real cluster. #11 SFT/GRPO remains Draft and CPU-only validation does not prove GPU training. The current main tree has **not** yet received verified exact-main full-repository Go race/vet/build and live Kind acceptance; pre-merge or isolated-package checks must not be called final-`main` certification.
 >
 > Read-only example: `go run ./cmd/sre-agent verify-bundle --scenario --file benchmarks/scenarios/checkout-latency.json`. `STRUCTURALLY_VALID` and `STRUCTURALLY_LINKED` attest only internal consistency, **not source authentication**.
 
@@ -94,11 +94,14 @@ agentic-aiops render-endpoint-capture demo-capture.json --format rca-json --topo
 
 Use a fresh working directory: extraction refuses to overwrite existing
 files.
+
 The offline fixture, capture and topology readers require a bounded regular
 file and safe POSIX no-follow/nonblocking open support (Linux/macOS/WSL).
 Final-component symlinks, FIFOs, directories, empty and oversized inputs are
 rejected. Use a trusted parent directory and the actual file path; this
-check does not authenticate provenance or guarantee immutable custody. The exported wrapper explicitly marks both inputs synthetic. Keep
+check does not authenticate provenance or guarantee immutable custody.
+
+The exported wrapper explicitly marks both inputs synthetic. Keep
 the wrapper with any extracted inputs, which are not actual Kubernetes
 API responses. The capture includes a fixed synthetic read timeline,
 expected target port and selector, resourceVersions and source digests
@@ -785,12 +788,26 @@ Real CUDA loading and physical model-effect probes remain separate
 work for the Draft GRPO PR #11.
 ## Development
 
+Python development (Python 3.11 or later):
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 pytest -q
 ```
+
+Go CLI development (the module declares Go 1.22; the race detector requires a working C toolchain):
+
+```bash
+go test -race ./...
+go vet ./...
+mkdir -p bin
+go build -o bin/sre-agent ./cmd/sre-agent
+bin/sre-agent verify-bundle --scenario --file benchmarks/scenarios/checkout-latency.json
+```
+
+The native Endpoint archive replay CLI and its provenance limitations are documented in [Go Endpoint Oracle](docs/go-endpoint-oracle.md). A successful offline replay is not source authentication, incident-causality proof, or execution authorization.
 
 For cross-repository integration, [four-repo-acceptance](.github/workflows/four-repo-acceptance.yml) verifies pinned public Control Plane, Runtime and Decision commits from this repository's main push CI on disposable kind + Temporal infrastructure.
 

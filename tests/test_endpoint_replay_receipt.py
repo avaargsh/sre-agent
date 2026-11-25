@@ -101,3 +101,21 @@ def test_verify_receipt(evidence, mode):
         assert result.returncode == 3, result.stdout + result.stderr
         assert result.stdout == ""
         assert result.stderr.startswith("UNKNOWN:")
+
+@pytest.mark.parametrize("field", ["archive", "pin", "receipt", "prediction"])
+@pytest.mark.parametrize("kind", ["symlink", "fifo"])
+def test_verify_rejects_nonregular_or_aliased_evidence(evidence, field, kind):
+    archive, pin, receipt, prediction, *_ = evidence
+    paths = {"archive": archive, "pin": pin, "receipt": receipt, "prediction": prediction}
+    target = paths[field]
+    if kind == "symlink":
+        real = target.with_suffix(target.suffix + ".real")
+        target.rename(real)
+        target.symlink_to(real)
+    else:
+        target.unlink()
+        os.mkfifo(target)
+    result = invoke("verify", archive, pin, receipt, prediction)
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert result.stdout == ""
+    assert result.stderr.startswith("UNKNOWN:")
