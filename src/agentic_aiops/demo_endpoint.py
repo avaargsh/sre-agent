@@ -5,6 +5,8 @@ import base64
 import hashlib
 import json
 from pathlib import Path
+
+from .endpoint_input import read_bounded_input
 from tempfile import TemporaryDirectory
 
 from .endpoint_report import attach_topology_context, render_endpoint_rca, summarize_endpoint_capture
@@ -126,10 +128,7 @@ def _unique_object(pairs):
 
 def render_exported_fixture(path: str | Path) -> dict:
     """Render supplied synthetic inputs and bind the exact fixture file bytes."""
-    with Path(path).open("rb") as stream:
-        raw = stream.read(MAX_FIXTURE_BYTES + 1)
-    if len(raw) > MAX_FIXTURE_BYTES:
-        raise ValueError("oversized fixture")
+    raw = read_bounded_input(path, MAX_FIXTURE_BYTES)
     fixture = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object)
     if (not isinstance(fixture, dict)
             or set(fixture) != {"schema_version", "synthetic", "case", "capture", "topology"}

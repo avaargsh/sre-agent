@@ -6,6 +6,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from .endpoint_input import read_bounded_input
+
 MAX_SNAPSHOT_BYTES = 8 << 20
 
 
@@ -265,10 +267,7 @@ def _unique_object(pairs):
 
 def load_topology_snapshot(path: str | Path) -> dict:
     """Read one bounded local snapshot and bind the graph to its exact bytes."""
-    with Path(path).open("rb") as stream:
-        raw = stream.read(MAX_SNAPSHOT_BYTES + 1)
-    if len(raw) > MAX_SNAPSHOT_BYTES:
-        raise ValueError("oversized snapshot")
+    raw = read_bounded_input(path, MAX_SNAPSHOT_BYTES)
     result = build_topology(json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object))
     result["snapshot_sha256"] = hashlib.sha256(raw).hexdigest()
     return result
