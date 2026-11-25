@@ -191,6 +191,18 @@ is permitted (for example during a rollout). These classifications do not
 establish the time alignment, freshness, ownership or authenticity of the
 snapshots, service reachability or causal explanation of an incident.
 
+The topology context also includes `readiness_assessment`
+(`offline-readiness-assessment/v1`). It preserves reported Pod Ready
+conditions as reported_ready, reported_not_ready or unknown_readiness,
+and flags incompatible reported conditions or container states as
+inconsistent_status. Container detail is separately classified as
+provided, partial or missing, with explicitly unready container names
+and a reference to the original Pod observation. A Pod can report Ready
+False while all regular containers report ready (for example, readiness
+gates); this alone is not an inconsistency. These snapshot-local
+comparisons do not establish live readiness, probe failure, root cause,
+or temporal consistency across sources.
+
 It does not upgrade hypothesis status, satisfy pending evidence checks,
 verify the target or authorize collection or execution. The option requires
 `--format rca-json`; default summary and standalone topology output remain
