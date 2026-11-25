@@ -470,10 +470,12 @@ pytest -q
 
 For cross-repository integration, [four-repo-acceptance](.github/workflows/four-repo-acceptance.yml) verifies pinned public Control Plane, Runtime and Decision commits from this repository's main push CI on disposable kind + Temporal infrastructure.
 
-The dependency revisions are owned by the machine-readable [stack.lock.json](stack.lock.json), not duplicated inside workflow YAML. Validate the lock locally with:
+The machine-readable [stack.lock.json](stack.lock.json) pins the dependency revisions used by CI. The local check uses Python 3.11 or later and can run before package installation.
 
 ```bash
 make stack-lock-check
+# or select a specific interpreter
+make stack-lock-check PYTHON=python3.12
 # or, after installation
 agent-stack-lock stack.lock.json
 ```
