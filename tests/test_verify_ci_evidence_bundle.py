@@ -26,7 +26,7 @@ def scope_steps(scope):
         receipt('go-race', ['go', 'test', '-race', './...']),
         receipt('go-vet', ['go', 'vet', './...']),
         receipt('go-build', ['go', 'build', '-o', '/tmp/sre-exact-go/sre-agent', './cmd/sre-agent']),
-        receipt('go-bundle-contract', ['go', 'run', './cmd/sre-agent', 'verify-bundle', '--scenario', '--file', 'benchmarks/scenarios/checkout-latency.json']),
+        receipt('go-bundle-contract', ['/tmp/sre-exact-go/sre-agent', 'verify-bundle', '--scenario', '--file', '/checkout/benchmarks/scenarios/checkout-latency.json']),
     ]
 
 

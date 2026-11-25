@@ -196,10 +196,12 @@ def test_go_build_success_without_binary_must_not_pass_smoke(repo):
     assert proc.returncode != 0
     assert receipt['status'] == 'FAIL'
     assert [step['name'] for step in receipt['checks']] == [
-        'go-race', 'go-vet', 'go-build', 'go-bundle-contract',
+        'go-race', 'go-vet', 'go-build',
     ]
-    assert receipt['checks'][-1]['return_code'] is None
+    assert receipt['checks'][-1]['return_code'] == 0
+    assert 'invalid Go build output' in receipt['checks'][-1]['error']
     assert not (out / 'sre-agent').exists()
+    assert not (repo.parent / 'binary-invocations.txt').exists()
 
 
 def test_go_failure_stops_remaining_commands_without_claiming_pass(repo):
