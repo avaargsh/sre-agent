@@ -50,7 +50,7 @@ def test_pin_exact_bytes(evidence):
 @pytest.mark.parametrize("mode", ["healthy", "zero", "tamper_archive", "tamper_pin",
     "wrong_digest", "wrong_count", "bool_count", "unknown", "auth", "causal",
     "execute", "extra", "missing", "duplicate", "prediction_count", "prediction_bool",
-    "prediction_schema", "receipt_symlink", "receipt_fifo", "oversized_archive"])
+    "prediction_schema", "prediction_extra", "prediction_missing", "receipt_symlink", "receipt_fifo", "oversized_archive"])
 def test_verify_receipt(evidence, mode):
     archive, pin, receipt, prediction, body, pred = evidence
     if mode == "zero":
@@ -81,6 +81,10 @@ def test_verify_receipt(evidence, mode):
         pred["ready_endpoints"] = True
     elif mode == "prediction_schema":
         pred["schema_version"] = "other"
+    elif mode == "prediction_extra":
+        pred["unexpected"] = False
+    elif mode == "prediction_missing":
+        del pred["classification"]
     elif mode == "oversized_archive":
         archive.write_bytes(b"x" * ((10 << 20) + 1))
     receipt.write_text(json.dumps(body), encoding="utf-8")
