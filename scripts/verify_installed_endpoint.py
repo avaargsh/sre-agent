@@ -20,6 +20,28 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        require(key not in result, "duplicate JSON field")
+        result[key] = value
+    return result
+
+
+def reject_constant(_):
+    raise ValueError("nonfinite JSON constant")
+
+
+def read_json(raw):
+    return json.loads(raw, object_pairs_hook=unique_object, parse_constant=reject_constant)
+
+
+def canonical_json(value):
+    # Python dict equality conflates bool, int and float. Compare their
+    # serialized JSON types instead, independent of object key order.
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
 def verify(cli: Path) -> dict:
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
@@ -41,7 +63,7 @@ def verify(cli: Path) -> dict:
         for case, association, replica_status, pod_statuses in cases:
             result = run("--case", case)
             require(result.returncode == 0 and not result.stderr, f"{case}: command failed")
-            demo = json.loads(result.stdout)
+            demo = read_json(result.stdout)
             require(demo["schema_version"] == "endpoint-offline-demo/v1"
                     and demo["synthetic"] is True and demo["case"] == case,
                     f"{case}: wrong demo envelope")
@@ -72,7 +94,7 @@ def verify(cli: Path) -> dict:
                     f"{case}: unexpected investigation status")
             exported = command("demo-endpoint", "--case", case, "--format", "fixture", text=False)
             require(exported.returncode == 0 and not exported.stderr, f"{case}: export failed")
-            fixture = json.loads(exported.stdout)
+            fixture = read_json(exported.stdout)
             require(set(fixture) == {"schema_version", "synthetic", "case", "capture", "topology"}
                     and fixture["schema_version"] == "endpoint-offline-fixture/v1"
                     and fixture["synthetic"] is True and fixture["case"] == case
@@ -83,9 +105,9 @@ def verify(cli: Path) -> dict:
                 stream.write(exported.stdout)
             replayed = command("render-endpoint-fixture", str(path))
             require(replayed.returncode == 0 and not replayed.stderr, f"{case}: replay failed")
-            replay = json.loads(replayed.stdout)
+            replay = read_json(replayed.stdout)
             require(replay.pop("fixture_sha256") == hashlib.sha256(exported.stdout).hexdigest()
-                    and replay == demo, f"{case}: replay does not match exported bytes and demo")
+                    and canonical_json(replay) == canonical_json(demo), f"{case}: replay does not match exported bytes and demo")
             require(path.read_bytes() == exported.stdout, f"{case}: replay changed the fixture")
             path.unlink()
             fixture["synthetic"] = False
