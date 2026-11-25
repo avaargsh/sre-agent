@@ -3,7 +3,7 @@
 # injection. SRE Agent owns only GET Service / LIST EndpointSlice in this lab.
 set -euo pipefail
 ROOT=/tmp/go-endpoint-proof
-mkdir -p "$ROOT/control" "$ROOT/no-ready"
+(umask 077; mkdir -p "$ROOT/control" "$ROOT/no-ready")
 chmod 0700 "$ROOT"
 kubectl apply -f demo/k8s/golden-stack.yaml
 kubectl apply -f demo/go-endpoint/reader-role.yaml
