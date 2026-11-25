@@ -14,6 +14,8 @@ import stat
 from pathlib import Path
 import sys
 
+from check_replay import MAX_ARCHIVE, read_bounded
+
 
 FIELDS = (("service_before", "observed-service.json", "Service", "service_resource_version"),
           ("endpoint_slices", "observed-endpointslices.json", "EndpointSliceList", "endpoint_slice_list_resource_version"),
@@ -217,9 +219,7 @@ def unpack(capture, directory, uid):
 def main(argv):
     try:
         source, directory, uid = argv
-        with Path(source).open("rb") as stream:
-            raw = stream.read((10 << 20) + 1)
-        require(len(raw) <= 10 << 20, "oversized capture")
+        raw = read_bounded(source, MAX_ARCHIVE)
         unpack(json.loads(raw.decode("utf-8"), object_pairs_hook=unique), Path(directory), uid)
         return 0
     except (ValueError, OSError, KeyError, TypeError, AttributeError, RecursionError):
