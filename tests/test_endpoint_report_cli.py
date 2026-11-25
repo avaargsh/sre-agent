@@ -322,3 +322,62 @@ def test_topology_coverage_does_not_create_checks_for_abstained_report(tmp_path,
     from test_offline_topology import snapshot
     report = _coverage_report(tmp_path, monkeypatch, capsys, snapshot(), "UNKNOWN", 0)
     assert report["investigation_plan"]["checks"] == []
+
+
+@pytest.mark.parametrize("desired,available,generation,observed,ready,expected", [
+    (3, 1, 2, 2, 1, "availability_shortfall"),
+    (3, 3, 2, 2, 3, "desired_availability_met"),
+    (3, 4, 2, 2, 4, "desired_availability_met"),
+    (0, 0, 2, 2, 0, "zero_desired_and_available"),
+    (0, 1, 2, 2, 1, "zero_desired_with_available"),
+    (3, 0, 2, 1, 0, "unknown_generation"),
+    (3, 0, 2, 3, 0, "unknown_generation"),
+    (3, 0, 2, None, 0, "unknown_generation"),
+    (3, None, 2, 2, 0, "missing_counts"),
+    (3, 2, 2, 2, 1, "inconsistent_counts"),
+])
+def test_replica_assessment_is_snapshot_local(tmp_path, monkeypatch, capsys, desired, available, generation, observed, ready, expected):
+    from test_offline_topology import snapshot
+    graph = snapshot()
+    dep = graph["deployments"]["items"][0]
+    dep["metadata"]["generation"] = generation
+    dep["spec"] = {"replicas": desired}
+    dep["status"] = {"readyReplicas": ready}
+    if available is not None:
+        dep["status"]["availableReplicas"] = available
+    if observed is not None:
+        dep["status"]["observedGeneration"] = observed
+    report = _coverage_report(tmp_path, monkeypatch, capsys, graph)
+    assessment = report["topology_context"]["replica_assessment"]
+    assert assessment["schema_version"] == "offline-replica-assessment/v1"
+    assert assessment["independently_verified"] is False
+    assert assessment["root_cause_verified"] is False
+    assert assessment["execution_authorized"] is False
+    item, = assessment["observations"]
+    assert item == {"entity_id": "dep", "association": "owner_chain", "status": expected,
+                    "report_ref": "/topology_context/snapshot/deployment_observations/0"}
+    _coverage(report)
+
+
+def test_replica_assessment_retains_unresolved_candidates(tmp_path, monkeypatch, capsys):
+    from test_offline_topology import snapshot
+    graph = snapshot()
+    graph["pods"]["items"] = []
+    dep = graph["deployments"]["items"][0]
+    dep["metadata"]["generation"] = 2
+    dep["spec"] = {"replicas": 0, "template": {"metadata": {"labels": {"app": "checkout"}}}}
+    dep["status"] = {"observedGeneration": 2, "availableReplicas": 0}
+    report = _coverage_report(tmp_path, monkeypatch, capsys, graph)
+    item, = report["topology_context"]["replica_assessment"]["observations"]
+    assert item == {"entity_id": "dep", "association": "template_candidate", "status": "zero_desired_and_available",
+                    "report_ref": "/topology_context/snapshot/deployment_candidates/0/observation"}
+    assert _coverage(report)["workload_owner_identity"] == "partial"
+
+
+def test_replica_assessment_does_not_invent_unresolved_workload(tmp_path, monkeypatch, capsys):
+    from test_offline_topology import snapshot
+    graph = snapshot()
+    graph["pods"]["items"] = []
+    report = _coverage_report(tmp_path, monkeypatch, capsys, graph)
+    assert report["topology_context"]["replica_assessment"]["observations"] == []
+    assert _coverage(report)["desired_and_available_replicas"] == "missing"
