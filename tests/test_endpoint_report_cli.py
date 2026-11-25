@@ -177,3 +177,53 @@ def test_endpoint_plan_distinguishes_required_evidence_for_each_candidate(tmp_pa
         ["pod_readiness_conditions", "container_status", "readiness_probe_configuration"],
         ["service_selector", "pod_labels_and_identity", "endpointslice_owner_and_readiness"],
     ]
+
+
+@pytest.mark.parametrize("fault", [None, "uid", "name", "namespace", "duplicate", "missing", "summary_mode"])
+def test_endpoint_rca_topology_snapshot_binding(tmp_path, monkeypatch, capsys, fault):
+    from test_offline_topology import snapshot
+
+    data = capture()
+    path = tmp_path / "capture.json"
+    raw = json.dumps(data).encode()
+    path.write_bytes(raw)
+    graph = snapshot()
+    root = graph["service"]["metadata"]
+    root.update(data["report"]["target"])
+    if fault in ("uid", "name", "namespace"):
+        root[fault] = "different"
+    topology = tmp_path / "topology.json"
+    graph_raw = json.dumps(graph).encode()
+    if fault == "duplicate":
+        graph_raw = b'{"service":{},' + graph_raw[1:]
+    if fault != "missing":
+        topology.write_bytes(graph_raw)
+    argv = ["agentic-aiops", "render-endpoint-capture", str(path), "--topology-snapshot", str(topology)]
+    if fault != "summary_mode":
+        argv.extend(["--format", "rca-json"])
+    monkeypatch.setattr("sys.argv", argv)
+    if fault is not None:
+        with pytest.raises(SystemExit) as exc:
+            main()
+        out = capsys.readouterr()
+        assert exc.value.code == 2
+        assert not out.out
+        assert ("requires --format rca-json" if fault == "summary_mode" else "invalid or mismatched topology snapshot") in out.err
+        assert "Traceback" not in out.err
+        return
+    main()
+    out = capsys.readouterr()
+    result = json.loads(out.out)
+    assert not out.err
+    context = result["topology_context"]
+    assert context["capture_sha256"] == hashlib.sha256(raw).hexdigest()
+    assert context["snapshot"]["snapshot_sha256"] == hashlib.sha256(graph_raw).hexdigest()
+    assert context["reported_service_identity_matches"] is True
+    assert len(context["snapshot"]["edges"]) == 3
+    assert context["independently_verified"] is False
+    assert context["collection_authorized"] is False
+    assert context["execution_authorized"] is False
+    assert result["investigation_plan"]["target_verified"] is False
+    assert all(h["supplied_status"] == "unverified" for h in result["hypotheses"])
+    assert path.read_bytes() == raw
+    assert topology.read_bytes() == graph_raw
