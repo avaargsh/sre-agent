@@ -54,7 +54,20 @@ def main() -> None:
 
     demo.add_argument("--format", choices=("report", "fixture"), default="report")
 
+    fixture = subparsers.add_parser("render-endpoint-fixture", help="render an exported synthetic Endpoint fixture")
+    fixture.add_argument("path")
+
     args = parser.parse_args()
+
+    if args.command == "render-endpoint-fixture":
+        from .demo_endpoint import render_exported_fixture
+
+        try:
+            result = render_exported_fixture(args.path)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError):
+            fixture.error("invalid synthetic Endpoint fixture")
+        print(json.dumps(result, indent=2, allow_nan=False))
+        return
 
     if args.command == "demo-endpoint":
         from .demo_endpoint import export_demo_fixture, render_demo
