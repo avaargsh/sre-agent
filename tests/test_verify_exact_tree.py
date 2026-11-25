@@ -405,3 +405,29 @@ def test_go_zero_exit_with_invalid_receipt_must_fail(repo, fault):
     assert step['name'] == 'go-bundle-contract'
     assert step['return_code'] == 0
     assert 'invalid Go bundle receipt' in step.get('error', '')
+
+
+@pytest.mark.parametrize("fake_digest", ["a" * 64, "0" * 64])
+def test_go_contract_rejects_wrong_well_formed_digest(repo, fake_digest):
+    # A structurally correct success receipt cannot claim an arbitrary SHA.
+    response = json.dumps({
+        "status": "STRUCTURALLY_VALID", "bundle_sha256": fake_digest,
+        "evidence_count": 2, "supported_hypotheses": 1,
+    }) + "\n"
+    proc, receipt, _ = invoke(
+        repo, suite="go", env=fake_go_environment(repo, bundle_output=response))
+    assert proc.returncode != 0
+    assert receipt["status"] == "FAIL"
+    assert receipt["checks"][-1]["return_code"] == 0
+    assert "invalid Go bundle receipt" in receipt["checks"][-1].get("error", "")
+
+
+def test_pinned_checkout_digest_matches_committed_fixture():
+    # Independently matches internal/evidence/bundle_test.go TestLegacy...
+    fixture = SCRIPT.parents[1] / "benchmarks/scenarios/checkout-latency.json"
+    scenario = json.loads(fixture.read_text(encoding="utf-8"))
+    bundle = scenario["bundle"]
+    bundle["metadata"].pop("bundle_sha256", None)
+    canonical = json.dumps(bundle, sort_keys=True, separators=(",", ":"),
+                           ensure_ascii=False, allow_nan=False).encode("utf-8")
+    assert hashlib.sha256(canonical).hexdigest() == "0e252e0f661ee568ddb02a27db3785c225a1b0386e0d697930c03e10298d5ad3"
