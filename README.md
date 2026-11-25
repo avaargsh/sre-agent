@@ -133,7 +133,22 @@ observations. Selector matching is not proof of EndpointSlice membership,
 traffic flow or readiness; owner references are not authenticated. Only
 the Pod-to-ReplicaSet-to-Deployment controller chain is currently resolved.
 This local projection neither collects cluster evidence nor authorizes
-execution, and is not yet wired into the Endpoint RCA report.
+execution. To attach a separately supplied topology snapshot to the Endpoint
+RCA report:
+
+```bash
+agentic-aiops render-endpoint-capture /secure/path/service-endpoints-capture.json --format rca-json --topology-snapshot /secure/path/topology-snapshot.json
+```
+
+The optional `topology_context` contains the capture SHA-256, snapshot graph
+and snapshot SHA-256. The reported Service namespace, name and UID must
+match exactly; missing, malformed or mismatched snapshots return exit 2
+without a partial report. This is identity agreement between supplied files,
+not source authentication or proof of a shared cluster or collection time.
+It does not upgrade hypothesis status, satisfy pending evidence checks,
+verify the target or authorize collection or execution. The option requires
+`--format rca-json`; default summary and standalone topology output remain
+unchanged.
 
 ## Golden Incident v0.1
 
