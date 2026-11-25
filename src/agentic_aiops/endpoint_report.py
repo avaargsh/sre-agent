@@ -78,3 +78,47 @@ def summarize_endpoint_capture(path: str | Path) -> dict:
         "root_cause_verified": False,
         "execution_authorized": False,
     }
+
+
+def render_endpoint_rca(summary: dict) -> dict:
+    """Project a local capture summary into an unverified RCA report."""
+    from .report import render_rca_json
+
+    digest = summary["capture_sha256"]
+    target = summary["target"]
+    classification = summary["reported_classification"]
+    count = summary["reported_ready_endpoints"]
+    evidence_id = "endpoint-observation-" + digest
+    observation = f"Capture reports {classification} and {count} ready endpoints; not independently verified."
+    hypotheses = []
+    if classification == "NO_READY_ENDPOINTS_OBSERVED" and count == 0:
+        for key, statement in (
+            ("replicas", "Backend replica availability may be insufficient."),
+            ("readiness", "Backend readiness checks may not be passing."),
+            ("reconciliation", "Service selection or EndpointSlice reconciliation may need investigation."),
+        ):
+            hypotheses.append({
+                "hypothesis_id": "endpoint-" + key,
+                "statement": statement,
+                "evidence_ids": [evidence_id],
+                "status": "unverified",
+            })
+    payload = {
+        "incident": {
+            "incident_id": "endpoint-" + digest,
+            "summary": observation,
+            "severity": "unknown",
+            "scope": target["namespace"] + "/" + target["name"],
+        },
+        "evidence": [{
+            "evidence_id": evidence_id,
+            "source": "archived-endpoint-observation",
+            "observation": observation,
+            "timestamp": summary["reported_observed_at"],
+            "attributes": {"capture_sha256": digest},
+        }],
+        "hypotheses": hypotheses,
+    }
+    result = json.loads(render_rca_json(payload))
+    result["endpoint_observation"] = summary
+    return result
