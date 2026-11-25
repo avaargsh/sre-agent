@@ -174,7 +174,8 @@ def unpack(capture, directory, uid):
     require(report["schema_version"] == "sre.service-endpoints/v3" and report["source_authenticated"] is False, "invalid report schema or authentication claim")
     target = {"namespace": "golden-demo", "name": "checkout-api", "uid": uid}
     require(bool(uid) and report["target"] == target, "report target mismatch")
-    require(type(report["expected_target_port"]) is int and report["expected_target_port"] == 8080\n            and report["expected_selector"] == {"app": "checkout-api"}, "lab baseline mismatch")
+    require(type(report["expected_target_port"]) is int and report["expected_target_port"] == 8080
+            and report["expected_selector"] == {"app": "checkout-api"}, "lab baseline mismatch")
     reads = report["read_timeline"]
     require([r["name"] for r in reads] == ["service_get_before", "endpoint_slice_list", "service_get_after"], "invalid read timeline")
     collection_start = parse_time(report["collection_started_at"])
@@ -183,7 +184,8 @@ def unpack(capture, directory, uid):
         require(read.get("request_resource_version", "") == "" and read.get("request_resource_version_match", "") == "", "unexpected request resourceVersion")
         require(read.get("request_consistency", "") == ("MOST_RECENT" if i == 1 else ""), "invalid request consistency")
         require(read.get("request_label_selector", "") == ("kubernetes.io/service-name=checkout-api" if i == 1 else ""), "invalid selector")
-        request_limit = read.get("request_limit", 0)\n        require(type(request_limit) is int and request_limit == (129 if i == 1 else 0), "invalid request limit")
+        request_limit = read.get("request_limit", 0)
+        require(type(request_limit) is int and request_limit == (129 if i == 1 else 0), "invalid request limit")
         started, completed = parse_time(read["started_at"]), parse_time(read["completed_at"])
         require(previous <= started <= completed, "invalid read interval")
         previous = completed
