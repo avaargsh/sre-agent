@@ -100,3 +100,33 @@ def test_capture_rejects_float_where_go_report_requires_integer(tmp_path, field,
     assert not result.stdout
     assert result.stderr.startswith("UNKNOWN:")
     assert list(output.iterdir()) == []
+
+
+@pytest.mark.parametrize("bad_value", [float("nan"), "\ud800"])
+@pytest.mark.parametrize("location", ["source", "report"])
+def test_capture_rejects_nonstandard_or_unpaired_json(tmp_path, bad_value, location):
+    capture = capture_fixture()
+    if location == "source":
+        service = json.loads(base64.b64decode(capture["service_before_raw"]))
+        service["untrusted_extension"] = bad_value
+        raw = json.dumps(service).encode("utf-8")
+        digest = hashlib.sha256(raw).hexdigest()
+        encoded = base64.b64encode(raw).decode("ascii")
+        for field, read_index in (("service_before", 0), ("service_after", 2)):
+            capture[field + "_raw"] = encoded
+            capture["report"][field + "_sha256"] = digest
+            capture["report"]["read_timeline"][read_index]["response_sha256"] = digest
+    else:
+        capture["report"]["untrusted_extension"] = bad_value
+    input_path = tmp_path / "capture.json"
+    input_path.write_text(json.dumps(capture), encoding="utf-8")
+    output = tmp_path / "evidence"
+    output.mkdir(mode=0o700)
+    result = subprocess.run(
+        [sys.executable, "-O", str(SCRIPT), str(input_path), str(output), UID],
+        capture_output=True, text=True, timeout=5,
+    )
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert not result.stdout
+    assert result.stderr.startswith("UNKNOWN:")
+    assert list(output.iterdir()) == []
