@@ -217,6 +217,46 @@ def _investigation_coverage(plan: dict, topology: dict) -> dict:
     ]}
 
 
+def _replica_assessment(topology: dict) -> dict:
+    """Compare supplied replica fields without asserting a live root cause."""
+    observations = []
+
+    def assess(row, association, ref):
+        desired = row["desired_replicas"]
+        available = row["available_replicas"]
+        ready = row["ready_replicas"]
+        total = row["replicas"]
+        if row["generation_status"] != "matches":
+            status = "unknown_generation"
+        elif desired is None or available is None:
+            status = "missing_counts"
+        elif ((ready is not None and available > ready)
+              or (total is not None and (available > total or (ready is not None and ready > total)))):
+            status = "inconsistent_counts"
+        elif desired == 0:
+            status = "zero_desired_and_available" if available == 0 else "zero_desired_with_available"
+        elif available < desired:
+            status = "availability_shortfall"
+        else:
+            status = "desired_availability_met"
+        observations.append({"entity_id": row["entity_id"], "association": association,
+                             "status": status, "report_ref": ref})
+
+    prefix = "/topology_context/snapshot/"
+    for i, row in enumerate(topology["deployment_observations"]):
+        assess(row, "owner_chain", prefix + "deployment_observations/" + str(i))
+    for i, candidate in enumerate(topology["deployment_candidates"]):
+        assess(candidate["observation"], "template_candidate",
+               prefix + "deployment_candidates/" + str(i) + "/observation")
+    return {
+        "schema_version": "offline-replica-assessment/v1",
+        "observations": observations,
+        "independently_verified": False,
+        "root_cause_verified": False,
+        "execution_authorized": False,
+    }
+
+
 def attach_topology_context(report: dict, snapshot_path: str | Path) -> dict:
     """Attach a separate local inventory only if its Service identity agrees."""
     from .offline_topology import load_topology_snapshot
@@ -237,6 +277,7 @@ def attach_topology_context(report: dict, snapshot_path: str | Path) -> dict:
         "topology_context": {
             "capture_sha256": observation["capture_sha256"],
             "snapshot": topology,
+            "replica_assessment": _replica_assessment(topology),
             "reported_service_identity_matches": True,
             "independently_verified": False,
             "collection_authorized": False,
