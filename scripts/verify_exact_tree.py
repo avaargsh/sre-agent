@@ -56,6 +56,11 @@ def file_sha256(path: Path) -> str:
 
 
 
+# Pinned synthetic checkout fixture digest, also tested in
+# internal/evidence/bundle_test.go. Rotate together with that fixture.
+CHECKOUT_BUNDLE_SHA256 = "0e252e0f661ee568ddb02a27db3785c225a1b0386e0d697930c03e10298d5ad3"
+
+
 def validate_go_bundle_log(path: Path) -> None:
     """Reject a successful Go process without its pinned JSON contract receipt."""
     raw = path.read_bytes()
@@ -79,6 +84,7 @@ def validate_go_bundle_log(path: Path) -> None:
             or result["status"] != "STRUCTURALLY_VALID"
             or type(result["bundle_sha256"]) is not str
             or re.fullmatch(r"[0-9a-f]{64}", result["bundle_sha256"]) is None
+            or result["bundle_sha256"] != CHECKOUT_BUNDLE_SHA256
             or type(result["evidence_count"]) is not int
             or result["evidence_count"] != 2
             or type(result["supported_hypotheses"]) is not int

@@ -138,7 +138,7 @@ def fake_go_environment(repo, *, fail_on=None, create_binary=True, bundle_output
     # which exposed the verifier's old go-run false positive.
     built = bindir / 'standalone-sre-agent'
     receipt = (bundle_output if bundle_output is not None else json.dumps({
-        'status': 'STRUCTURALLY_VALID', 'bundle_sha256': 'a' * 64,
+        'status': 'STRUCTURALLY_VALID', 'bundle_sha256': '0e252e0f661ee568ddb02a27db3785c225a1b0386e0d697930c03e10298d5ad3',
         'evidence_count': 2, 'supported_hypotheses': 1,
     }) + '\n')
     built.write_text(
@@ -384,7 +384,7 @@ def test_go_zero_exit_with_no_receipt_must_fail(repo):
 
 @pytest.mark.parametrize("fault", ["wrong_status", "bool_count", "missing_digest", "duplicate", "trailing"])
 def test_go_zero_exit_with_invalid_receipt_must_fail(repo, fault):
-    payload = {'status': 'STRUCTURALLY_VALID', 'bundle_sha256': 'a' * 64,
+    payload = {'status': 'STRUCTURALLY_VALID', 'bundle_sha256': '0e252e0f661ee568ddb02a27db3785c225a1b0386e0d697930c03e10298d5ad3',
                'evidence_count': 2, 'supported_hypotheses': 1}
     if fault == "wrong_status":
         payload["status"] = "INVALID"
