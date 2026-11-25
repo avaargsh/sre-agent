@@ -134,6 +134,8 @@ def test_manifest_collision_leaves_only_untrusted_orphan_prediction(
         return original_open(path, flags, *args, **kwargs)
 
     monkeypatch.setattr(os, "open", open_with_competing_manifest)
+    # Our wrapper forwards dir_fd; keep the capability table in sync.
+    monkeypatch.setattr(os, "supports_dir_fd", os.supports_dir_fd | {open_with_competing_manifest})
 
     def sample(payload):
         return {"model": payload["model"], "choices": [{"finish_reason": "stop",

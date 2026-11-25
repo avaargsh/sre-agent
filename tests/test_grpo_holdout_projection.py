@@ -126,10 +126,10 @@ def test_missing_or_symlinked_artifact_fails_closed(tmp_path):
     dataset, prompts, manifest, _, pins = fixtures(tmp_path)
     link = tmp_path / "prompts-link.jsonl"
     link.symlink_to(prompts)
-    with pytest.raises(ValueError, match="non-symlink"):
+    with pytest.raises(ValueError, match="holdout prompts symlink rejected"):
         verify_holdout_projection(dataset, link, manifest, **pins)
     manifest.unlink()
-    with pytest.raises(ValueError, match="non-symlink"):
+    with pytest.raises(FileNotFoundError):
         verify_holdout_projection(dataset, prompts, manifest, **pins)
 
 
@@ -158,7 +158,7 @@ def test_oversized_dataset_rejected_without_read_all(tmp_path, monkeypatch):
     def forbidden(_path):
         raise AssertionError("unbounded Path.read_bytes called")
     monkeypatch.setattr(Path, "read_bytes", forbidden)
-    with pytest.raises(ValueError, match="oversized"):
+    with pytest.raises(ValueError, match="holdout dataset must be a bounded regular file"):
         project_holdout_prompts(
             dataset, expected_dataset_sha256="0" * 64,
             output=tmp_path / "prompts.jsonl",
@@ -232,7 +232,7 @@ def test_symlinked_source_is_rejected_before_projection(tmp_path):
     alias.symlink_to(dataset)
     prompts = tmp_path / "prompts.jsonl"
     manifest = tmp_path / "projection.json"
-    with pytest.raises(ValueError, match="non-symlink"):
+    with pytest.raises(ValueError, match="holdout dataset symlink rejected"):
         project_holdout_prompts(
             alias, expected_dataset_sha256=sha(dataset),
             output=prompts, manifest=manifest,
