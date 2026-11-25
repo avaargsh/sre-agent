@@ -54,6 +54,28 @@ module entry point is also available (from the repository root):
 PYTHONPATH=src python -m agentic_aiops.cli demo-endpoint --case readiness
 ```
 
+### Verify an installed CLI
+
+From a repository checkout, after installation in the activated virtual environment:
+
+```bash
+python scripts/verify_installed_endpoint.py --cli "$(command -v agentic-aiops)"
+```
+
+Use an absolute path to a trusted CLI executable. The smoke check runs in
+a temporary working directory without inherited PYTHONPATH/PYTHONHOME,
+checks both synthetic cases, default output determinism, invalid-argument
+rejection and selected authority flags. It emits a small JSON PASS receipt
+only after all checks succeed. A PASS establishes CLI behavior, not the
+executable's provenance, package origin, production eligibility or real
+fault reproduction.
+
+The Python CI matrix additionally builds a non-editable wheel, installs it
+without dependencies into a fresh virtual environment, and runs the same
+smoke check. This is a separate CI step after the existing exact-tree
+verification; the exact-tree pytest artifact alone does not prove wheel
+installation success.
+
 ## Offline evaluation quickstart
 
 From the repository root, use Python 3.11 or later:
