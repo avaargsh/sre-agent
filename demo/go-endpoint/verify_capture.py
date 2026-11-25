@@ -7,6 +7,7 @@ import calendar
 import datetime
 import hashlib
 import json
+import math
 import os
 import re
 import secrets
@@ -40,7 +41,9 @@ def reject_constant(_):
 
 
 def validate_json_strings(value):
-    """Reject unpaired surrogate escapes accepted by Python's JSON decoder."""
+    """Reject unpaired Unicode surrogates and exponent-overflow nonfinite floats."""
+    if type(value) is float and not math.isfinite(value):
+        raise ValueError("non-finite JSON number from exponent overflow")
     if isinstance(value, str):
         value.encode("utf-8")
     elif isinstance(value, list):
