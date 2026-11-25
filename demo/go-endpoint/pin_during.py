@@ -69,13 +69,16 @@ def read_bounded_regular_file(path):
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         info = os.fstat(descriptor)
-        if not stat.S_ISREG(info.st_mode):
-            raise ValueError("EndpointSlice evidence must be a regular file")
-        if info.st_size > MAX_RESPONSE_BYTES:
-            raise ValueError("EndpointSlice list exceeds bounded response size")
+        if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= MAX_RESPONSE_BYTES:
+            raise ValueError("EndpointSlice evidence must be a nonempty bounded regular file")
         with os.fdopen(descriptor, "rb") as stream:
             descriptor = -1
             raw = stream.read(MAX_RESPONSE_BYTES + 1)
+            after = os.fstat(stream.fileno())
+        before_identity = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        after_identity = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+        if len(raw) != info.st_size or before_identity != after_identity:
+            raise ValueError("EndpointSlice evidence changed during read")
     finally:
         if descriptor >= 0:
             os.close(descriptor)
