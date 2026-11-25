@@ -79,6 +79,8 @@ def main() -> None:
             evaluate.error(f"{path!r}: expected UTF-8 JSON")
         except ScenarioOutcomeError as exc:
             evaluate.error(f"{path!r}: {exc}")
+        except (KeyError, TypeError, ValueError, AttributeError):
+            evaluate.error(f"{path!r}: invalid scenario structure")
     result = evaluate_aiops(
         [
             item.bundle
