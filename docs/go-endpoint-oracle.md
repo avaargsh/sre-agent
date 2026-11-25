@@ -305,3 +305,31 @@ continuity only; it is not a separately authenticated custody record. This
 gate complements, and does not replace, exact-RV admin reconciliation and
 independent fault/recovery evaluation. A development merge is not a live
 Kind proof or a production release approval.
+
+
+### Incident evidence inventory
+
+After the control, fault, negative-input and recovery gates complete, the
+Kind harness writes a create-only `incident-manifest.json` in the proof
+root. The versioned `sre.endpoint-lab-manifest/v1` inventory records 46
+required files (the three phases in both scenarios, observer archive and
+pin, replay receipt, unpacked sources, prediction, episode, evaluation and
+fault-specific evidence/negative cases). Optional preflight diagnostics are
+not inventoried. Each entry records a relative path, exact byte length and
+SHA-256. No raw source bytes are copied into the manifest.
+
+From the repository checkout, after extracting a proof artifact into a trusted,
+quiescent directory, run:
+
+```bash
+python3 demo/go-endpoint/incident_manifest.py verify /path/to/go-endpoint-proof
+```
+
+Verification recomputes the canonical inventory and requires exact manifest
+bytes. Missing, changed, empty, nonregular or oversized required files (16 MiB
+per file), symlinked scenario directories, and mismatched manifests return
+exit 3 with UNKNOWN. It checks local byte continuity, not signatures, provenance,
+semantic correctness, atomic collection, causality or execution authority. The
+operator must retain a trusted manifest separately to detect coordinated
+replacement of both evidence and manifest. A manifest is not an acceptance
+verdict; the existing independent Oracle and CI gates remain mandatory.
