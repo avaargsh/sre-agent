@@ -93,7 +93,12 @@ agentic-aiops render-endpoint-capture demo-capture.json --format rca-json --topo
 ```
 
 Use a fresh working directory: extraction refuses to overwrite existing
-files. The exported wrapper explicitly marks both inputs synthetic. Keep
+files.
+The offline fixture, capture and topology readers require a bounded regular
+file and safe POSIX no-follow/nonblocking open support (Linux/macOS/WSL).
+Final-component symlinks, FIFOs, directories, empty and oversized inputs are
+rejected. Use a trusted parent directory and the actual file path; this
+check does not authenticate provenance or guarantee immutable custody. The exported wrapper explicitly marks both inputs synthetic. Keep
 the wrapper with any extracted inputs, which are not actual Kubernetes
 API responses. The capture includes a fixed synthetic read timeline,
 expected target port and selector, resourceVersions and source digests

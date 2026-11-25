@@ -176,3 +176,35 @@ def test_render_fixture_rejects_oversized_file(tmp_path):
     assert proc.returncode == 2
     assert not proc.stdout
     assert "invalid synthetic Endpoint fixture" in proc.stderr
+
+
+@pytest.mark.skipif(not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_NONBLOCK"),
+                    reason="requires safe POSIX file-open flags")
+@pytest.mark.parametrize("kind", ["symlink", "fifo"])
+@pytest.mark.parametrize("entrypoint", ["fixture", "capture", "topology"])
+def test_offline_endpoint_entrypoints_reject_special_files(tmp_path, kind, entrypoint):
+    raw = run_demo(tmp_path, "--format", "fixture")
+    assert raw.returncode == 0, raw.stderr
+    fixture = json.loads(raw.stdout)
+    path = tmp_path / "input.json"
+    source = tmp_path / "source.json"
+    value = fixture if entrypoint == "fixture" else fixture[entrypoint]
+    source.write_text(json.dumps(value), encoding="utf-8")
+    if kind == "symlink":
+        path.symlink_to(source)
+    else:
+        os.mkfifo(path)
+    if entrypoint == "fixture":
+        args = ["render-endpoint-fixture", str(path)]
+    elif entrypoint == "capture":
+        args = ["render-endpoint-capture", str(path)]
+    else:
+        capture = tmp_path / "capture.json"
+        capture.write_text(json.dumps(fixture["capture"]), encoding="utf-8")
+        args = ["render-endpoint-capture", str(capture), "--format", "rca-json",
+                "--topology-snapshot", str(path)]
+    result = subprocess.run([sys.executable, "-m", "agentic_aiops.cli", *args],
+                            cwd=tmp_path, env=dict(os.environ, PYTHONPATH=str(SOURCE)),
+                            capture_output=True, text=True, timeout=5)
+    assert result.returncode == 2, result.stderr
+    assert not result.stdout
