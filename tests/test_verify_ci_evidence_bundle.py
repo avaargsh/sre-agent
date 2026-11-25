@@ -43,6 +43,12 @@ def artifact(root, name, scope, py_version):
     }
     for step in manifest['checks']:
         log = (step['name'] + ' output\n').encode()
+        if step['name'] == 'go-bundle-contract':
+            log = (json.dumps({
+                'status': 'STRUCTURALLY_VALID',
+                'bundle_sha256': '0e252e0f661ee568ddb02a27db3785c225a1b0386e0d697930c03e10298d5ad3',
+                'evidence_count': 2, 'supported_hypotheses': 1,
+            }) + '\n').encode()
         (folder / step['log_path']).write_bytes(log)
         step['log_sha256'] = hashlib.sha256(log).hexdigest()
     (folder / 'manifest.json').write_text(json.dumps(manifest, sort_keys=True) + '\n')
@@ -205,4 +211,30 @@ def test_go_smoke_must_use_built_path_and_checkout_fixture(fixtures, bad_argv):
 
 def test_zero_exit_with_error_is_hold(fixtures):
     edit(fixtures['python311'], lambda d: d['checks'][0].update(error='invalid receipt'))
+    assert_hold(fixtures)
+
+
+@pytest.mark.parametrize('fault', ['empty', 'wrong_digest', 'wrong_status', 'float_count', 'duplicate', 'deep', 'oversized'])
+def test_rehashed_invalid_go_contract_log_is_hold(fixtures, fault):
+    path = fixtures['go'] / 'go-bundle-contract.log'
+    raw = path.read_bytes()
+    if fault == 'empty':
+        raw = b''
+    elif fault == 'wrong_digest':
+        data = json.loads(raw)
+        data['bundle_sha256'] = '0' * 64
+        raw = json.dumps(data).encode()
+    elif fault == 'wrong_status':
+        raw = raw.replace(b'STRUCTURALLY_VALID', b'INVALID')
+    elif fault == 'float_count':
+        raw = raw.replace(b'"evidence_count": 2', b'"evidence_count": 2.0')
+    elif fault == 'duplicate':
+        raw = b'{"status":"STRUCTURALLY_VALID",' + raw[1:]
+    elif fault == 'deep':
+        raw = b'[' * 1500 + b'0' + b']' * 1500
+    elif fault == 'oversized':
+        raw += b' ' * 4096
+    path.write_bytes(raw)
+    edit(fixtures['go'], lambda d: d['checks'][3].update(
+        log_sha256=hashlib.sha256(raw).hexdigest()))
     assert_hold(fixtures)
