@@ -130,3 +130,30 @@ def test_capture_rejects_nonstandard_or_unpaired_json(tmp_path, bad_value, locat
     assert not result.stdout
     assert result.stderr.startswith("UNKNOWN:")
     assert list(output.iterdir()) == []
+
+
+@pytest.mark.parametrize(("location", "field"), [
+    ("capture", "untrusted_extension"),
+    ("report", "untrusted_extension"),
+    ("read", "untrusted_extension"),
+])
+def test_capture_rejects_unknown_native_schema_fields(tmp_path, location, field):
+    capture = capture_fixture()
+    if location == "capture":
+        capture[field] = True
+    elif location == "report":
+        capture["report"][field] = True
+    else:
+        capture["report"]["read_timeline"][1][field] = True
+    input_path = tmp_path / "capture.json"
+    input_path.write_text(json.dumps(capture), encoding="utf-8")
+    output = tmp_path / "evidence"
+    output.mkdir(mode=0o700)
+    result = subprocess.run(
+        [sys.executable, "-O", str(SCRIPT), str(input_path), str(output), UID],
+        capture_output=True, text=True, timeout=5,
+    )
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert not result.stdout
+    assert result.stderr.startswith("UNKNOWN:")
+    assert list(output.iterdir()) == []
