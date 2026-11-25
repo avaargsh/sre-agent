@@ -9,7 +9,7 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/verify_installed_endpoint.py"
 
 
-@pytest.mark.parametrize("fault", ["none", "export_missing", "replay_missing", "wrong_digest", "wrong_report", "invalid_accepted"])
+@pytest.mark.parametrize("fault", ["none", "export_missing", "replay_missing", "wrong_digest", "wrong_report", "invalid_accepted", "wrong_report_type", "wrong_count_type", "duplicate_receipt"])
 def test_smoke_requires_export_and_replay(tmp_path, fault):
     cli = tmp_path / "cli"
     cli.write_text(f"#!{sys.executable}\n" + '''import hashlib, json, os, pathlib, sys
@@ -45,7 +45,12 @@ elif args[0] == "render-endpoint-fixture":
     value = report(fixture["case"])
     value["fixture_sha256"] = "0" * 64 if fault == "wrong_digest" else hashlib.sha256(raw).hexdigest()
     if fault == "wrong_report": value["report"]["execution_authorized"] = True
-    print(json.dumps(value))
+    if fault == "wrong_report_type": value["report"]["execution_authorized"] = 0
+    if fault == "wrong_count_type": value["report"]["endpoint_observation"]["reported_ready_endpoints"] = False
+    if fault == "duplicate_receipt":
+        print('{"synthetic":false,' + json.dumps(value)[1:])
+    else:
+        print(json.dumps(value))
 else:
     sys.exit(2)
 ''', encoding="utf-8")
