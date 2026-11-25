@@ -155,6 +155,68 @@ def render_endpoint_rca(summary: dict) -> dict:
     return result
 
 
+def _investigation_coverage(plan: dict, topology: dict) -> dict:
+    """Describe fields present in supplied context, never evidence sufficiency."""
+    prefix = "/topology_context/snapshot/"
+    edges = topology["edges"]
+    deployments = topology["deployment_observations"]
+    candidates = topology["deployment_candidates"]
+    pods = topology["pod_observations"]
+    coverage = {}
+
+    def record(requirement, refs, complete=False):
+        coverage[requirement] = {
+            "requirement": requirement,
+            "status": "provided" if refs and complete else "partial" if refs else "missing",
+            "report_refs": refs,
+        }
+
+    def fields(requirement, rows, section, keys, complete=None):
+        refs = [prefix + section + "/" + str(i) for i, row in enumerate(rows)
+                if any(row[key] is not None for key in keys)]
+        full = bool(rows) and all(all(row[key] is not None for key in keys)
+                                  and (complete is None or complete(row)) for row in rows)
+        record(requirement, refs, full)
+
+    owner_refs = [prefix + "edges/" + str(i) for i, edge in enumerate(edges)
+                  if edge["relation"] == "controller_reference"]
+    candidate_refs = [prefix + "deployment_candidates/" + str(i) for i in range(len(candidates))]
+    record("workload_owner_identity", owner_refs + candidate_refs,
+           bool(deployments) and not topology["unresolved"] and not candidates)
+    keys = ("desired_replicas", "available_replicas")
+    fields("desired_and_available_replicas", deployments, "deployment_observations", keys,
+           lambda row: row["generation_status"] == "matches")
+    if candidates:
+        refs = [prefix + "deployment_candidates/" + str(i) + "/observation"
+                for i, row in enumerate(candidates) if any(row["observation"][key] is not None for key in keys)]
+        record("desired_and_available_replicas", refs)
+    fields("pod_phase_and_scheduling", pods, "pod_observations", ("phase", "scheduled_condition"))
+    fields("pod_readiness_conditions", pods, "pod_observations", ("ready_condition",),
+           lambda row: row["ready_condition"] in ("True", "False"))
+    def complete_containers(row):
+        statuses = row["container_statuses"]
+        declared = row["readiness_probe_presence"]
+        return (bool(statuses) and bool(declared)
+                and {item["name"] for item in statuses} == {item["name"] for item in declared}
+                and all(all(item[key] is not None for key in ("ready", "restart_count", "state"))
+                        for item in statuses))
+
+    fields("container_status", pods, "pod_observations", ("container_statuses",), complete_containers)
+    record("readiness_probe_configuration", [prefix + "pod_observations/" + str(i) + "/readiness_probe_presence"
+                                               for i, row in enumerate(pods) if row["readiness_probe_presence"] is not None])
+    selector_refs = [prefix + "edges/" + str(i) for i, edge in enumerate(edges)
+                     if edge["relation"] == "selector_matches"]
+    record("service_selector", selector_refs + candidate_refs)
+    record("pod_labels_and_identity", selector_refs)
+    record("endpointslice_owner_and_readiness", ["/endpoint_observation/reported_ready_endpoints"])
+    return {**plan, "checks": [
+        {**check, "evidence_coverage": [coverage.get(requirement, {
+            "requirement": requirement, "status": "missing", "report_refs": [],
+        }) for requirement in check["required_evidence"]]}
+        for check in plan["checks"]
+    ]}
+
+
 def attach_topology_context(report: dict, snapshot_path: str | Path) -> dict:
     """Attach a separate local inventory only if its Service identity agrees."""
     from .offline_topology import load_topology_snapshot
@@ -171,6 +233,7 @@ def attach_topology_context(report: dict, snapshot_path: str | Path) -> dict:
         raise ValueError("reported Service identity mismatch")
     return {
         **report,
+        "investigation_plan": _investigation_coverage(report["investigation_plan"], topology),
         "topology_context": {
             "capture_sha256": observation["capture_sha256"],
             "snapshot": topology,

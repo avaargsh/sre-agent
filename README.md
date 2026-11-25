@@ -171,6 +171,16 @@ parameters, environment variables and raw container messages are not emitted.
 Init/ephemeral containers and actual probe results are not evaluated.
 These are reported snapshot fields, not evidence of current health.
 
+When a topology snapshot is attached, each existing investigation check also
+contains `evidence_coverage` entries for its required evidence, with
+`provided`, `partial`, or `missing` status and JSON Pointer references
+(`report_refs`) into the same report. Provided means the mapped fields
+are present in the supplied context, not that the requirement is proven.
+Stale or unknown Deployment generations and template-only candidates are
+partial. Missing fields are not inferred as zero or false. Probe presence,
+selector matches and reported Endpoint counts provide only partial context;
+they do not contain the full native evidence required for verification.
+
 It does not upgrade hypothesis status, satisfy pending evidence checks,
 verify the target or authorize collection or execution. The option requires
 `--format rca-json`; default summary and standalone topology output remain

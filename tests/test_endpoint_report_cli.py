@@ -227,3 +227,98 @@ def test_endpoint_rca_topology_snapshot_binding(tmp_path, monkeypatch, capsys, f
     assert all(h["supplied_status"] == "unverified" for h in result["hypotheses"])
     assert path.read_bytes() == raw
     assert topology.read_bytes() == graph_raw
+
+
+def _coverage_report(tmp_path, monkeypatch, capsys, graph, classification="NO_READY_ENDPOINTS_OBSERVED", count=0):
+    data = capture()
+    data["report"].update(classification=classification, ready_endpoints=count)
+    graph["service"]["metadata"].update(data["report"]["target"])
+    path = tmp_path / "capture.json"
+    topology = tmp_path / "topology.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    topology.write_text(json.dumps(graph), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["agentic-aiops", "render-endpoint-capture", str(path), "--format", "rca-json", "--topology-snapshot", str(topology)])
+    main()
+    return json.loads(capsys.readouterr().out)
+
+
+def _coverage(report):
+    checks = report["investigation_plan"]["checks"]
+    result = {}
+    for check in checks:
+        assert check["status"] == "pending_evidence"
+        entries = check["evidence_coverage"]
+        assert [entry["requirement"] for entry in entries] == check["required_evidence"]
+        for entry in entries:
+            assert entry["status"] in ("provided", "partial", "missing")
+            assert bool(entry["report_refs"]) == (entry["status"] != "missing")
+            for ref in entry["report_refs"]:
+                target = report
+                for part in ref[1:].split("/"):
+                    target = target[int(part)] if isinstance(target, list) else target[part]
+            result[entry["requirement"]] = entry["status"]
+    assert report["independently_verified"] is False
+    assert report["investigation_plan"]["target_verified"] is False
+    assert report["investigation_plan"]["collection_authorized"] is False
+    assert all(h["supplied_status"] == "unverified" for h in report["hypotheses"])
+    return result
+
+
+def test_topology_evidence_coverage_preserves_explicit_zero_and_false(tmp_path, monkeypatch, capsys):
+    from test_offline_topology import snapshot
+    graph = snapshot()
+    dep = graph["deployments"]["items"][0]
+    dep["metadata"]["generation"] = 2
+    dep["spec"] = {"replicas": 2}
+    dep["status"] = {"observedGeneration": 2, "availableReplicas": 0}
+    pod = graph["pods"]["items"][0]
+    pod["status"] = {"phase": "Running", "conditions": [{"type": "Ready", "status": "False"}, {"type": "PodScheduled", "status": "True"}], "containerStatuses": [{"name": "app", "ready": False, "restartCount": 0, "state": {"running": {}}}]}
+    pod["spec"] = {"containers": [{"name": "app", "readinessProbe": {}}]}
+    report = _coverage_report(tmp_path, monkeypatch, capsys, graph)
+    assert _coverage(report) == {
+        "workload_owner_identity": "provided", "desired_and_available_replicas": "provided", "pod_phase_and_scheduling": "provided",
+        "pod_readiness_conditions": "provided", "container_status": "provided", "readiness_probe_configuration": "partial",
+        "service_selector": "partial", "pod_labels_and_identity": "partial", "endpointslice_owner_and_readiness": "partial",
+    }
+
+
+def test_topology_evidence_coverage_missing_fields(tmp_path, monkeypatch, capsys):
+    from test_offline_topology import snapshot
+    coverage = _coverage(_coverage_report(tmp_path, monkeypatch, capsys, snapshot()))
+    assert coverage["desired_and_available_replicas"] == "missing"
+    assert coverage["pod_phase_and_scheduling"] == "missing"
+    assert coverage["pod_readiness_conditions"] == "missing"
+    assert coverage["container_status"] == "missing"
+    assert coverage["readiness_probe_configuration"] == "missing"
+
+
+@pytest.mark.parametrize("generation,observed", [(2, 1), (2, None)])
+def test_stale_or_unknown_generation_is_partial(tmp_path, monkeypatch, capsys, generation, observed):
+    from test_offline_topology import snapshot
+    graph = snapshot()
+    dep = graph["deployments"]["items"][0]
+    dep["metadata"]["generation"] = generation
+    dep["spec"] = {"replicas": 2}
+    dep["status"] = {"availableReplicas": 0}
+    if observed is not None:
+        dep["status"]["observedGeneration"] = observed
+    assert _coverage(_coverage_report(tmp_path, monkeypatch, capsys, graph))["desired_and_available_replicas"] == "partial"
+
+
+def test_zero_pod_candidate_is_partial_not_resolved_owner(tmp_path, monkeypatch, capsys):
+    from test_offline_topology import snapshot
+    graph = snapshot()
+    graph["pods"]["items"] = []
+    dep = graph["deployments"]["items"][0]
+    dep["spec"] = {"replicas": 0, "template": {"metadata": {"labels": {"app": "checkout"}}}}
+    dep["status"] = {"availableReplicas": 0}
+    coverage = _coverage(_coverage_report(tmp_path, monkeypatch, capsys, graph))
+    assert coverage["workload_owner_identity"] == "partial"
+    assert coverage["desired_and_available_replicas"] == "partial"
+    assert coverage["pod_readiness_conditions"] == "missing"
+
+
+def test_topology_coverage_does_not_create_checks_for_abstained_report(tmp_path, monkeypatch, capsys):
+    from test_offline_topology import snapshot
+    report = _coverage_report(tmp_path, monkeypatch, capsys, snapshot(), "UNKNOWN", 0)
+    assert report["investigation_plan"]["checks"] == []
