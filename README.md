@@ -29,6 +29,18 @@ The scenario is a source-tree fixture, not part of the wheel; when running
 from another directory, pass its absolute path. The scores describe that
 fixture only, not live detection accuracy or permission to remediate.
 
+To render its Python evidence bundle as a local Markdown RCA report:
+
+```bash
+agentic-aiops render-rca benchmarks/scenarios/checkout-latency.json --scenario
+```
+
+For a standalone Python `EvidenceBundle` JSON file, omit `--scenario`.
+The report preserves supplied hypothesis statuses and evidence references;
+it does not independently verify claims or authorize actions. The command
+reads only local input and writes to stdout. It is not a Go evidence-bundle
+converter or validator. Treat report content from untrusted files as data.
+
 ## Golden Incident v0.1
 
 ```text
