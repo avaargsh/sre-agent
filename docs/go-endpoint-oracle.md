@@ -284,3 +284,24 @@ provenance. A successful receipt is compact and source-only; source
 authentication, causality verification and execution authorization remain false.
 Invalid arguments exit 2. Digest mismatch or invalid source evidence exits 3
 with no success receipt. No live cluster calls or raw evidence output occur.
+
+
+### Golden Incident replay gate (disposable lab)
+
+Both the healthy control and the injected zero-ready fault now freeze the
+native capture, record its local SHA-256, and invoke the offline replay CLI
+before unpacking observer sources. The lab creates the capture, digest and
+compact receipt privately and without overwriting an existing regular file.
+Before the independent Episode evaluator runs, `check_replay.py verify`
+rechecks the archived bytes against the frozen digest and compares the native
+replay receipt to the separate endpoint prediction. All three authority
+flags must remain false. Invalid, missing, oversized or mismatched evidence
+fails closed, including under Python optimization.
+
+Artifacts: `observer-capture.json`, `observer-capture.sha256`,
+`observer-replay.json` and the existing `prediction.json` / `evaluation.json`
+under each scenario directory. The lab-generated pin establishes local byte
+continuity only; it is not a separately authenticated custody record. This
+gate complements, and does not replace, exact-RV admin reconciliation and
+independent fault/recovery evaluation. A development merge is not a live
+Kind proof or a production release approval.
