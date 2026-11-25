@@ -23,6 +23,28 @@ FIELDS = (("service_before", "observed-service.json", "Service", "service_resour
           ("service_after", "observed-service-after.json", "Service", "service_resource_version"))
 
 
+CAPTURE_FIELDS = {
+    "schema_version", "report", "service_before_raw",
+    "endpoint_slices_raw", "service_after_raw",
+}
+REPORT_FIELDS = {
+    "schema_version", "target", "expected_target_port", "expected_selector",
+    "service_resource_version", "endpoint_slice_list_resource_version",
+    "ready_endpoints", "classification", "service_before_sha256",
+    "endpoint_slices_sha256", "service_after_sha256",
+    "collection_started_at", "read_timeline", "observed_at",
+    "source_authenticated",
+}
+READ_REQUIRED_FIELDS = {
+    "name", "started_at", "completed_at",
+    "response_resource_version", "response_sha256",
+}
+READ_OPTIONAL_FIELDS = {
+    "request_consistency", "request_resource_version",
+    "request_resource_version_match", "request_label_selector", "request_limit",
+}
+
+
 def require(condition, message):
     if not condition:
         raise ValueError(message)
@@ -195,14 +217,24 @@ def publish_create_only(directory, outputs):
 
 
 def unpack(capture, directory, uid):
+    require(type(capture) is dict and set(capture) == CAPTURE_FIELDS,
+            "invalid capture envelope fields")
     require(capture["schema_version"] == "sre.service-endpoints-capture/v1", "invalid capture schema")
     report = capture["report"]
+    require(type(report) is dict and set(report) == REPORT_FIELDS,
+            "invalid capture report fields")
     require(report["schema_version"] == "sre.service-endpoints/v3" and report["source_authenticated"] is False, "invalid report schema or authentication claim")
     target = {"namespace": "golden-demo", "name": "checkout-api", "uid": uid}
     require(bool(uid) and report["target"] == target, "report target mismatch")
     require(type(report["expected_target_port"]) is int and report["expected_target_port"] == 8080
             and report["expected_selector"] == {"app": "checkout-api"}, "lab baseline mismatch")
     reads = report["read_timeline"]
+    require(type(reads) is list and len(reads) == 3, "invalid read timeline")
+    for read in reads:
+        require(type(read) is dict
+                and READ_REQUIRED_FIELDS <= set(read)
+                and set(read) <= READ_REQUIRED_FIELDS | READ_OPTIONAL_FIELDS,
+                "invalid read timeline fields")
     require([r["name"] for r in reads] == ["service_get_before", "endpoint_slice_list", "service_get_after"], "invalid read timeline")
     collection_start = parse_time(report["collection_started_at"])
     previous = collection_start
