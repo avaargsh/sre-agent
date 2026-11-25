@@ -68,7 +68,33 @@ def _fixture(case):
         raw = _bytes(source)
         capture[field + "_raw"] = base64.b64encode(raw).decode("ascii")
         report[field + "_sha256"] = hashlib.sha256(raw).hexdigest()
+    # Match the native collector's report envelope, with a fixed synthetic
+    # timeline rather than claiming any actual Kubernetes API reads.
+    report.update(expected_target_port=8080, expected_selector=dict(labels),
+                  service_resource_version="19", endpoint_slice_list_resource_version="25")
+    timeline = []
+    for i, (name, field, version) in enumerate((
+        ("service_get_before", "service_before", "19"),
+        ("endpoint_slice_list", "endpoint_slices", "25"),
+        ("service_get_after", "service_after", "19"),
+    )):
+        read = {"name": name, "started_at": f"2026-01-01T00:00:0{i}Z",
+                "completed_at": f"2026-01-01T00:00:0{i + 1}Z",
+                "response_resource_version": version,
+                "response_sha256": report[field + "_sha256"]}
+        if field == "endpoint_slices":
+            read.update(request_consistency="MOST_RECENT",
+                        request_label_selector="kubernetes.io/service-name=checkout", request_limit=129)
+        timeline.append(read)
+    report["read_timeline"] = timeline
     return capture, topology
+
+
+def export_demo_fixture(case: str) -> dict:
+    """Export both local inputs in an explicitly synthetic envelope."""
+    capture, topology = _fixture(case)
+    return {"schema_version": "endpoint-offline-fixture/v1", "synthetic": True,
+            "case": case, "capture": capture, "topology": topology}
 
 
 def render_demo(case: str) -> dict:
