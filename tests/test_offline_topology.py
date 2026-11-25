@@ -120,3 +120,45 @@ def test_native_typed_list_may_omit_item_kind():
     data["pods"]["kind"] = "List"
     with pytest.raises(ValueError):
         build_topology(data)
+
+
+def test_deployment_observation_preserves_explicit_counts_and_generation():
+    data = snapshot()
+    deployment = data["deployments"]["items"][0]
+    deployment["metadata"]["generation"] = 5
+    deployment["spec"] = {"replicas": 3}
+    deployment["status"] = {"observedGeneration": 5, "replicas": 2, "readyReplicas": 0, "availableReplicas": 0, "updatedReplicas": 1}
+    result = build_topology(data)
+    assert result["deployment_observations"] == [{
+        "entity_id": "dep", "desired_replicas": 3, "replicas": 2,
+        "ready_replicas": 0, "available_replicas": 0, "updated_replicas": 1,
+        "generation": 5, "observed_generation": 5, "generation_status": "matches",
+    }]
+    assert result["independently_verified"] is False
+
+
+@pytest.mark.parametrize("generation,observed,expected", [(5, 4, "stale"), (5, 6, "inconsistent"), (None, 5, "unknown"), (5, None, "unknown")])
+def test_deployment_generation_and_missing_counts(generation, observed, expected):
+    data = snapshot()
+    deployment = data["deployments"]["items"][0]
+    if generation is not None:
+        deployment["metadata"]["generation"] = generation
+    if observed is not None:
+        deployment["status"] = {"observedGeneration": observed}
+    item, = build_topology(data)["deployment_observations"]
+    assert item["generation_status"] == expected
+    assert all(item[key] is None for key in ("desired_replicas", "replicas", "ready_replicas", "available_replicas", "updated_replicas"))
+
+
+@pytest.mark.parametrize("bad", [True, -1, "2", 2.5])
+def test_malformed_deployment_count_is_not_coerced(bad):
+    data = snapshot()
+    data["deployments"]["items"][0]["status"] = {"availableReplicas": bad}
+    with pytest.raises(ValueError):
+        build_topology(data)
+
+
+def test_unlinked_deployment_does_not_supply_observation():
+    data = snapshot()
+    data["pods"]["items"] = []
+    assert build_topology(data)["deployment_observations"] == []
