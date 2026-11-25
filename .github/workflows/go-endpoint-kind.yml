@@ -48,3 +48,29 @@ jobs:
         with:
           name: go-endpoint-kind-proof-${{ github.sha }}
           path: /tmp/go-endpoint-proof/
+          if-no-files-found: error
+
+  # A success receipt must be verifiable after crossing the artifact boundary,
+  # not only in the live runner's local /tmp directory.
+  artifact-roundtrip:
+    needs: endpoint-evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pin verifier to the proof-producing commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+      - name: Retrieve uploaded evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: go-endpoint-kind-proof-${{ github.sha }}
+          path: ${{ runner.temp }}/endpoint-proof
+      - name: Verify downloaded artifact against frozen manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "$RUNNER_TEMP/endpoint-proof/incident-manifest.json"
+          python3 demo/go-endpoint/incident_manifest.py verify "$RUNNER_TEMP/endpoint-proof"
