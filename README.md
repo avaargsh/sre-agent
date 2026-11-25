@@ -111,6 +111,30 @@ and `execution_authorized` remain false. An independent operator or policy
 must validate the target and authorize any actual collection. Reports that
 abstain from hypotheses have an empty `checks` list.
 
+### Offline Service topology
+
+Build a local Service-to-Pod-to-ReplicaSet-to-Deployment structural graph:
+
+```bash
+python -m agentic_aiops.offline_topology /secure/path/topology-snapshot.json
+```
+
+Supply a JSON object with four fields: `service` (one Service), `pods`
+(PodList), `replica_sets` (ReplicaSetList) and `deployments`
+(DeploymentList). Generic kubectl List envelopes are accepted if each
+item explicitly declares its kind. All records must belong to the same
+namespace; use operator-selected regular files and a non-paginated inventory.
+
+Output uses `offline-service-topology/v1`, with UID-keyed entities,
+selector-match edges, exact controller-reference edges, unresolved
+relationships and the input file SHA-256. Missing selectors, no matches,
+and missing or mismatched controller identities are explicit unresolved
+observations. Selector matching is not proof of EndpointSlice membership,
+traffic flow or readiness; owner references are not authenticated. Only
+the Pod-to-ReplicaSet-to-Deployment controller chain is currently resolved.
+This local projection neither collects cluster evidence nor authorizes
+execution, and is not yet wired into the Endpoint RCA report.
+
 ## Golden Incident v0.1
 
 ```text
