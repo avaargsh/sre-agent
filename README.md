@@ -41,6 +41,19 @@ it does not independently verify claims or authorize actions. The command
 reads only local input and writes to stdout. It is not a Go evidence-bundle
 converter or validator. Treat report content from untrusted files as data.
 
+For machine-readable output, select the versioned JSON format:
+
+```bash
+agentic-aiops render-rca benchmarks/scenarios/checkout-latency.json --scenario --format json
+```
+
+The `rca-report/v1` report separates supplied hypothesis status from local
+reference checks. Missing or multiply defined evidence IDs are reported
+explicitly; empty references are not resolved. A resolved reference is
+not proof of causal correctness or source authenticity. Both
+`independently_verified` and `execution_authorized` remain false.
+The default Markdown format is unchanged.
+
 ## Golden Incident v0.1
 
 ```text
