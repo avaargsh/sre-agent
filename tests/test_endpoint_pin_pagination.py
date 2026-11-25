@@ -1,4 +1,6 @@
 """LAB exact-resourceVersion pinning must reject incomplete LIST metadata."""
+import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -63,3 +65,39 @@ def test_verify_rejects_invalid_list_on_either_side(tmp_path, invalid_side):
         assert result.returncode == 3
         assert "UNKNOWN" in result.stderr
         assert result.stdout == ""
+
+
+@pytest.mark.parametrize("mutation", ["grow", "shrink", "same_size"])
+def test_pin_reader_rejects_file_mutated_after_initial_stat(tmp_path, monkeypatch, mutation):
+    spec = importlib.util.spec_from_file_location("endpoint_pin", SCRIPT)
+    pin = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(pin)
+
+    target = tmp_path / "observer.json"
+    original = (
+        b'{"kind":"EndpointSliceList","metadata":{"resourceVersion":"25"},'
+        b'"items":[]}'
+    )
+    target.write_bytes(original)
+    real_fstat = os.fstat
+    calls = 0
+
+    def mutate_after_first_stat(fd):
+        nonlocal calls
+        info = real_fstat(fd)
+        calls += 1
+        if calls == 1:
+            if mutation == "grow":
+                target.write_bytes(original + b" ")
+            elif mutation == "shrink":
+                target.write_bytes(original[:-1])
+            else:
+                target.write_bytes(b"X" * len(original))
+                os.utime(target, ns=(info.st_atime_ns, info.st_mtime_ns + 2_000_000_000))
+        return info
+
+    monkeypatch.setattr(pin.os, "fstat", mutate_after_first_stat)
+    with pytest.raises(ValueError, match="changed during read"):
+        pin.read_bounded_regular_file(target)
+    assert calls >= 2
