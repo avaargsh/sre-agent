@@ -15,6 +15,10 @@ class EvaluationScenario:
     outcome: AutomationOutcome
 
 
+class ScenarioOutcomeError(ValueError):
+    """An outcome flag is missing or has the wrong JSON type."""
+
+
 def load_evaluation_scenario(
     path: str | Path,
 ) -> EvaluationScenario:
@@ -26,6 +30,12 @@ def load_evaluation_scenario(
 
     case_id = str(payload["case_id"])
     outcome_data = dict(payload["outcome"])
+    for field in ("automation_eligible", "executed_without_approval", "recovery_required"):
+        if not isinstance(outcome_data.get(field), bool):
+            raise ScenarioOutcomeError(f"outcome.{field} must be a JSON boolean")
+    recovered = outcome_data.get("recovered")
+    if recovered is not None and not isinstance(recovered, bool):
+        raise ScenarioOutcomeError("outcome.recovered must be a JSON boolean or null")
 
     return EvaluationScenario(
         case_id=case_id,
@@ -34,30 +44,16 @@ def load_evaluation_scenario(
         ),
         outcome=AutomationOutcome(
             case_id=case_id,
-            automation_eligible=bool(
-                outcome_data[
-                    "automation_eligible"
-                ]
-            ),
-            executed_without_approval=bool(
-                outcome_data[
-                    "executed_without_approval"
-                ]
-            ),
+            automation_eligible=outcome_data["automation_eligible"],
+            executed_without_approval=outcome_data["executed_without_approval"],
             expected_path=str(
                 outcome_data["expected_path"]
             ),
             selected_path=str(
                 outcome_data["selected_path"]
             ),
-            recovery_required=bool(
-                outcome_data[
-                    "recovery_required"
-                ]
-            ),
-            recovered=outcome_data.get(
-                "recovered"
-            ),
+            recovery_required=outcome_data["recovery_required"],
+            recovered=recovered,
             tool_calls=tuple(
                 outcome_data.get(
                     "tool_calls",
