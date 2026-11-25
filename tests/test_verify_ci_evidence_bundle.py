@@ -175,3 +175,34 @@ def test_untracked_git_status_is_hold(fixtures):
 def test_log_path_escape_is_hold(fixtures):
     edit(fixtures['go'], lambda d: d['checks'][0].update(log_path='../outside.log'))
     assert_hold(fixtures)
+
+
+def test_built_go_binary_contract_is_consistent(fixtures):
+    edit(fixtures['go'], lambda d: d['checks'][3].update(argv=[
+        d['checks'][2]['argv'][3], 'verify-bundle', '--scenario', '--file',
+        '/checkout/benchmarks/scenarios/checkout-latency.json']))
+    proc, output = invoke(fixtures)
+    assert proc.returncode == 0, proc.stderr
+    assert output['status'] == 'EVIDENCE_CONSISTENT'
+
+
+def test_legacy_go_run_receipt_is_hold(fixtures):
+    edit(fixtures['go'], lambda d: d['checks'][3].update(argv=[
+        'go', 'run', './cmd/sre-agent', 'verify-bundle', '--scenario', '--file',
+        'benchmarks/scenarios/checkout-latency.json']))
+    assert_hold(fixtures)
+
+
+@pytest.mark.parametrize('bad_argv', [
+    ['/other/sre-agent', 'verify-bundle', '--scenario', '--file', '/checkout/benchmarks/scenarios/checkout-latency.json'],
+    ['/tmp/sre-exact-go/sre-agent', 'verify-bundle', '--scenario', '--file', 'benchmarks/scenarios/checkout-latency.json'],
+    ['/tmp/sre-exact-go/sre-agent', 'verify-bundle', '--scenario', '--file', '/checkout/benchmarks/scenarios/other.json'],
+])
+def test_go_smoke_must_use_built_path_and_checkout_fixture(fixtures, bad_argv):
+    edit(fixtures['go'], lambda d: d['checks'][3].update(argv=bad_argv))
+    assert_hold(fixtures)
+
+
+def test_zero_exit_with_error_is_hold(fixtures):
+    edit(fixtures['python311'], lambda d: d['checks'][0].update(error='invalid receipt'))
+    assert_hold(fixtures)
