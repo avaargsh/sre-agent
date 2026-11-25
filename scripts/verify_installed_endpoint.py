@@ -15,9 +15,13 @@ import sys
 from tempfile import TemporaryDirectory
 
 
+class SmokeCheckError(ValueError):
+    """A failed assertion with a fixed, safe operator-facing message."""
+
+
 def require(condition: bool, message: str) -> None:
     if not condition:
-        raise ValueError(message)
+        raise SmokeCheckError(message)
 
 
 def unique_object(pairs):
@@ -135,6 +139,9 @@ def main() -> int:
     try:
         require(args.cli.is_absolute(), "--cli must be an absolute path")
         result = verify(args.cli)
+    except SmokeCheckError as exc:
+        print(f"endpoint CLI smoke failed: {exc}", file=sys.stderr)
+        return 1
     except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.TimeoutExpired, RecursionError) as exc:
         print(f"endpoint CLI smoke failed ({type(exc).__name__})", file=sys.stderr)
         return 1

@@ -52,3 +52,21 @@ def test_smoke_rejects_broken_cli(cli, tmp_path, fault):
     assert result.returncode != 0
     assert not result.stdout
     assert 'endpoint CLI smoke failed' in result.stderr
+
+
+def test_smoke_names_failed_export_without_relaying_child_stderr(cli, tmp_path):
+    body = cli.read_text(encoding="utf-8")
+    body = body.replace(
+        "main()\n",
+        'if "--format" in sys.argv and "fixture" in sys.argv:\n'
+        '    print("UNTRUSTED-CHILD-STDERR", file=sys.stderr)\n'
+        "    raise SystemExit(2)\nmain()\n",
+    )
+    cli.write_text(body, encoding="utf-8")
+
+    result = run_check(cli, tmp_path)
+
+    assert result.returncode == 1
+    assert not result.stdout
+    assert "scale-zero: export failed" in result.stderr
+    assert "UNTRUSTED-CHILD-STDERR" not in result.stderr
