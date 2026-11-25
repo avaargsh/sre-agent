@@ -12,6 +12,23 @@ Evidence-first Agentic incident investigation and safe remediation, with a runna
 
 The current Go entrypoints accept original Alertmanager bytes, an operator-pinned cluster/namespace/deployment, and explicit read-only Kubernetes/Prometheus credentials. `plan-alert` produces an untrusted scoped candidate; `investigate-alert` collects a bounded v1 Evidence Bundle; `verify-alert-evidence` independently replays its structural linkage and returns `UNKNOWN` on mismatches. No part of this path approves an execution Permit or makes a production write.
 
+## Offline evaluation quickstart
+
+From the repository root, use Python 3.11 or later:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install .
+agentic-aiops evaluate-scenarios benchmarks/scenarios/checkout-latency.json --metrics-only
+```
+
+This prints five metrics for one bundled, frozen scenario. Running the
+evaluator needs no cluster, model endpoint, Temporal service, or credentials.
+The scenario is a source-tree fixture, not part of the wheel; when running
+from another directory, pass its absolute path. The scores describe that
+fixture only, not live detection accuracy or permission to remediate.
+
 ## Golden Incident v0.1
 
 ```text
