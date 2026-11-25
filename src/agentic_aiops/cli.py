@@ -52,13 +52,15 @@ def main() -> None:
     demo = subparsers.add_parser("demo-endpoint", help="run a synthetic offline Endpoint RCA example")
     demo.add_argument("--case", choices=("scale-zero", "readiness"), default="scale-zero")
 
+    demo.add_argument("--format", choices=("report", "fixture"), default="report")
+
     args = parser.parse_args()
 
     if args.command == "demo-endpoint":
-        from .demo_endpoint import render_demo
+        from .demo_endpoint import export_demo_fixture, render_demo
 
         try:
-            result = render_demo(args.case)
+            result = export_demo_fixture(args.case) if args.format == "fixture" else render_demo(args.case)
         except (OSError, ValueError):
             demo.error("cannot render offline demo")
         print(json.dumps(result, indent=2, allow_nan=False))
