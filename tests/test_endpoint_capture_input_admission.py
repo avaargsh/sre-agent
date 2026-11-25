@@ -73,3 +73,30 @@ def test_capture_input_is_bounded_nonblocking_regular_file(tmp_path, kind):
         assert not result.stdout
         assert result.stderr.startswith("UNKNOWN:")
         assert list(output.iterdir()) == []
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("expected_target_port", 8080.0),
+    ("slice_request_limit", 129.0),
+    ("service_request_limit", 0.0),
+])
+def test_capture_rejects_float_where_go_report_requires_integer(tmp_path, field, value):
+    capture = capture_fixture()
+    if field == "expected_target_port":
+        capture["report"]["expected_target_port"] = value
+    elif field == "slice_request_limit":
+        capture["report"]["read_timeline"][1]["request_limit"] = value
+    else:
+        capture["report"]["read_timeline"][0]["request_limit"] = value
+    input_path = tmp_path / "capture.json"
+    input_path.write_text(json.dumps(capture), encoding="utf-8")
+    output = tmp_path / "evidence"
+    output.mkdir(mode=0o700)
+    result = subprocess.run(
+        [sys.executable, "-O", str(SCRIPT), str(input_path), str(output), UID],
+        capture_output=True, text=True, timeout=5,
+    )
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert not result.stdout
+    assert result.stderr.startswith("UNKNOWN:")
+    assert list(output.iterdir()) == []
