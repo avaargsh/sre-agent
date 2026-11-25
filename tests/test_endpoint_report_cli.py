@@ -82,3 +82,50 @@ def test_endpoint_summary_rejects_invalid_capture_without_partial_output(tmp_pat
     assert not out.out
     assert "invalid endpoint capture" in out.err
     assert "Traceback" not in out.err
+
+
+@pytest.mark.parametrize("classification,count,expected_candidates", [
+    ("NO_READY_ENDPOINTS_OBSERVED", 0, 3),
+    ("READY_ENDPOINTS_OBSERVED", 1, 0),
+    ("UNKNOWN", 0, 0),
+    ("NO_READY_ENDPOINTS_OBSERVED", 1, 0),
+    ("READY_ENDPOINTS_OBSERVED", 0, 0),
+])
+def test_endpoint_rca_preserves_observation_and_abstains(tmp_path, monkeypatch, capsys, classification, count, expected_candidates):
+    data = capture()
+    data["report"].update(classification=classification, ready_endpoints=count)
+    path = tmp_path / "capture.json"
+    raw = json.dumps(data).encode()
+    path.write_bytes(raw)
+    monkeypatch.setattr("sys.argv", ["agentic-aiops", "render-endpoint-capture", str(path), "--format", "rca-json"])
+    main()
+    out = capsys.readouterr()
+    report = json.loads(out.out)
+    assert not out.err
+    assert report["schema_version"] == "rca-report/v1"
+    assert report["incident"]["severity"] == "unknown"
+    assert report["endpoint_observation"]["capture_sha256"] == hashlib.sha256(raw).hexdigest()
+    assert report["endpoint_observation"]["reported_classification"] == classification
+    assert report["endpoint_observation"]["reported_ready_endpoints"] == count
+    assert len(report["hypotheses"]) == expected_candidates
+    assert all(item["supplied_status"] == "unverified" and item["references_resolved"] for item in report["hypotheses"])
+    assert report["timeline"][0]["timestamp"] == data["report"]["observed_at"]
+    assert report["timeline"][0]["event_id"] == report["evidence"][0]["evidence_id"]
+    assert report["independently_verified"] is False
+    assert report["execution_authorized"] is False
+    assert "service_before_raw" not in out.out
+    assert path.read_bytes() == raw
+
+
+def test_endpoint_rca_rejects_digest_mismatch(tmp_path, monkeypatch, capsys):
+    data = capture()
+    data["report"]["endpoint_slices_sha256"] = "0" * 64
+    path = tmp_path / "capture.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["agentic-aiops", "render-endpoint-capture", str(path), "--format", "rca-json"])
+    with pytest.raises(SystemExit) as exc:
+        main()
+    out = capsys.readouterr()
+    assert exc.value.code == 2
+    assert not out.out
+    assert "invalid endpoint capture" in out.err
