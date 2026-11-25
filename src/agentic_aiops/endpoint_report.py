@@ -257,6 +257,49 @@ def _replica_assessment(topology: dict) -> dict:
     }
 
 
+def _readiness_assessment(topology: dict) -> dict:
+    """Compare reported Pod conditions with regular container observations."""
+    observations = []
+    for i, row in enumerate(topology["pod_observations"]):
+        containers = row["container_statuses"]
+        declared = row["readiness_probe_presence"]
+        condition = row["ready_condition"]
+        unready = sorted(item["name"] for item in containers or [] if item["ready"] is False)
+        inconsistent = any(item["ready"] is True and item["state"] in ("waiting", "terminated")
+                           for item in containers or [])
+        if condition == "True":
+            inconsistent = inconsistent or bool(unready) or row["scheduled_condition"] == "False" or row["phase"] in ("Pending", "Succeeded", "Failed")
+        if inconsistent:
+            status = "inconsistent_status"
+        elif condition == "True":
+            status = "reported_ready"
+        elif condition == "False":
+            status = "reported_not_ready"
+        else:
+            status = "unknown_readiness"
+        if containers is None:
+            detail = "missing"
+        elif (containers and declared
+              and {item["name"] for item in containers} == {item["name"] for item in declared}
+              and all(all(item[key] is not None for key in ("ready", "restart_count", "state"))
+                      for item in containers)):
+            detail = "provided"
+        else:
+            detail = "partial"
+        observations.append({
+            "entity_id": row["entity_id"], "status": status,
+            "container_detail": detail, "reported_unready_containers": unready,
+            "report_ref": "/topology_context/snapshot/pod_observations/" + str(i),
+        })
+    return {
+        "schema_version": "offline-readiness-assessment/v1",
+        "observations": observations,
+        "independently_verified": False,
+        "root_cause_verified": False,
+        "execution_authorized": False,
+    }
+
+
 def attach_topology_context(report: dict, snapshot_path: str | Path) -> dict:
     """Attach a separate local inventory only if its Service identity agrees."""
     from .offline_topology import load_topology_snapshot
@@ -278,6 +321,7 @@ def attach_topology_context(report: dict, snapshot_path: str | Path) -> dict:
             "capture_sha256": observation["capture_sha256"],
             "snapshot": topology,
             "replica_assessment": _replica_assessment(topology),
+            "readiness_assessment": _readiness_assessment(topology),
             "reported_service_identity_matches": True,
             "independently_verified": False,
             "collection_authorized": False,

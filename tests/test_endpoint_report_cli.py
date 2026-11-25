@@ -381,3 +381,60 @@ def test_replica_assessment_does_not_invent_unresolved_workload(tmp_path, monkey
     report = _coverage_report(tmp_path, monkeypatch, capsys, graph)
     assert report["topology_context"]["replica_assessment"]["observations"] == []
     assert _coverage(report)["desired_and_available_replicas"] == "missing"
+
+
+@pytest.mark.parametrize("condition,phase,scheduled,container_ready,state,expected", [
+    ("True", "Running", "True", True, "running", "reported_ready"),
+    ("False", "Running", "True", False, "waiting", "reported_not_ready"),
+    ("False", "Running", "True", True, "running", "reported_not_ready"),
+    ("Unknown", "Running", "True", False, "waiting", "unknown_readiness"),
+    (None, "Running", "True", True, "running", "unknown_readiness"),
+    ("True", "Running", "True", False, "running", "inconsistent_status"),
+    ("True", "Failed", "True", True, "running", "inconsistent_status"),
+    ("True", "Running", "False", True, "running", "inconsistent_status"),
+    ("False", "Running", "True", True, "terminated", "inconsistent_status"),
+])
+def test_readiness_assessment_distinguishes_reported_conditions(tmp_path, monkeypatch, capsys, condition, phase, scheduled, container_ready, state, expected):
+    from test_offline_topology import snapshot
+    graph = snapshot()
+    pod = graph["pods"]["items"][0]
+    conditions = [{"type": "PodScheduled", "status": scheduled}]
+    if condition is not None:
+        conditions.append({"type": "Ready", "status": condition})
+    pod["status"] = {"phase": phase, "conditions": conditions, "containerStatuses": [
+        {"name": "app", "ready": container_ready, "restartCount": 0, "state": {state: {}}},
+    ]}
+    pod["spec"] = {"containers": [{"name": "app"}]}
+    report = _coverage_report(tmp_path, monkeypatch, capsys, graph)
+    assessment = report["topology_context"]["readiness_assessment"]
+    assert assessment["schema_version"] == "offline-readiness-assessment/v1"
+    assert assessment["independently_verified"] is assessment["root_cause_verified"] is assessment["execution_authorized"] is False
+    item, = assessment["observations"]
+    assert item == {"entity_id": "pod", "status": expected,
+                    "container_detail": "provided", "reported_unready_containers": [] if container_ready else ["app"],
+                    "report_ref": "/topology_context/snapshot/pod_observations/0"}
+    _coverage(report)
+
+
+@pytest.mark.parametrize("statuses,expected", [(None, "missing"), ([], "partial"), ([{"name": "app", "ready": True}], "partial"), ([{"name": "other", "ready": True, "restartCount": 0, "state": {"running": {}}}], "partial")])
+def test_readiness_assessment_preserves_incomplete_container_detail(tmp_path, monkeypatch, capsys, statuses, expected):
+    from test_offline_topology import snapshot
+    graph = snapshot()
+    pod = graph["pods"]["items"][0]
+    pod["spec"] = {"containers": [{"name": "app"}]}
+    pod["status"] = {"conditions": [{"type": "Ready", "status": "True"}]}
+    if statuses is not None:
+        pod["status"]["containerStatuses"] = statuses
+    report = _coverage_report(tmp_path, monkeypatch, capsys, graph)
+    item, = report["topology_context"]["readiness_assessment"]["observations"]
+    assert item["status"] == "reported_ready"
+    assert item["container_detail"] == expected
+
+
+def test_readiness_assessment_abstains_without_matching_pods(tmp_path, monkeypatch, capsys):
+    from test_offline_topology import snapshot
+    graph = snapshot()
+    graph["pods"]["items"] = []
+    report = _coverage_report(tmp_path, monkeypatch, capsys, graph)
+    assert report["topology_context"]["readiness_assessment"]["observations"] == []
+    assert _coverage(report)["pod_readiness_conditions"] == "missing"
