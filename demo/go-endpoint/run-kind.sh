@@ -3,8 +3,13 @@
 # injection. SRE Agent owns only GET Service / LIST EndpointSlice in this lab.
 set -euo pipefail
 ROOT=/tmp/go-endpoint-proof
-(umask 077; mkdir -p "$ROOT/control" "$ROOT/no-ready")
-chmod 0700 "$ROOT"
+# A proof directory belongs to exactly one run; never follow an existing
+# path or mix prior evidence with a new incident before touching Kubernetes.
+if ! (umask 077; mkdir -m 0700 "$ROOT"); then
+  echo "FAIL: Endpoint proof root already exists or cannot be created: $ROOT" >&2
+  exit 1
+fi
+(umask 077; mkdir -m 0700 "$ROOT/control" "$ROOT/no-ready")
 kubectl apply -f demo/k8s/golden-stack.yaml
 kubectl apply -f demo/go-endpoint/reader-role.yaml
 kubectl -n golden-demo rollout status deploy/checkout-api --timeout=180s
