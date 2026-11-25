@@ -8,6 +8,7 @@ is not a model provenance attestation or production authorization.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import hmac
 import json
@@ -41,31 +42,133 @@ class FrozenAdapter:
     receipt: dict[str, Any]
 
 
-def _read_regular(path: Path, *, limit: int) -> bytes:
-    """Read a single regular file from a no-follow descriptor with a hard cap.
+def _secure_open_supported() -> bool:
+    return (
+        hasattr(os, "O_NOFOLLOW")
+        and hasattr(os, "O_NONBLOCK")
+        and hasattr(os, "O_DIRECTORY")
+        and hasattr(os, "supports_fd")
+        and os.open in os.supports_dir_fd
+        and os.listdir in os.supports_fd
+    )
 
-    fstat() inspects the opened inode rather than a pre-open pathname. The
-    bounded read still enforces the cap if the file grows after fstat().
-    """
-    if path.is_symlink():
-        raise ValueError(f"adapter symlink rejected: {path.name}")
-    if not hasattr(os, "O_NOFOLLOW"):
-        raise ValueError("secure no-follow adapter file opening unavailable")
-    flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
-    descriptor = os.open(path, flags)
+
+def _open_nofollow_parent(path: str | Path) -> tuple[int, str]:
+    """Open every parent component without following symlinks."""
+    if not _secure_open_supported():
+        raise ValueError("component-safe no-follow file opening unavailable")
+    raw_path = os.fsdecode(os.fspath(path))
+    if not raw_path or chr(0) in raw_path:
+        raise ValueError("invalid pinned file path")
+    absolute = os.path.isabs(raw_path)
+    parts = [part for part in raw_path.split(os.sep) if part not in ("", ".")]
+    if not parts or any(part == ".." for part in parts):
+        raise ValueError("pinned file path must not contain parent traversal")
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    directory_fd = os.open(os.sep if absolute else ".", directory_flags)
+    try:
+        for component in parts[:-1]:
+            try:
+                next_fd = os.open(component, directory_flags, dir_fd=directory_fd)
+            except OSError as exc:
+                if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+                    raise ValueError(
+                        f"symlink or non-directory path component rejected: {component}"
+                    ) from exc
+                raise
+            os.close(directory_fd)
+            directory_fd = next_fd
+        return directory_fd, parts[-1]
+    except BaseException:
+        os.close(directory_fd)
+        raise
+
+
+def _open_nofollow_directory(path: str | Path) -> int:
+    """Open a directory by walking each component relative to a pinned fd."""
+    if not _secure_open_supported():
+        raise ValueError("component-safe no-follow directory opening unavailable")
+    raw_path = os.fsdecode(os.fspath(path))
+    if not raw_path or chr(0) in raw_path:
+        raise ValueError("invalid adapter directory path")
+    absolute = os.path.isabs(raw_path)
+    parts = [part for part in raw_path.split(os.sep) if part not in ("", ".")]
+    if any(part == ".." for part in parts):
+        raise ValueError("adapter directory path must not contain parent traversal")
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    directory_fd = os.open(os.sep if absolute else ".", directory_flags)
+    try:
+        for component in parts:
+            try:
+                next_fd = os.open(component, directory_flags, dir_fd=directory_fd)
+            except OSError as exc:
+                if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+                    raise ValueError(
+                        f"symlink or non-directory path component rejected: {component}"
+                    ) from exc
+                raise
+            os.close(directory_fd)
+            directory_fd = next_fd
+        return directory_fd
+    except BaseException:
+        os.close(directory_fd)
+        raise
+
+
+def _read_regular_at(directory_fd: int, name: str, *, limit: int) -> bytes:
+    """Read one bounded regular file relative to an already-pinned directory."""
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    try:
+        descriptor = os.open(name, flags, dir_fd=directory_fd)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise ValueError(f"adapter symlink rejected: {name}") from exc
+        raise
     try:
         with os.fdopen(descriptor, "rb") as stream:
             descriptor = -1
             info = os.fstat(stream.fileno())
             if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= limit:
-                raise ValueError(f"invalid adapter file size or type: {path.name}")
+                raise ValueError(f"invalid adapter file size or type: {name}")
             raw = stream.read(limit + 1)
             if not 0 < len(raw) <= limit:
-                raise ValueError(f"invalid or oversized adapter file bytes: {path.name}")
+                raise ValueError(f"invalid or oversized adapter file bytes: {name}")
             return raw
     finally:
         if descriptor >= 0:
             os.close(descriptor)
+
+
+def _check_regular_at(directory_fd: int, name: str, *, limit: int) -> None:
+    """Validate an optional unused sidecar without following links or reading it."""
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    try:
+        descriptor = os.open(name, flags, dir_fd=directory_fd)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise ValueError(f"adapter symlink rejected: {name}") from exc
+        raise
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
+            raise ValueError(f"invalid adapter file size or type: {name}")
+    finally:
+        os.close(descriptor)
+
+
+def _read_regular(path: Path, *, limit: int) -> bytes:
+    """Read a bounded regular file without following any path-component symlink.
+
+    The parent chain is walked through directory descriptors, then the final
+    name is opened relative to the pinned parent. fstat() and the bounded read
+    apply to the same inode; platforms without dir-fd/O_NOFOLLOW support fail
+    closed.
+    """
+    parent_fd, name = _open_nofollow_parent(path)
+    try:
+        return _read_regular_at(parent_fd, name, limit=limit)
+    finally:
+        os.close(parent_fd)
 
 
 def _validate_config(raw: bytes, *, base_model: str, base_revision: str) -> dict[str, Any]:
@@ -218,17 +321,24 @@ def load_pinned_adapter(
         raise ValueError("adapter base_model must be an explicit Qwen/Qwen3-* ID")
     if type(base_revision) is not str or not _SHA40.fullmatch(base_revision):
         raise ValueError("adapter base_revision must be pinned lowercase 40-character commit")
-    directory = Path(directory)
-    if directory.is_symlink() or not directory.is_dir():
-        raise ValueError("adapter directory cannot be a symlink or missing")
-    allowed = {"adapter_config.json", "adapter_model.safetensors", "README.md"}
-    actual = {part.name for part in directory.iterdir()}
-    if not {"adapter_config.json", "adapter_model.safetensors"}.issubset(actual):
-        raise ValueError("missing pinned adapter_config.json or adapter_model.safetensors")
-    if actual - allowed:
-        raise ValueError(f"unexpected adapter files: {sorted(actual - allowed)}")
-    config_raw = _read_regular(directory/"adapter_config.json", limit=_MAX_CONFIG)
-    weights_raw = _read_regular(directory/"adapter_model.safetensors", limit=_MAX_WEIGHTS)
+    directory_fd = _open_nofollow_directory(directory)
+    try:
+        allowed = {"adapter_config.json", "adapter_model.safetensors", "README.md"}
+        actual = set(os.listdir(directory_fd))
+        if not {"adapter_config.json", "adapter_model.safetensors"}.issubset(actual):
+            raise ValueError("missing pinned adapter_config.json or adapter_model.safetensors")
+        if actual - allowed:
+            raise ValueError(f"unexpected adapter files: {sorted(actual - allowed)}")
+        config_raw = _read_regular_at(
+            directory_fd, "adapter_config.json", limit=_MAX_CONFIG,
+        )
+        weights_raw = _read_regular_at(
+            directory_fd, "adapter_model.safetensors", limit=_MAX_WEIGHTS,
+        )
+        if "README.md" in actual:
+            _check_regular_at(directory_fd, "README.md", limit=64 * 1024)
+    finally:
+        os.close(directory_fd)
     config_sha = _verify_pin(config_raw, expected_adapter_config_sha256,
                              "adapter_config_sha256")
     weights_sha = _verify_pin(weights_raw, expected_adapter_weights_sha256,
