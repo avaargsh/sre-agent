@@ -383,3 +383,8 @@ test "$(kubectl -n golden-demo get deploy checkout-api -o jsonpath='{.spec.repli
 test "$(kubectl -n golden-demo get svc checkout-api -o jsonpath='{.spec.ports[0].targetPort}')" = 8080
 test "$(kubectl -n golden-demo get svc checkout-api -o jsonpath='{.spec.selector.app}')" = checkout-api
 echo "PASS: test-only backend scaled back up; no SRE Agent write permission"
+
+# Inventory only after both cases, forged-input checks and recovery checks.
+manifest="$(python3 demo/go-endpoint/incident_manifest.py build "$ROOT")"
+(umask 077; set -o noclobber; printf '%s\n' "$manifest" > "$ROOT/incident-manifest.json")
+python3 demo/go-endpoint/incident_manifest.py verify "$ROOT"
