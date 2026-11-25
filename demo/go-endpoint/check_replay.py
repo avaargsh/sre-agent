@@ -18,6 +18,7 @@ RECEIPT_KEYS = {
     "ready_endpoints", "source_authenticated", "causality_verified",
     "execution_authorized",
 }
+PREDICTION_KEYS = {"schema_version", "classification", "ready_endpoints"}
 
 
 def read_bounded(path, limit):
@@ -91,7 +92,8 @@ def verify(archive, pin, receipt, prediction):
             claim["status"] != "REPLAYED" or claim["archive_sha256"] != digest or
             any(claim[key] is not False for key in (
                 "source_authenticated", "causality_verified", "execution_authorized")) or
-            pred.get("schema_version") != "sre.endpoint-observation/v1" or
+            set(pred) != PREDICTION_KEYS or
+            pred["schema_version"] != "sre.endpoint-observation/v1" or
             observation(claim) != observation(pred)):
         raise ValueError("replay receipt does not match frozen prediction")
 
