@@ -168,7 +168,11 @@ def build_topology(snapshot: dict) -> dict:
     for field, kind in (("pods", "Pod"), ("replica_sets", "ReplicaSet"), ("deployments", "Deployment")):
         listing = _object(snapshot.get(field))
         list_kind = listing.get("kind")
-        if list_kind not in (kind + "List", "List") or _object(listing.get("metadata", {})).get("continue", "") != "":
+        metadata = _object(listing.get("metadata", {}))
+        remaining = metadata.get("remainingItemCount", 0)
+        if (list_kind not in (kind + "List", "List")
+                or metadata.get("continue", "") != ""
+                or type(remaining) is not int or remaining != 0):
             raise ValueError("invalid or paginated inventory")
         items = listing.get("items")
         if not isinstance(items, list):
