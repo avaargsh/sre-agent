@@ -35,6 +35,29 @@ def unique(pairs):
     return result
 
 
+def reject_constant(_):
+    raise ValueError("non-finite JSON number")
+
+
+def validate_json_strings(value):
+    """Reject unpaired surrogate escapes accepted by Python's JSON decoder."""
+    if isinstance(value, str):
+        value.encode("utf-8")
+    elif isinstance(value, list):
+        for item in value:
+            validate_json_strings(item)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            key.encode("utf-8")
+            validate_json_strings(item)
+
+
+def strict_json(raw):
+    value = json.loads(raw, object_pairs_hook=unique, parse_constant=reject_constant)
+    validate_json_strings(value)
+    return value
+
+
 _TIME_RE = re.compile(
     r"^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.([0-9]{0,8}[1-9]))?Z$"
 )
@@ -200,7 +223,7 @@ def unpack(capture, directory, uid):
         require(0 < len(raw) <= 2 << 20, "empty or oversized source")
         digest = hashlib.sha256(raw).hexdigest()
         require(digest == report[field + "_sha256"] == read["response_sha256"], "source digest mismatch")
-        obj = json.loads(raw.decode("utf-8"), object_pairs_hook=unique)
+        obj = strict_json(raw.decode("utf-8"))
         require(obj["kind"] == kind, "unexpected source kind")
         meta = obj["metadata"]
         version = meta["resourceVersion"]
@@ -212,7 +235,7 @@ def unpack(capture, directory, uid):
     require(sources[0][1] == sources[2][1], "Service changed during capture")
     # No output is published before all source bindings have been checked.
     outputs = [(name, raw) for name, raw in sources]
-    report_bytes = (json.dumps(report, sort_keys=True, indent=2) + "\n").encode("utf-8")
+    report_bytes = (json.dumps(report, sort_keys=True, indent=2, allow_nan=False) + "\n").encode("utf-8")
     outputs.append(("observer-report.json", report_bytes))
     publish_create_only(directory, outputs)
     print("PASS: lab capture byte binding", report["classification"], "reported ready endpoints", count)
@@ -222,7 +245,7 @@ def main(argv):
     try:
         source, directory, uid = argv
         raw = read_bounded(source, MAX_ARCHIVE)
-        unpack(json.loads(raw.decode("utf-8"), object_pairs_hook=unique), Path(directory), uid)
+        unpack(strict_json(raw.decode("utf-8")), Path(directory), uid)
         return 0
     except (ValueError, OSError, KeyError, TypeError, AttributeError, RecursionError):
         print("UNKNOWN: invalid lab capture binding", file=sys.stderr)
