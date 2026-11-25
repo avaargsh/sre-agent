@@ -79,7 +79,13 @@ func replayServiceEndpoints(args []string, stdout, stderr io.Writer) int {
 		"causality_verified":   false,
 		"execution_authorized": false,
 	}
-	if err := json.NewEncoder(stdout).Encode(receipt); err != nil {
+	payload, err := json.Marshal(receipt)
+	if err != nil {
+		fmt.Fprintln(stderr, "cannot encode replay receipt")
+		return 1
+	}
+	payload = append(payload, '\n')
+	if n, err := stdout.Write(payload); err != nil || n != len(payload) {
 		fmt.Fprintln(stderr, "cannot write replay receipt")
 		return 1
 	}
