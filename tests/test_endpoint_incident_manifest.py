@@ -88,3 +88,10 @@ def test_verification_rejects_forged_manifest(root):
     (root / "incident-manifest.json").write_text(json.dumps(manifest))
     rejected = invoke(root, "verify")
     assert rejected.returncode == 3 and not rejected.stdout
+
+
+def test_inventory_rejects_unlisted_artifacts(root):
+    (root / "control/unexpected-debug.log").write_text("not in the frozen evidence contract")
+    result = invoke(root)
+    assert result.returncode == 3 and not result.stdout
+    assert result.stderr.startswith(b"UNKNOWN:")
