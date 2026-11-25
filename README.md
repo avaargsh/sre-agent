@@ -77,8 +77,15 @@ identity, classification, ready endpoint count, timestamps and SHA-256
 bindings. It checks the three archived source byte digests against the
 supplied report and requires identical before/after Service bytes. It also
 parses archived Service and EndpointSliceList JSON without duplicate keys,
-checks Service kind and exact namespace/name/UID against the reported target,
-and requires an EndpointSliceList with an items array. The
+checks Service kind when present and exact namespace/name/UID against the
+reported target, and requires an EndpointSliceList with an items array.
+The native Go collector test fixture omits Service kind; that omission
+is accepted while explicit non-Service kinds are rejected.
+`slice_membership` distinguishes slices with matching Service owner UID
+from label-only slices, rejects off-scope or duplicate slice identities,
+mismatched Service owners, missing owners on built-in controller-managed
+slices, pagination and lists exceeding 128 items. These are structural
+membership checks, not a full Go Oracle replay or readiness validation. The
 `source_service_identity_matches_report` flag means internal identity agreement,
 not authenticated provenance or verified endpoint readiness. Raw source bodies
 are not printed. Invalid inputs produce exit 2 without a

@@ -24,6 +24,48 @@ def _digest(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _slice_membership(slices: dict, target: dict) -> dict:
+    """Check archived slice scope and reported owner identity, not readiness."""
+    metadata = slices.get("metadata", {})
+    if (not isinstance(metadata, dict) or metadata.get("continue", "") != ""
+            or type(metadata.get("remainingItemCount", 0)) is not int
+            or metadata.get("remainingItemCount", 0) != 0 or len(slices["items"]) > 128):
+        raise ValueError("incomplete or oversized EndpointSlice list")
+    seen_uids = set()
+    seen_names = set()
+    owner_matches = 0
+    for item in slices["items"]:
+        if not isinstance(item, dict) or not isinstance(item.get("metadata"), dict):
+            raise ValueError("invalid EndpointSlice metadata")
+        meta = item["metadata"]
+        uid, name = meta.get("uid"), meta.get("name")
+        labels = meta.get("labels")
+        if (not isinstance(uid, str) or not uid.strip() or uid in seen_uids
+                or not isinstance(name, str) or not name.strip() or len(name.encode("utf-8")) > 253
+                or name in seen_names or meta.get("namespace") != target["namespace"]
+                or not isinstance(labels, dict) or not all(isinstance(value, str) for value in labels.values())
+                or labels.get("kubernetes.io/service-name") != target["name"]):
+            raise ValueError("invalid or off-scope EndpointSlice identity")
+        seen_uids.add(uid)
+        seen_names.add(name)
+        refs = meta.get("ownerReferences", [])
+        if refs is None:
+            refs = []  # Native Go decoder permits null/absent ownerReferences.
+        if not isinstance(refs, list) or any(not isinstance(ref, dict) for ref in refs):
+            raise ValueError("invalid EndpointSlice owner references")
+        owners = [ref for ref in refs if ref.get("kind") == "Service"]
+        if len(owners) > 1 or any(
+            ref.get("apiVersion") != "v1" or ref.get("name") != target["name"]
+            or ref.get("uid") != target["uid"] for ref in owners
+        ):
+            raise ValueError("EndpointSlice Service owner identity mismatch")
+        if labels.get("endpointslice.kubernetes.io/managed-by") == "endpointslice-controller.k8s.io" and not owners:
+            raise ValueError("controller-managed EndpointSlice missing Service owner")
+        owner_matches += len(owners)
+    return {"slice_count": len(seen_uids), "service_owner_uid_matches": owner_matches,
+            "label_only": len(seen_uids) - owner_matches}
+
+
 def summarize_endpoint_capture(path: str | Path) -> dict:
     """Check byte/digest binding and display explicitly unverified claims."""
     with Path(path).open("rb") as stream:
@@ -65,7 +107,7 @@ def summarize_endpoint_capture(path: str | Path) -> dict:
         raise ValueError("Service snapshots differ")
     service = json.loads(sources["service_before"].decode("utf-8"), object_pairs_hook=_unique_object)
     slices = json.loads(sources["endpoint_slices"].decode("utf-8"), object_pairs_hook=_unique_object)
-    if not isinstance(service, dict) or service.get("kind") != "Service":
+    if not isinstance(service, dict) or service.get("kind", "Service") != "Service":
         raise ValueError("invalid archived Service kind")
     metadata = service.get("metadata")
     if not isinstance(metadata, dict) or any(metadata.get(key) != value for key, value in target.items()):
@@ -84,6 +126,7 @@ def summarize_endpoint_capture(path: str | Path) -> dict:
         "source_sha256": digests,
         "source_bytes_match_report_digests": True,
         "source_service_identity_matches_report": True,
+        "slice_membership": _slice_membership(slices, target),
         "source_authenticated": False,
         "independently_verified": False,
         "root_cause_verified": False,
