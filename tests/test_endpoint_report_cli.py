@@ -438,3 +438,49 @@ def test_readiness_assessment_abstains_without_matching_pods(tmp_path, monkeypat
     report = _coverage_report(tmp_path, monkeypatch, capsys, graph)
     assert report["topology_context"]["readiness_assessment"]["observations"] == []
     assert _coverage(report)["pod_readiness_conditions"] == "missing"
+
+
+@pytest.mark.parametrize("fault", ["uid", "namespace", "name", "service_kind", "metadata", "service_json", "duplicate_service_key", "slice_kind", "slice_items", "duplicate_slice_key"])
+def test_capture_rejects_rehashed_inconsistent_source_identity(tmp_path, monkeypatch, capsys, fault):
+    data = capture()
+    service = json.loads(base64.b64decode(data["service_before_raw"]))
+    slices = json.loads(base64.b64decode(data["endpoint_slices_raw"]))
+    if fault in ("uid", "namespace", "name"):
+        service["metadata"][fault] = "different"
+    elif fault == "service_kind":
+        service["kind"] = "Pod"
+    elif fault == "metadata":
+        service["metadata"] = []
+    elif fault == "slice_kind":
+        slices["kind"] = "PodList"
+    elif fault == "slice_items":
+        slices["items"] = {}
+    service_raw = json.dumps(service).encode()
+    slice_raw = json.dumps(slices).encode()
+    if fault == "service_json":
+        service_raw = b"not json"
+    elif fault == "duplicate_service_key":
+        service_raw = b'{"kind":"Pod",' + service_raw[1:]
+    elif fault == "duplicate_slice_key":
+        slice_raw = b'{"items":{},' + slice_raw[1:]
+    for field, raw in (("service_before", service_raw), ("service_after", service_raw), ("endpoint_slices", slice_raw)):
+        data[field + "_raw"] = base64.b64encode(raw).decode("ascii")
+        data["report"][field + "_sha256"] = hashlib.sha256(raw).hexdigest()
+    path = tmp_path / "capture.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        run_cli(path, monkeypatch)
+    out = capsys.readouterr()
+    assert exc.value.code == 2
+    assert not out.out
+    assert "invalid endpoint capture" in out.err
+
+
+def test_capture_reports_source_identity_agreement_not_authentication(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "capture.json"
+    path.write_text(json.dumps(capture()), encoding="utf-8")
+    run_cli(path, monkeypatch)
+    result = json.loads(capsys.readouterr().out)
+    assert result["source_service_identity_matches_report"] is True
+    assert result["source_authenticated"] is False
+    assert result["independently_verified"] is False
