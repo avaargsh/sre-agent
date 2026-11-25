@@ -126,17 +126,28 @@ def test_fail_on_missing_python_test_dependency(repo):
     assert receipt['checks'][0]['return_code'] != 0
 
 
-def fake_go_environment(repo, *, fail_on=None):
+def fake_go_environment(repo, *, fail_on=None, create_binary=True):
     bindir = repo.parent / 'stub-go-bin'
     bindir.mkdir(exist_ok=True)
     git_path = shutil.which('git')
     assert git_path
     (bindir / 'git').symlink_to(git_path)
+    # A successful go build must result in an executable artifact. The
+    # original fake Go compiler returned success without producing a file,
+    # which exposed the verifier's old go-run false positive.
+    built = bindir / 'standalone-sre-agent'
+    built.write_text(
+        '#!/bin/sh\n'
+        f'printf "%s|%s\\n" "$PWD" "$*" >> "{repo.parent / "binary-invocations.txt"}"\n'
+        'exit 0\n'
+    )
+    built.chmod(0o755)
     go = bindir / 'go'
     go.write_text(
         '#!/bin/sh\n'
         f'echo "$*" >> "{repo.parent / "go-invocations.txt"}"\n'
         f'if [ "$1" = "{fail_on or "NEVER"}" ]; then exit 13; fi\n'
+        f'if [ "$1" = "build" ] && [ "{"yes" if create_binary else "no"}" = "yes" ]; then /bin/cp "{built}" "$3"; /bin/chmod 755 "$3"; fi\n'
         'exit 0\n'
     )
     go.chmod(0o755)
@@ -157,10 +168,32 @@ def test_go_scope_executes_race_vet_build_and_bundle_with_logs(repo):
     assert commands[0] == 'test -race ./...'
     assert commands[1] == 'vet ./...'
     assert commands[2].startswith('build -o ')
-    assert commands[3].startswith('run ./cmd/sre-agent verify-bundle --scenario --file')
+    assert len(commands) == 3, "the built executable, not go run, must do the smoke check"
+    binary = (repo.parent / 'binary-invocations.txt').read_text().splitlines()
+    assert binary == [
+        f'{out}|verify-bundle --scenario --file '
+        f'{repo / "benchmarks/scenarios/checkout-latency.json"}'
+    ]
+    assert receipt['checks'][3]['argv'][0] == str(out / 'sre-agent')
     for x in receipt['checks']:
         log = (out / x['log_path']).read_bytes()
         assert hashlib.sha256(log).hexdigest() == x['log_sha256']
+
+
+def test_go_build_success_without_binary_must_not_pass_smoke(repo):
+    # Fake Go says build succeeded, yet emits no executable: the old
+    # 'go run' smoke incorrectly PASSed without exercising the built artifact.
+    proc, receipt, out = invoke(
+        repo, suite='go',
+        env=fake_go_environment(repo, create_binary=False),
+    )
+    assert proc.returncode != 0
+    assert receipt['status'] == 'FAIL'
+    assert [step['name'] for step in receipt['checks']] == [
+        'go-race', 'go-vet', 'go-build', 'go-bundle-contract',
+    ]
+    assert receipt['checks'][-1]['return_code'] is None
+    assert not (out / 'sre-agent').exists()
 
 
 def test_go_failure_stops_remaining_commands_without_claiming_pass(repo):
