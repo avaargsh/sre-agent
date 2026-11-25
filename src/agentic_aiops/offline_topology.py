@@ -218,6 +218,22 @@ def build_topology(snapshot: dict) -> dict:
                     follow(rs_uid, "Deployment")
         if len(included) == 1:
             unresolved.add((root["entity_id"], "no_selector_matches"))
+    # A matching workload template is only a candidate when there are no
+    # selector-matching Pods in the supplied inventory. Never add an owner edge.
+    candidates = []
+    if selector and len(included) == 1:
+        for uid, item in sorted(deployment_records.items()):
+            spec = _object(item.get("spec", {}))
+            template = _object(spec.get("template", {}))
+            metadata = _object(template.get("metadata", {}))
+            labels = _string_map(metadata.get("labels", {}))
+            if all(key in labels and labels[key] == value for key, value in selector.items()):
+                candidates.append({
+                    "entity": inventory[uid],
+                    "association": "template_labels_match",
+                    "owner_chain_resolved": False,
+                    "observation": _deployment_observation(item, uid),
+                })
     return {
         "schema_version": "offline-service-topology/v1",
         "entities": [included[uid] for uid in sorted(included)],
@@ -227,6 +243,7 @@ def build_topology(snapshot: dict) -> dict:
             _deployment_observation(deployment_records[uid], uid)
             for uid in sorted(included) if uid in deployment_records
         ],
+        "deployment_candidates": candidates,
         "pod_observations": [
             _pod_observation(pod_records[uid], uid)
             for uid in sorted(included) if uid in pod_records

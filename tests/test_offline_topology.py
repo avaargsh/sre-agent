@@ -235,3 +235,62 @@ def test_unmatched_pod_observations_are_not_included():
     data = snapshot()
     data["service"]["spec"]["selector"] = {"app": "missing"}
     assert build_topology(data)["pod_observations"] == []
+
+
+def test_zero_matching_pods_preserves_template_candidate_without_owner_claim():
+    data = snapshot()
+    data["pods"]["items"] = data["pods"]["items"][1:]
+    dep = data["deployments"]["items"][0]
+    dep["spec"] = {"replicas": 0, "template": {"metadata": {"labels": {"app": "checkout", "version": "v1"}}}}
+    dep["metadata"]["generation"] = 2
+    dep["status"] = {"observedGeneration": 2, "availableReplicas": 0}
+    result = build_topology(data)
+    assert result["edges"] == []
+    assert result["deployment_observations"] == []
+    assert result["unresolved"] == [{"entity_id": "svc", "reason": "no_selector_matches"}]
+    candidate, = result["deployment_candidates"]
+    assert candidate["entity"]["entity_id"] == "dep"
+    assert candidate["association"] == "template_labels_match"
+    assert candidate["owner_chain_resolved"] is False
+    assert candidate["observation"]["desired_replicas"] == 0
+    assert candidate["observation"]["available_replicas"] == 0
+    assert candidate["observation"]["generation_status"] == "matches"
+    assert result["independently_verified"] is False
+
+
+@pytest.mark.parametrize("selector,labels", [({}, {"app": "checkout"}), ({"app": "checkout", "tier": "api"}, {"app": "checkout"}), ({"app": "checkout"}, {"app": "other"})])
+def test_template_candidate_requires_nonempty_full_selector_match(selector, labels):
+    data = snapshot()
+    data["pods"]["items"] = []
+    data["service"]["spec"]["selector"] = selector
+    data["deployments"]["items"][0]["spec"] = {"template": {"metadata": {"labels": labels}}}
+    assert build_topology(data)["deployment_candidates"] == []
+
+
+def test_multiple_template_candidates_are_retained_without_selecting_owner():
+    data = snapshot()
+    data["pods"]["items"] = []
+    other = obj("Deployment", "checkout-other", "other-dep")
+    data["deployments"]["items"].insert(0, other)
+    for dep in data["deployments"]["items"]:
+        dep["spec"] = {"template": {"metadata": {"labels": {"app": "checkout"}}}}
+    result = build_topology(data)
+    assert [c["entity"]["entity_id"] for c in result["deployment_candidates"]] == ["dep", "other-dep"]
+    assert all(c["owner_chain_resolved"] is False for c in result["deployment_candidates"])
+    assert result["deployment_observations"] == []
+
+
+def test_matching_pod_chain_does_not_generate_template_fallback():
+    data = snapshot()
+    data["deployments"]["items"][0]["spec"] = {"template": {"metadata": {"labels": {"app": "checkout"}}}}
+    result = build_topology(data)
+    assert result["deployment_candidates"] == []
+    assert len(result["deployment_observations"]) == 1
+
+
+def test_malformed_template_label_is_not_a_candidate():
+    data = snapshot()
+    data["pods"]["items"] = []
+    data["deployments"]["items"][0]["spec"] = {"template": {"metadata": {"labels": {"app": True}}}}
+    with pytest.raises(ValueError):
+        build_topology(data)
