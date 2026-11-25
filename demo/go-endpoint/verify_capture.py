@@ -188,6 +188,8 @@ def unpack(capture, directory, uid):
     end = parse_time(report["observed_at"])
     require(previous <= end and end - collection_start <= 30_000_000_000, "invalid collection window")
     require(report["classification"] in ("READY_ENDPOINTS_OBSERVED", "NO_READY_ENDPOINTS_OBSERVED", "UNKNOWN"), "invalid classification")
+    count = report.get("ready_endpoints")
+    require(type(count) is int and 0 <= count <= 128 * 256, "invalid reported ready endpoint count")
     sources = []
     for read, (field, name, kind, version_field) in zip(reads, FIELDS):
         raw = base64.b64decode(capture[field + "_raw"], validate=True)
@@ -209,7 +211,7 @@ def unpack(capture, directory, uid):
     report_bytes = (json.dumps(report, sort_keys=True, indent=2) + "\n").encode("utf-8")
     outputs.append(("observer-report.json", report_bytes))
     publish_create_only(directory, outputs)
-    print("PASS: lab capture byte binding", report["classification"], "reported ready endpoints", report["ready_endpoints"])
+    print("PASS: lab capture byte binding", report["classification"], "reported ready endpoints", count)
 
 
 def main(argv):
