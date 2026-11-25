@@ -1,5 +1,6 @@
 """Validate the lab's offline replay receipt against frozen input and prediction."""
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -119,3 +120,34 @@ def test_verify_rejects_nonregular_or_aliased_evidence(evidence, field, kind):
     assert result.returncode == 3, result.stdout + result.stderr
     assert result.stdout == ""
     assert result.stderr.startswith("UNKNOWN:")
+
+
+@pytest.mark.parametrize("mutation", ["grow", "same_size"])
+def test_bounded_reader_rejects_file_mutated_after_initial_stat(tmp_path, monkeypatch, mutation):
+    spec = importlib.util.spec_from_file_location("endpoint_check_replay", SCRIPT)
+    checker = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(checker)
+
+    target = tmp_path / "capture.json"
+    original = b'{"capture":"stable"}'
+    target.write_bytes(original)
+    real_fstat = os.fstat
+    calls = 0
+
+    def mutate_after_first_stat(fd):
+        nonlocal calls
+        info = real_fstat(fd)
+        calls += 1
+        if calls == 1:
+            if mutation == "grow":
+                target.write_bytes(original + b" ")
+            else:
+                target.write_bytes(b"X" * len(original))
+                os.utime(target, ns=(info.st_atime_ns, info.st_mtime_ns + 2_000_000_000))
+        return info
+
+    monkeypatch.setattr(checker.os, "fstat", mutate_after_first_stat)
+    with pytest.raises(ValueError, match="changed during read"):
+        checker.read_bounded(target, 1024)
+    assert calls >= 2
