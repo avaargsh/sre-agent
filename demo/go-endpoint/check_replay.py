@@ -26,9 +26,16 @@ def read_bounded(path, limit):
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
             raise ValueError("invalid evidence file")
+        if not 0 < info.st_size <= limit:
+            raise ValueError("invalid evidence size")
         with os.fdopen(fd, "rb") as stream:
             fd = -1
             data = stream.read(limit + 1)
+            after = os.fstat(stream.fileno())
+        before_identity = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        after_identity = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+        if len(data) != info.st_size or before_identity != after_identity:
+            raise ValueError("evidence changed during read")
     finally:
         if fd >= 0:
             os.close(fd)
