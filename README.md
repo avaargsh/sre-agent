@@ -12,6 +12,48 @@ Evidence-first Agentic incident investigation and safe remediation, with a runna
 
 The current Go entrypoints accept original Alertmanager bytes, an operator-pinned cluster/namespace/deployment, and explicit read-only Kubernetes/Prometheus credentials. `plan-alert` produces an untrusted scoped candidate; `investigate-alert` collects a bounded v1 Evidence Bundle; `verify-alert-evidence` independently replays its structural linkage and returns `UNKNOWN` on mismatches. No part of this path approves an execution Permit or makes a production write.
 
+## Five-minute offline Endpoint RCA demo
+
+From a local repository checkout with Python 3.11 or later:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install .
+agentic-aiops demo-endpoint --case scale-zero
+agentic-aiops demo-endpoint --case readiness
+```
+
+No Kubernetes cluster, model API, credentials, fixture downloads, or
+external services are needed to run these two synthetic examples after
+installation. The command builds local synthetic snapshots in a temporary
+directory and uses the ordinary Endpoint RCA rendering and topology
+assessment path. It writes JSON to stdout and removes the temporary files.
+The installed command can be run from another working directory.
+
+- `scale-zero` (default): zero ready endpoints and no matching Pods, with a
+  template-matched Deployment candidate reporting desired and available
+  replicas equal to zero.
+- `readiness`: zero ready endpoints and a matching Pod with a resolved
+  Deployment owner chain, an availability shortfall and a reported False
+  Ready condition.
+
+Each output is an `endpoint-offline-demo/v1` envelope with
+`synthetic: true`, the selected case and a complete offline RCA report.
+Inspect `report.topology_context.replica_assessment`,
+`report.topology_context.readiness_assessment` and
+`report.investigation_plan` to compare the two observations. The examples
+are not authentic captures and do not constitute native Go Oracle replay,
+real fault reproduction, independent root-cause verification, or execution
+authorization. The three root-cause candidates remain unverified.
+
+For a source checkout without packaging/build dependencies, the Python
+module entry point is also available (from the repository root):
+
+```bash
+PYTHONPATH=src python -m agentic_aiops.cli demo-endpoint --case readiness
+```
+
 ## Offline evaluation quickstart
 
 From the repository root, use Python 3.11 or later:

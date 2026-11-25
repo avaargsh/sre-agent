@@ -49,7 +49,20 @@ def main() -> None:
 
     endpoint.add_argument("--topology-snapshot", help="attach a separate local Service inventory to RCA JSON")
 
+    demo = subparsers.add_parser("demo-endpoint", help="run a synthetic offline Endpoint RCA example")
+    demo.add_argument("--case", choices=("scale-zero", "readiness"), default="scale-zero")
+
     args = parser.parse_args()
+
+    if args.command == "demo-endpoint":
+        from .demo_endpoint import render_demo
+
+        try:
+            result = render_demo(args.case)
+        except (OSError, ValueError):
+            demo.error("cannot render offline demo")
+        print(json.dumps(result, indent=2, allow_nan=False))
+        return
 
     if args.command == "render-endpoint-capture":
         if args.topology_snapshot is not None and args.format != "rca-json":
