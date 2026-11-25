@@ -52,6 +52,8 @@ def test_cli_outputs_gate_metric_map(
     [
         (None, "cannot read scenario file"),
         (b"invalid JSON", "expected UTF-8 JSON"),
+        (b'{"private_dummy_marker": 1}', "invalid scenario structure"),
+        (b"[]", "invalid scenario structure"),
         (b"\xff", "expected UTF-8 JSON"),
     ],
 )
