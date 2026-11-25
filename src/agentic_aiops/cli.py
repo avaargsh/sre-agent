@@ -6,7 +6,7 @@ from dataclasses import asdict
 
 from .evaluation import evaluate_aiops
 from .release_metrics import evaluation_metric_map
-from .scenario import load_evaluation_scenario
+from .scenario import ScenarioOutcomeError, load_evaluation_scenario
 
 
 def main() -> None:
@@ -40,6 +40,8 @@ def main() -> None:
             evaluate.error(f"{path!r}: cannot read scenario file")
         except (UnicodeDecodeError, json.JSONDecodeError):
             evaluate.error(f"{path!r}: expected UTF-8 JSON")
+        except ScenarioOutcomeError as exc:
+            evaluate.error(f"{path!r}: {exc}")
     result = evaluate_aiops(
         [
             item.bundle
