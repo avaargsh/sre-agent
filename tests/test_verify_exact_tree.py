@@ -362,3 +362,15 @@ def test_test_command_can_not_hide_tracked_mutation_with_index_flag(repo, flag):
     assert receipt["post_run_tree_clean"] is False
     assert receipt["checks"][0]["return_code"] == 0
     assert "during verification" in receipt["reason"]
+
+
+def test_go_zero_exit_with_no_receipt_must_fail(repo):
+    # The built executable may return success without producing a Go result.
+    # Exit status alone is insufficient evidence for a checked contract.
+    proc, receipt, _ = invoke(repo, suite='go', env=fake_go_environment(repo))
+    assert proc.returncode != 0
+    assert receipt['status'] == 'FAIL'
+    step = receipt['checks'][-1]
+    assert step['name'] == 'go-bundle-contract'
+    assert step['return_code'] == 0
+    assert 'invalid Go bundle receipt' in step.get('error', '')
