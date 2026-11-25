@@ -6,7 +6,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .bundle import EvidenceBundle
-from .endpoint_report import render_endpoint_rca, summarize_endpoint_capture
+from .endpoint_report import attach_topology_context, render_endpoint_rca, summarize_endpoint_capture
 from .evaluation import evaluate_aiops
 from .release_metrics import evaluation_metric_map
 from .report import render_rca_json, render_rca_markdown
@@ -47,15 +47,24 @@ def main() -> None:
     endpoint.add_argument("path")
     endpoint.add_argument("--format", choices=("summary", "rca-json"), default="summary")
 
+    endpoint.add_argument("--topology-snapshot", help="attach a separate local Service inventory to RCA JSON")
+
     args = parser.parse_args()
 
     if args.command == "render-endpoint-capture":
+        if args.topology_snapshot is not None and args.format != "rca-json":
+            endpoint.error("--topology-snapshot requires --format rca-json")
         try:
             summary = summarize_endpoint_capture(args.path)
             if args.format == "rca-json":
                 summary = render_endpoint_rca(summary)
         except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError):
             endpoint.error(f"{args.path!r}: invalid endpoint capture")
+        if args.topology_snapshot is not None:
+            try:
+                summary = attach_topology_context(summary, args.topology_snapshot)
+            except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError):
+                endpoint.error("invalid or mismatched topology snapshot")
         print(json.dumps(summary, indent=2, allow_nan=False))
         return
 
