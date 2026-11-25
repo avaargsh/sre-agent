@@ -54,6 +54,37 @@ module entry point is also available (from the repository root):
 PYTHONPATH=src python -m agentic_aiops.cli demo-endpoint --case readiness
 ```
 
+### Export and replay synthetic demo inputs
+
+The default demo output is a report. To inspect the inputs or reproduce the
+report using the normal archive and topology commands, select fixture output:
+
+```bash
+agentic-aiops demo-endpoint --case readiness --format fixture > demo-fixture.json
+python - <<'PY'
+import json
+from pathlib import Path
+
+fixture = json.loads(Path("demo-fixture.json").read_text(encoding="utf-8"))
+assert fixture["schema_version"] == "endpoint-offline-fixture/v1"
+assert fixture["synthetic"] is True
+for field, filename in (("capture", "demo-capture.json"), ("topology", "demo-topology.json")):
+    # Canonical serialization preserves the demo report's exact input hashes.
+    with Path(filename).open("x", encoding="utf-8") as output:
+        output.write(json.dumps(fixture[field], sort_keys=True, separators=(",", ":")))
+PY
+agentic-aiops render-endpoint-capture demo-capture.json --format rca-json --topology-snapshot demo-topology.json
+```
+
+Use a fresh working directory: extraction refuses to overwrite existing
+files. The exported wrapper explicitly marks both inputs synthetic. Keep
+the wrapper with any extracted inputs, which are not actual Kubernetes
+API responses. The capture includes a fixed synthetic read timeline,
+expected target port and selector, resourceVersions and source digests
+using the native Go collector's report fields. This prepares fixtures for
+native replay; the Python round-trip checks do not establish that the Go
+Oracle has accepted them. Do not use demo data as live incident evidence.
+
 ### Verify an installed CLI
 
 From a repository checkout, after installation in the activated virtual environment:
