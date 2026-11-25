@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -18,6 +20,7 @@ func replayServiceEndpoints(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("replay-service-endpoints", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	path := flags.String("capture", "", "bounded native endpoint capture file")
+	pin := flags.String("sha256", "", "independently trusted lowercase archive SHA-256")
 	var target observe.ServiceTarget
 	flags.StringVar(&target.Namespace, "namespace", "", "independently selected namespace")
 	flags.StringVar(&target.Name, "service", "", "independently selected Service name")
@@ -31,6 +34,11 @@ func replayServiceEndpoints(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "invalid replay arguments")
 		return 2
 	}
+	pinBytes, err := hex.DecodeString(*pin)
+	if err != nil || len(pinBytes) != sha256.Size || strings.ToLower(*pin) != *pin {
+		fmt.Fprintln(stderr, "invalid expected archive SHA-256")
+		return 2
+	}
 	selector, err := parseExpectedSelector(*selectorText)
 	if err != nil {
 		fmt.Fprintln(stderr, "invalid expected Service selector")
@@ -39,6 +47,11 @@ func replayServiceEndpoints(args []string, stdout, stderr io.Writer) int {
 	raw, err := boundedAlertFile(*path, endpointarchive.MaxArchiveBytes)
 	if err != nil {
 		fmt.Fprintln(stderr, "UNKNOWN: capture file rejected")
+		return 3
+	}
+	sum := sha256.Sum256(raw)
+	if hex.EncodeToString(sum[:]) != *pin {
+		fmt.Fprintln(stderr, "UNKNOWN: capture archive digest mismatch")
 		return 3
 	}
 	capture, err := endpointarchive.Decode[observe.ServiceEndpointsReport](raw)
