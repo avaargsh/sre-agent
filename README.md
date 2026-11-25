@@ -181,6 +181,16 @@ partial. Missing fields are not inferred as zero or false. Probe presence,
 selector matches and reported Endpoint counts provide only partial context;
 they do not contain the full native evidence required for verification.
 
+The attached topology context also includes `replica_assessment`
+(`offline-replica-assessment/v1`). Each resolved Deployment or separate
+template candidate has a report reference and a snapshot-local comparison:
+missing counts, unknown generation, inconsistent reported counts,
+zero desired/available, zero desired with available replicas, availability
+shortfall, or desired availability met. A surplus above desired replicas
+is permitted (for example during a rollout). These classifications do not
+establish the time alignment, freshness, ownership or authenticity of the
+snapshots, service reachability or causal explanation of an incident.
+
 It does not upgrade hypothesis status, satisfy pending evidence checks,
 verify the target or authorize collection or execution. The option requires
 `--format rca-json`; default summary and standalone topology output remain
