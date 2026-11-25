@@ -145,6 +145,16 @@ and snapshot SHA-256. The reported Service namespace, name and UID must
 match exactly; missing, malformed or mismatched snapshots return exit 2
 without a partial report. This is identity agreement between supplied files,
 not source authentication or proof of a shared cluster or collection time.
+The snapshot graph also contains `deployment_observations` for Deployments
+linked through matching Pods and resolved ReplicaSet controllers. Explicit
+desired, total, ready, available and updated replica counts are preserved;
+missing fields remain null, not inferred zeros (including omitted Kubernetes
+status fields). The reported generation and observedGeneration are compared
+as matches, stale, inconsistent or unknown. A matching generation does not
+establish current cluster health. Deployments without a resolved Pod chain
+are not included, so a scaled-to-zero workload cannot be identified by this
+projection alone.
+
 It does not upgrade hypothesis status, satisfy pending evidence checks,
 verify the target or authorize collection or execution. The option requires
 `--format rca-json`; default summary and standalone topology output remain
