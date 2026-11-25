@@ -152,8 +152,15 @@ missing fields remain null, not inferred zeros (including omitted Kubernetes
 status fields). The reported generation and observedGeneration are compared
 as matches, stale, inconsistent or unknown. A matching generation does not
 establish current cluster health. Deployments without a resolved Pod chain
-are not included, so a scaled-to-zero workload cannot be identified by this
-projection alone.
+are not included in `deployment_observations`. When a nonempty Service
+selector has no matching Pods in the supplied inventory, the separate
+`deployment_candidates` list retains all Deployments whose Pod template
+labels match every selector entry. Candidate replica and generation
+observations preserve missing values and explicit zeros. Candidates have
+`owner_chain_resolved: false`; they are not added to the resolved graph,
+and no unique backend is selected. A matching template is a possible
+investigation target, not proof of Service ownership, outage, or a scale-to-zero
+root cause.
 
 `pod_observations` preserves the reported phase, Ready and PodScheduled
 conditions, regular container readiness, restart counts, current state and
