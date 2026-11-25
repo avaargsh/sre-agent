@@ -54,6 +54,15 @@ not proof of causal correctness or source authenticity. Both
 `independently_verified` and `execution_authorized` remain false.
 The default Markdown format is unchanged.
 
+The JSON report also includes `timeline` and `undated_events`. It combines
+supplied observations and change events, sorting explicit-offset timestamps
+by UTC instant with up to nine fractional digits. The original timestamps
+are retained. Missing or invalid timestamps stay in `undated_events` with
+an explicit status; equal instants retain input order (evidence before
+changes). This supports investigation but does not establish causal order,
+source authenticity or recovery. Leap seconds and timestamps without
+explicit offsets are not parsed.
+
 ## Golden Incident v0.1
 
 ```text
