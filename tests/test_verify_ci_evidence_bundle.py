@@ -238,3 +238,51 @@ def test_rehashed_invalid_go_contract_log_is_hold(fixtures, fault):
     edit(fixtures['go'], lambda d: d['checks'][3].update(
         log_sha256=hashlib.sha256(raw).hexdigest()))
     assert_hold(fixtures)
+
+
+@pytest.mark.parametrize('mutation', ['grow', 'shrink', 'same_size'])
+def test_ci_reader_rejects_mutation_after_initial_stat(tmp_path, monkeypatch, mutation):
+    import importlib.util
+    import os
+
+    spec = importlib.util.spec_from_file_location('ci_evidence_reader', SCRIPT)
+    checker = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(checker)
+    path = tmp_path / 'evidence.log'
+    original = b'original evidence\n'
+    path.write_bytes(original)
+    real_fstat = os.fstat
+    calls = 0
+
+    def mutate_after_first_stat(fd):
+        nonlocal calls
+        info = real_fstat(fd)
+        calls += 1
+        if calls == 1:
+            if mutation == 'grow':
+                path.write_bytes(original + b'changed')
+            elif mutation == 'shrink':
+                path.write_bytes(original[:-1])
+            else:
+                path.write_bytes(b'X' * len(original))
+                os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns + 2_000_000_000))
+        return info
+
+    monkeypatch.setattr(checker.os, 'fstat', mutate_after_first_stat)
+    with pytest.raises(ValueError, match='changed during read'):
+        checker.read_regular(path, 1024, 'log')
+    assert calls >= 2
+
+
+def test_ci_reader_accepts_unchanged_empty_log(tmp_path):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location('ci_evidence_reader', SCRIPT)
+    checker = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(checker)
+    path = tmp_path / 'empty.log'
+    path.touch()
+    # Successful go vet/build commands may legitimately produce no stdout.
+    assert checker.read_regular(path, 1024, 'log') == b''
