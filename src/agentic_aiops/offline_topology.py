@@ -57,6 +57,41 @@ def _controller(meta):
     return controllers[0] if controllers else None
 
 
+def _optional_count(fields, key):
+    if key not in fields:
+        return None
+    value = fields[key]
+    if type(value) is not int or value < 0:
+        raise ValueError("invalid deployment count or generation")
+    return value
+
+
+def _deployment_observation(item, uid):
+    spec = _object(item.get("spec", {}))
+    status = _object(item.get("status", {}))
+    generation = _optional_count(item["metadata"], "generation")
+    observed = _optional_count(status, "observedGeneration")
+    if generation is None or observed is None:
+        generation_status = "unknown"
+    elif observed < generation:
+        generation_status = "stale"
+    elif observed > generation:
+        generation_status = "inconsistent"
+    else:
+        generation_status = "matches"
+    return {
+        "entity_id": uid,
+        "desired_replicas": _optional_count(spec, "replicas"),
+        "replicas": _optional_count(status, "replicas"),
+        "ready_replicas": _optional_count(status, "readyReplicas"),
+        "available_replicas": _optional_count(status, "availableReplicas"),
+        "updated_replicas": _optional_count(status, "updatedReplicas"),
+        "generation": generation,
+        "observed_generation": observed,
+        "generation_status": generation_status,
+    }
+
+
 def build_topology(snapshot: dict) -> dict:
     """Resolve selector matches and exact owner identities in supplied records."""
     snapshot = _object(snapshot)
@@ -68,6 +103,7 @@ def build_topology(snapshot: dict) -> dict:
     names = {("Service", root["name"])}
     controllers = {}
     pod_labels = {}
+    deployment_records = {}
     for field, kind in (("pods", "Pod"), ("replica_sets", "ReplicaSet"), ("deployments", "Deployment")):
         listing = _object(snapshot.get(field))
         list_kind = listing.get("kind")
@@ -84,7 +120,9 @@ def build_topology(snapshot: dict) -> dict:
                 raise ValueError("duplicate object identity")
             inventory[uid] = entity
             names.add(name_key)
-            if kind != "Deployment":
+            if kind == "Deployment":
+                deployment_records[uid] = item
+            else:
                 controllers[uid] = _controller(item["metadata"])
             if kind == "Pod":
                 pod_labels[uid] = _string_map(item["metadata"].get("labels", {}))
@@ -125,6 +163,10 @@ def build_topology(snapshot: dict) -> dict:
         "entities": [included[uid] for uid in sorted(included)],
         "edges": [{"source": src, "target": dst, "relation": rel} for src, dst, rel in sorted(edges)],
         "unresolved": [{"entity_id": uid, "reason": reason} for uid, reason in sorted(unresolved)],
+        "deployment_observations": [
+            _deployment_observation(deployment_records[uid], uid)
+            for uid in sorted(included) if uid in deployment_records
+        ],
         "source_authenticated": False,
         "independently_verified": False,
         "execution_authorized": False,
