@@ -9,6 +9,8 @@ from tempfile import TemporaryDirectory
 
 from .endpoint_report import attach_topology_context, render_endpoint_rca, summarize_endpoint_capture
 
+MAX_FIXTURE_BYTES = 20 << 20
+
 
 def _object(kind, name, uid):
     return {"kind": kind, "metadata": {"namespace": "demo", "name": name, "uid": uid}}
@@ -19,7 +21,7 @@ def _owner(kind, name, uid):
 
 
 def _bytes(value):
-    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
 
 def _fixture(case):
@@ -97,9 +99,8 @@ def export_demo_fixture(case: str) -> dict:
             "case": case, "capture": capture, "topology": topology}
 
 
-def render_demo(case: str) -> dict:
+def _render_fixture(case: str, capture: dict, topology: dict) -> dict:
     """Run the ordinary offline report path against synthetic local snapshots."""
-    capture, topology = _fixture(case)
     with TemporaryDirectory(prefix="sre-endpoint-demo-") as directory:
         capture_path = Path(directory) / "capture.json"
         topology_path = Path(directory) / "topology.json"
@@ -107,3 +108,36 @@ def render_demo(case: str) -> dict:
         topology_path.write_bytes(_bytes(topology))
         report = attach_topology_context(render_endpoint_rca(summarize_endpoint_capture(capture_path)), topology_path)
     return {"schema_version": "endpoint-offline-demo/v1", "synthetic": True, "case": case, "report": report}
+
+
+def render_demo(case: str) -> dict:
+    capture, topology = _fixture(case)
+    return _render_fixture(case, capture, topology)
+
+
+def _unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate fixture JSON key")
+        result[key] = value
+    return result
+
+
+def render_exported_fixture(path: str | Path) -> dict:
+    """Render supplied synthetic inputs and bind the exact fixture file bytes."""
+    with Path(path).open("rb") as stream:
+        raw = stream.read(MAX_FIXTURE_BYTES + 1)
+    if len(raw) > MAX_FIXTURE_BYTES:
+        raise ValueError("oversized fixture")
+    fixture = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object)
+    if (not isinstance(fixture, dict)
+            or set(fixture) != {"schema_version", "synthetic", "case", "capture", "topology"}
+            or fixture["schema_version"] != "endpoint-offline-fixture/v1"
+            or fixture["synthetic"] is not True
+            or fixture["case"] not in ("scale-zero", "readiness")
+            or not isinstance(fixture["capture"], dict)
+            or not isinstance(fixture["topology"], dict)):
+        raise ValueError("invalid synthetic fixture envelope")
+    result = _render_fixture(fixture["case"], fixture["capture"], fixture["topology"])
+    return {**result, "fixture_sha256": hashlib.sha256(raw).hexdigest()}

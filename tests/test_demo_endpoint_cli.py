@@ -110,3 +110,69 @@ def test_unknown_demo_format_rejected(tmp_path):
     assert proc.returncode == 2
     assert not proc.stdout
     assert "invalid choice" in proc.stderr
+
+
+def run_fixture(tmp_path, path):
+    return subprocess.run(
+        [sys.executable, "-m", "agentic_aiops.cli", "render-endpoint-fixture", str(path)],
+        cwd=tmp_path, env=dict(os.environ, PYTHONPATH=str(SOURCE)),
+        capture_output=True, text=True, timeout=15,
+    )
+
+
+@pytest.mark.parametrize("case", ["scale-zero", "readiness"])
+def test_render_fixture_preserves_synthetic_wrapper_and_input_digest(tmp_path, case):
+    import hashlib
+
+    raw = run_demo(tmp_path, "--case", case, "--format", "fixture").stdout.encode()
+    path = tmp_path / "fixture.json"
+    path.write_bytes(raw)
+    result = run_fixture(tmp_path, path)
+    assert result.returncode == 0, result.stderr
+    assert not result.stderr
+    replayed = json.loads(result.stdout)
+    assert replayed.pop("fixture_sha256") == hashlib.sha256(raw).hexdigest()
+    assert replayed == json.loads(run_demo(tmp_path, "--case", case).stdout)
+    assert list(tmp_path.iterdir()) == [path]
+
+
+@pytest.mark.parametrize("fault", ["wrong_schema", "not_synthetic", "bad_case", "extra_field", "bad_capture", "bad_topology", "digest", "target", "duplicate", "nan"])
+def test_render_fixture_rejects_invalid_input_without_report(tmp_path, fault):
+    fixture = json.loads(run_demo(tmp_path, "--format", "fixture").stdout)
+    if fault == "wrong_schema":
+        fixture["schema_version"] = "unknown"
+    elif fault == "not_synthetic":
+        fixture["synthetic"] = 1
+    elif fault == "bad_case":
+        fixture["case"] = "unknown"
+    elif fault == "extra_field":
+        fixture["extra"] = True
+    elif fault == "bad_capture":
+        fixture["capture"] = []
+    elif fault == "bad_topology":
+        fixture["topology"] = []
+    elif fault == "digest":
+        fixture["capture"]["report"]["service_before_sha256"] = "0" * 64
+    elif fault == "target":
+        fixture["topology"]["service"]["metadata"]["uid"] = "other"
+    elif fault == "nan":
+        fixture["topology"]["service"]["metadata"]["extra"] = float("nan")
+    raw = json.dumps(fixture)
+    if fault == "duplicate":
+        raw = '{"synthetic":false,' + raw[1:]
+    path = tmp_path / "fixture.json"
+    path.write_text(raw, encoding="utf-8")
+    proc = run_fixture(tmp_path, path)
+    assert proc.returncode == 2
+    assert not proc.stdout
+    assert "invalid synthetic Endpoint fixture" in proc.stderr
+
+
+def test_render_fixture_rejects_oversized_file(tmp_path):
+    path = tmp_path / "fixture.json"
+    with path.open("wb") as stream:
+        stream.truncate(20 * 1024 * 1024 + 1)
+    proc = run_fixture(tmp_path, path)
+    assert proc.returncode == 2
+    assert not proc.stdout
+    assert "invalid synthetic Endpoint fixture" in proc.stderr

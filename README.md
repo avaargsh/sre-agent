@@ -56,8 +56,24 @@ PYTHONPATH=src python -m agentic_aiops.cli demo-endpoint --case readiness
 
 ### Export and replay synthetic demo inputs
 
-The default demo output is a report. To inspect the inputs or reproduce the
-report using the normal archive and topology commands, select fixture output:
+The default demo output is a report. Export and replay the synthetic fixture
+directly without extracting files:
+
+```bash
+agentic-aiops demo-endpoint --case readiness --format fixture > demo-fixture.json
+agentic-aiops render-endpoint-fixture demo-fixture.json
+```
+
+The replay command accepts a local regular file up to 20 MiB, validates the
+fixture wrapper and uses the existing capture and topology validators.
+The report retains the synthetic marker and adds `fixture_sha256`, the digest
+of the exact supplied file bytes. The nested input digests use canonical JSON.
+The case name is a supplied label, not an independently verified fault.
+Malformed fixtures exit with status 2 and no report. This is Python offline
+replay, not Go Oracle acceptance or real incident evidence.
+
+To inspect the inputs individually or reproduce the report using the normal
+archive and topology commands, the manual extraction path remains available:
 
 ```bash
 agentic-aiops demo-endpoint --case readiness --format fixture > demo-fixture.json
