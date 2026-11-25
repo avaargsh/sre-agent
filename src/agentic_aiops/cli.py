@@ -8,7 +8,7 @@ from pathlib import Path
 from .bundle import EvidenceBundle
 from .evaluation import evaluate_aiops
 from .release_metrics import evaluation_metric_map
-from .report import render_rca_markdown
+from .report import render_rca_json, render_rca_markdown
 from .scenario import ScenarioOutcomeError, load_evaluation_scenario
 
 
@@ -34,9 +34,10 @@ def main() -> None:
     )
 
     rca = subparsers.add_parser(
-        "render-rca", help="render a local Python evidence bundle as Markdown"
+        "render-rca", help="render a local Python evidence bundle as Markdown or JSON"
     )
     rca.add_argument("path")
+    rca.add_argument("--format", choices=("markdown", "json"), default="markdown")
     rca.add_argument("--scenario", action="store_true", help="read the bundle field of a scenario")
 
     args = parser.parse_args()
@@ -46,14 +47,20 @@ def main() -> None:
             payload = json.loads(Path(args.path).read_text(encoding="utf-8"))
             if args.scenario:
                 payload = payload["bundle"]
-            bundle = EvidenceBundle.from_dict(payload)
-            report = render_rca_markdown(bundle)
+            if args.format == "json":
+                report = render_rca_json(payload)
+            else:
+                bundle = EvidenceBundle.from_dict(payload)
+                report = render_rca_markdown(bundle)
         except OSError:
             rca.error(f"{args.path!r}: cannot read RCA input")
         except (UnicodeDecodeError, json.JSONDecodeError):
             rca.error(f"{args.path!r}: expected UTF-8 JSON")
         except (KeyError, TypeError, ValueError, AttributeError):
             rca.error(f"{args.path!r}: invalid evidence bundle")
+        if args.format == "json":
+            print(report)
+            return
         print(
             "> Offline rendering of supplied evidence and hypothesis statuses; "
             "not independent verification or execution authorization.\n\n"
