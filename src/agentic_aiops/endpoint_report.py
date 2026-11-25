@@ -153,3 +153,30 @@ def render_endpoint_rca(summary: dict) -> dict:
         "checks": checks,
     }
     return result
+
+
+def attach_topology_context(report: dict, snapshot_path: str | Path) -> dict:
+    """Attach a separate local inventory only if its Service identity agrees."""
+    from .offline_topology import load_topology_snapshot
+
+    topology = load_topology_snapshot(snapshot_path)
+    observation = report["endpoint_observation"]
+    target = observation["target"]
+    services = [item for item in topology["entities"] if item["kind"] == "Service"]
+    if len(services) != 1:
+        raise ValueError("expected one Service")
+    service = services[0]
+    if (service["entity_id"] != target["uid"] or service["name"] != target["name"]
+            or service["attributes"]["namespace"] != target["namespace"]):
+        raise ValueError("reported Service identity mismatch")
+    return {
+        **report,
+        "topology_context": {
+            "capture_sha256": observation["capture_sha256"],
+            "snapshot": topology,
+            "reported_service_identity_matches": True,
+            "independently_verified": False,
+            "collection_authorized": False,
+            "execution_authorized": False,
+        },
+    }

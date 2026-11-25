@@ -140,18 +140,23 @@ def _unique_object(pairs):
     return result
 
 
+def load_topology_snapshot(path: str | Path) -> dict:
+    """Read one bounded local snapshot and bind the graph to its exact bytes."""
+    with Path(path).open("rb") as stream:
+        raw = stream.read(MAX_SNAPSHOT_BYTES + 1)
+    if len(raw) > MAX_SNAPSHOT_BYTES:
+        raise ValueError("oversized snapshot")
+    result = build_topology(json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object))
+    result["snapshot_sha256"] = hashlib.sha256(raw).hexdigest()
+    return result
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("snapshot", help="operator-selected local JSON file")
     args = parser.parse_args(argv)
     try:
-        with Path(args.snapshot).open("rb") as stream:
-            raw = stream.read(MAX_SNAPSHOT_BYTES + 1)
-        if len(raw) > MAX_SNAPSHOT_BYTES:
-            raise ValueError("oversized snapshot")
-        result = build_topology(json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object))
-        result["snapshot_sha256"] = hashlib.sha256(raw).hexdigest()
-        rendered = json.dumps(result, indent=2, allow_nan=False)
+        rendered = json.dumps(load_topology_snapshot(args.snapshot), indent=2, allow_nan=False)
     except (OSError, ValueError, TypeError, RecursionError):
         parser.error("invalid topology snapshot")
     print(rendered)
