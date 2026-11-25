@@ -52,7 +52,7 @@ def parse_time(value):
 
 
 def open_directory_nofollow(directory):
-    """Open every path component without following a symlink."""
+    """Open a publisher-owned directory without following symlinks."""
     if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
         raise OSError("safe no-follow directory opens unavailable")
     absolute = os.path.abspath(os.fspath(directory))
@@ -69,6 +69,9 @@ def open_directory_nofollow(directory):
             )
             os.close(descriptor)
             descriptor = next_descriptor
+        identity = os.fstat(descriptor)
+        if identity.st_uid != os.geteuid() or identity.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+            raise OSError("evidence output directory must be owned and writable only by the publisher")
         return descriptor
     except Exception:
         os.close(descriptor)

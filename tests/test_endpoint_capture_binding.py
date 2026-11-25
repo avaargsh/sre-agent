@@ -173,3 +173,20 @@ def test_unpack_rejects_symlinked_output_directory(tmp_path):
 
     assert result.returncode == 3, result.stdout + result.stderr
     assert list(real_output.iterdir()) == []
+
+
+@pytest.mark.parametrize("mode", [0o770, 0o707])
+def test_unpack_rejects_output_directory_writable_by_other_users(tmp_path, mode):
+    src = tmp_path / "capture.json"
+    src.write_text(json.dumps(fixture()), encoding="utf-8")
+    output = tmp_path / "output"
+    output.mkdir()
+    output.chmod(mode)
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(src), str(output), UID],
+        capture_output=True, text=True, timeout=10,
+    )
+
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert list(output.iterdir()) == []
