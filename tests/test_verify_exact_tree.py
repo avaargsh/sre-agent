@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import shutil
+import shlex
 
 import pytest
 
@@ -126,7 +127,7 @@ def test_fail_on_missing_python_test_dependency(repo):
     assert receipt['checks'][0]['return_code'] != 0
 
 
-def fake_go_environment(repo, *, fail_on=None, create_binary=True):
+def fake_go_environment(repo, *, fail_on=None, create_binary=True, bundle_output=None):
     bindir = repo.parent / 'stub-go-bin'
     bindir.mkdir(exist_ok=True)
     git_path = shutil.which('git')
@@ -136,9 +137,14 @@ def fake_go_environment(repo, *, fail_on=None, create_binary=True):
     # original fake Go compiler returned success without producing a file,
     # which exposed the verifier's old go-run false positive.
     built = bindir / 'standalone-sre-agent'
+    receipt = (bundle_output if bundle_output is not None else json.dumps({
+        'status': 'STRUCTURALLY_VALID', 'bundle_sha256': 'a' * 64,
+        'evidence_count': 2, 'supported_hypotheses': 1,
+    }) + '\n')
     built.write_text(
         '#!/bin/sh\n'
         f'printf "%s|%s\\n" "$PWD" "$*" >> "{repo.parent / "binary-invocations.txt"}"\n'
+        f'printf %s {shlex.quote(receipt)}\n'
         'exit 0\n'
     )
     built.chmod(0o755)
@@ -367,7 +373,32 @@ def test_test_command_can_not_hide_tracked_mutation_with_index_flag(repo, flag):
 def test_go_zero_exit_with_no_receipt_must_fail(repo):
     # The built executable may return success without producing a Go result.
     # Exit status alone is insufficient evidence for a checked contract.
-    proc, receipt, _ = invoke(repo, suite='go', env=fake_go_environment(repo))
+    proc, receipt, _ = invoke(repo, suite='go', env=fake_go_environment(repo, bundle_output=''))
+    assert proc.returncode != 0
+    assert receipt['status'] == 'FAIL'
+    step = receipt['checks'][-1]
+    assert step['name'] == 'go-bundle-contract'
+    assert step['return_code'] == 0
+    assert 'invalid Go bundle receipt' in step.get('error', '')
+
+
+@pytest.mark.parametrize("fault", ["wrong_status", "bool_count", "missing_digest", "duplicate", "trailing"])
+def test_go_zero_exit_with_invalid_receipt_must_fail(repo, fault):
+    payload = {'status': 'STRUCTURALLY_VALID', 'bundle_sha256': 'a' * 64,
+               'evidence_count': 2, 'supported_hypotheses': 1}
+    if fault == "wrong_status":
+        payload["status"] = "INVALID"
+    elif fault == "bool_count":
+        payload["evidence_count"] = True
+    elif fault == "missing_digest":
+        payload["bundle_sha256"] = "a" * 63
+    raw = json.dumps(payload) + "\n"
+    if fault == "duplicate":
+        raw = '{"status":"STRUCTURALLY_VALID",' + raw[1:]
+    elif fault == "trailing":
+        raw += "{}\n"
+    proc, receipt, _ = invoke(repo, suite='go',
+                              env=fake_go_environment(repo, bundle_output=raw))
     assert proc.returncode != 0
     assert receipt['status'] == 'FAIL'
     step = receipt['checks'][-1]

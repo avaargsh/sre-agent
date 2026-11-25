@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -52,6 +53,37 @@ def file_sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+
+def validate_go_bundle_log(path: Path) -> None:
+    """Reject a successful Go process without its pinned JSON contract receipt."""
+    raw = path.read_bytes()
+    if not 0 < len(raw) <= 4096:
+        raise ValueError("missing or oversized Go bundle receipt")
+
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate Go bundle receipt field")
+            result[key] = value
+        return result
+
+    def reject_constant(_):
+        raise ValueError("nonfinite Go bundle receipt number")
+
+    result = json.loads(raw, object_pairs_hook=unique_object, parse_constant=reject_constant)
+    if (type(result) is not dict or set(result) != {
+            "status", "bundle_sha256", "evidence_count", "supported_hypotheses"}
+            or result["status"] != "STRUCTURALLY_VALID"
+            or type(result["bundle_sha256"]) is not str
+            or re.fullmatch(r"[0-9a-f]{64}", result["bundle_sha256"]) is None
+            or type(result["evidence_count"]) is not int
+            or result["evidence_count"] != 2
+            or type(result["supported_hypotheses"]) is not int
+            or result["supported_hypotheses"] != 1):
+        raise ValueError("invalid Go bundle receipt shape or fixture results")
 
 
 def record_command(name: str, argv: list[str], repo: Path,
@@ -147,8 +179,13 @@ def verify(args: argparse.Namespace) -> int:
         for name, argv in commands:
             receipt = record_command(name, argv, repo, out_dir, args.timeout_seconds,
                                      cwd=out_dir if name == "go-bundle-contract" else repo)
+            if name == "go-bundle-contract" and receipt["return_code"] == 0:
+                try:
+                    validate_go_bundle_log(out_dir / "go-bundle-contract.log")
+                except (OSError, ValueError, UnicodeError) as exc:
+                    receipt["error"] = f"invalid Go bundle receipt: {exc}"
             result["checks"].append(receipt)
-            if receipt["return_code"] != 0:
+            if receipt["return_code"] != 0 or "error" in receipt:
                 result["status"] = "FAIL"
                 result["reason"] = f"{name} failed, timed out or could not start"
                 code = 1
