@@ -55,7 +55,7 @@ def file_sha256(path: Path) -> str:
 
 
 def record_command(name: str, argv: list[str], repo: Path,
-                   out_dir: Path, timeout: int) -> dict[str, object]:
+                   out_dir: Path, timeout: int, *, cwd: Path | None = None) -> dict[str, object]:
     log_name = f"{name}.log"
     log_file = out_dir / log_name
     start = time.monotonic()
@@ -73,7 +73,7 @@ def record_command(name: str, argv: list[str], repo: Path,
             descriptor = -1
             try:
                 result = subprocess.run(
-                    argv, cwd=repo, stdout=stream, stderr=subprocess.STDOUT,
+                    argv, cwd=cwd if cwd is not None else repo, stdout=stream, stderr=subprocess.STDOUT,
                     check=False, timeout=timeout,
                 )
                 return_code = result.returncode
@@ -142,10 +142,11 @@ def verify(args: argparse.Namespace) -> int:
                 ("go-race", ["go", "test", "-race", "./..."]),
                 ("go-vet", ["go", "vet", "./..."]),
                 ("go-build", ["go", "build", "-o", str(out_dir / "sre-agent"), "./cmd/sre-agent"]),
-                ("go-bundle-contract", ["go", "run", "./cmd/sre-agent", "verify-bundle", "--scenario", "--file", "benchmarks/scenarios/checkout-latency.json"]),
+                ("go-bundle-contract", [str(out_dir / "sre-agent"), "verify-bundle", "--scenario", "--file", str(repo / "benchmarks/scenarios/checkout-latency.json")]),
             ]
         for name, argv in commands:
-            receipt = record_command(name, argv, repo, out_dir, args.timeout_seconds)
+            receipt = record_command(name, argv, repo, out_dir, args.timeout_seconds,
+                                     cwd=out_dir if name == "go-bundle-contract" else repo)
             result["checks"].append(receipt)
             if receipt["return_code"] != 0:
                 result["status"] = "FAIL"

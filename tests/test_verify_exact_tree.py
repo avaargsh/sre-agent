@@ -168,7 +168,13 @@ def test_go_scope_executes_race_vet_build_and_bundle_with_logs(repo):
     assert commands[0] == 'test -race ./...'
     assert commands[1] == 'vet ./...'
     assert commands[2].startswith('build -o ')
-    assert commands[3].startswith('run ./cmd/sre-agent verify-bundle --scenario --file')
+    assert len(commands) == 3, "the built executable, not go run, must do the smoke check"
+    binary = (repo.parent / 'binary-invocations.txt').read_text().splitlines()
+    assert binary == [
+        f'{out}|verify-bundle --scenario --file '
+        f'{repo / "benchmarks/scenarios/checkout-latency.json"}'
+    ]
+    assert receipt['checks'][3]['argv'][0] == str(out / 'sre-agent')
     for x in receipt['checks']:
         log = (out / x['log_path']).read_bytes()
         assert hashlib.sha256(log).hexdigest() == x['log_sha256']
