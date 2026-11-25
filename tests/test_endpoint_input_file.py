@@ -55,3 +55,19 @@ def test_rejects_invalid_bound(tmp_path):
     path.write_bytes(b"{}")
     with pytest.raises(ValueError):
         read_bounded_input(path, 0)
+
+
+def test_rejects_growth_after_initial_size_check(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    path = tmp_path / "evidence.json"
+    path.write_bytes(b"12345")
+    real_fstat = os.fstat
+
+    def stale_size(fd):
+        info = real_fstat(fd)
+        return SimpleNamespace(st_mode=info.st_mode, st_size=1)
+
+    monkeypatch.setattr(os, "fstat", stale_size)
+    with pytest.raises(ValueError):
+        read_bounded_input(path, 4)
