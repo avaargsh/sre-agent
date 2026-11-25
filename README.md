@@ -155,6 +155,15 @@ establish current cluster health. Deployments without a resolved Pod chain
 are not included, so a scaled-to-zero workload cannot be identified by this
 projection alone.
 
+`pod_observations` preserves the reported phase, Ready and PodScheduled
+conditions, regular container readiness, restart counts, current state and
+reason, and whether each declared regular container has a readiness probe.
+Missing fields are null rather than inferred false or zero; explicitly
+empty lists remain empty. Only selector-matching Pods are included. Probe
+parameters, environment variables and raw container messages are not emitted.
+Init/ephemeral containers and actual probe results are not evaluated.
+These are reported snapshot fields, not evidence of current health.
+
 It does not upgrade hypothesis status, satisfy pending evidence checks,
 verify the target or authorize collection or execution. The option requires
 `--format rca-json`; default summary and standalone topology output remain
