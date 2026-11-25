@@ -431,3 +431,68 @@ def test_pinned_checkout_digest_matches_committed_fixture():
     canonical = json.dumps(bundle, sort_keys=True, separators=(",", ":"),
                            ensure_ascii=False, allow_nan=False).encode("utf-8")
     assert hashlib.sha256(canonical).hexdigest() == "0e252e0f661ee568ddb02a27db3785c225a1b0386e0d697930c03e10298d5ad3"
+
+
+@pytest.mark.parametrize("kind", ["file", "symlink", "dangling", "directory"])
+def test_go_existing_binary_path_blocks_any_ci_commands(repo, kind):
+    # A stale successful executable could mask a fake/no-op go build.
+    output = repo.parent / "evidence"
+    output.mkdir()
+    artifact = output / "sre-agent"
+    if kind == "file":
+        artifact.write_bytes(b"preserve previous build")
+    elif kind == "directory":
+        artifact.mkdir()
+    else:
+        target = repo.parent / ("old-binary" if kind == "symlink" else "missing-binary")
+        if kind == "symlink":
+            target.write_bytes(b"old data")
+        artifact.symlink_to(target)
+    proc, receipt, _ = invoke(
+        repo, suite="go", env=fake_go_environment(repo, create_binary=False))
+    assert proc.returncode != 0
+    assert receipt["status"] == "HOLD"
+    assert receipt["checks"] == []
+    assert "already exists" in receipt["reason"]
+    assert not (repo.parent / "go-invocations.txt").exists()
+    assert os.path.lexists(artifact)
+    if kind == "file":
+        assert artifact.read_bytes() == b"preserve previous build"
+
+
+@pytest.mark.parametrize("kind", ["empty", "not_executable", "symlink", "directory"])
+def test_go_zero_exit_must_emit_regular_executable(repo, kind):
+    env = fake_go_environment(repo)
+    go_path = repo.parent / "stub-go-bin" / "go"
+    original = go_path.read_text()
+    build_line = next(line for line in original.splitlines() if
+                      'if [ "$1" = "build" ]' in line)
+    commands = {
+        "empty": ': > "$3"',
+        "not_executable": 'printf nonexecutable > "$3"',
+        "symlink": '/bin/ln -s "$PWD/demo.txt" "$3"',
+        "directory": '/bin/mkdir "$3"',
+    }
+    go_path.write_text(original.replace(
+        build_line,
+        f'if [ "$1" = "build" ]; then {commands[kind]}; fi'
+    ))
+    proc, receipt, out = invoke(repo, suite="go", env=env)
+    assert proc.returncode != 0
+    assert receipt["status"] == "FAIL"
+    assert [item["name"] for item in receipt["checks"]] == [
+        "go-race", "go-vet", "go-build"]
+    build = receipt["checks"][-1]
+    assert build["return_code"] == 0
+    assert "invalid Go build output" in build.get("error", "")
+    assert not (repo.parent / "binary-invocations.txt").exists()
+
+
+def test_go_regular_executable_gate_preserves_bundle_contract_smoke(repo):
+    proc, receipt, out = invoke(repo, suite="go", env=fake_go_environment(repo))
+    assert proc.returncode == 0, proc.stderr
+    assert receipt["status"] == "PASS"
+    assert (out / "sre-agent").is_file()
+    assert os.stat(out / "sre-agent").st_mode & 0o111
+    assert receipt["checks"][-1]["name"] == "go-bundle-contract"
+    assert receipt["checks"][-1]["return_code"] == 0
