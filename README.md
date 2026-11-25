@@ -85,6 +85,22 @@ authenticate a source, validate the reported endpoint count or timestamps,
 prove a root cause, or authorize execution. The four authority flags remain
 false. See [Go Endpoint observation](docs/go-endpoint-oracle.md).
 
+For a structured RCA projection of the same archive, use:
+
+```bash
+agentic-aiops render-endpoint-capture /secure/path/service-endpoints-capture.json --format rca-json
+```
+
+This reuses `rca-report/v1`, attaches the original observation summary and
+capture digest, and places the reported observation on the incident timeline.
+Severity is unknown. Only a reported zero-ready observation with count zero
+produces three explicitly unverified hypotheses (replica availability,
+readiness, and Service selection or EndpointSlice reconciliation). Other
+observations, including inconsistent classification/count pairs, produce
+no hypotheses. No new source authentication, independent verification,
+causality, or execution authority is asserted. The default summary output
+is unchanged.
+
 ## Golden Incident v0.1
 
 ```text
