@@ -16,7 +16,14 @@ class EvaluationScenario:
 
 
 class ScenarioOutcomeError(ValueError):
-    """An outcome flag is missing or has the wrong JSON type."""
+    """An outcome field is missing or has the wrong JSON type."""
+
+
+def _tool_names(outcome_data: dict, field: str) -> tuple[str, ...]:
+    values = outcome_data.get(field, [])
+    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+        raise ScenarioOutcomeError(f"outcome.{field} must be a JSON array of strings")
+    return tuple(values)
 
 
 def load_evaluation_scenario(
@@ -54,17 +61,7 @@ def load_evaluation_scenario(
             ),
             recovery_required=outcome_data["recovery_required"],
             recovered=recovered,
-            tool_calls=tuple(
-                outcome_data.get(
-                    "tool_calls",
-                    [],
-                )
-            ),
-            required_tools=tuple(
-                outcome_data.get(
-                    "required_tools",
-                    [],
-                )
-            ),
+            tool_calls=_tool_names(outcome_data, "tool_calls"),
+            required_tools=_tool_names(outcome_data, "required_tools"),
         ),
     )
