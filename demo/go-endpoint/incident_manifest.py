@@ -44,11 +44,20 @@ def build(root):
     for scenario, names in (("control", COMMON), ("no-ready", COMMON + FAULT)):
         directory = os.open(scenario, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root)
         try:
+            expected_names = set(names)
+            before = os.fstat(directory)
+            if set(os.listdir(directory)) != expected_names:
+                raise ValueError("unexpected or missing artifact in scenario directory")
             for name in sorted(names):
                 raw = read_file(directory, name)
                 artifacts.append({"path": f"{scenario}/{name}",
                                   "sha256": hashlib.sha256(raw).hexdigest(),
                                   "size_bytes": len(raw)})
+            after = os.fstat(directory)
+            before_identity = (before.st_dev, before.st_ino, before.st_mtime_ns, before.st_ctime_ns)
+            after_identity = (after.st_dev, after.st_ino, after.st_mtime_ns, after.st_ctime_ns)
+            if before_identity != after_identity or set(os.listdir(directory)) != expected_names:
+                raise ValueError("scenario artifact directory changed during inventory")
         finally:
             os.close(directory)
     manifest = {"schema_version": "sre.endpoint-lab-manifest/v1", "artifacts": artifacts,
