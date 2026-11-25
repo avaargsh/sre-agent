@@ -310,6 +310,13 @@ Kind proof or a production release approval.
 ### Incident evidence inventory
 
 After the control, fault, negative-input and recovery gates complete, the
+The disposable Kind harness requires `/tmp/go-endpoint-proof` to be
+**absent at startup**. It creates private (0700) proof and scenario directories
+once, before any Kubernetes mutation, and rejects a pre-existing directory,
+file or symlink rather than merging runs or overwriting prior evidence.
+Preserve or relocate the previous proof before retrying in a fresh disposable
+lab; the script never deletes previous incident evidence.
+
 Kind harness writes a create-only `incident-manifest.json` in the proof
 root. The versioned `sre.endpoint-lab-manifest/v1` inventory records 46
 required files (the three phases in both scenarios, observer archive and
