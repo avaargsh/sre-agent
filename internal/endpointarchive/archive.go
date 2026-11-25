@@ -30,7 +30,9 @@ type Capture[R any] struct {
 }
 
 // Decode requires a bounded v1 capture envelope and canonical base64 source
-// bodies. It rejects unknown report fields and noncanonical field names.
+// bodies. Reports must be plain structs with explicit JSON field tags. Required
+// fields must be present, and explicit null values are rejected throughout.
+// Unknown report fields and noncanonical field names are rejected.
 // The caller must independently select the expected identity/configuration
 // and run the native Oracle on the returned report and source bytes.
 func Decode[R any](raw []byte) (Capture[R], error) {
@@ -54,7 +56,8 @@ func Decode[R any](raw []byte) (Capture[R], error) {
 	}
 	var result Capture[R]
 	report := bytes.TrimSpace(fields["report"])
-	if len(report) == 0 || report[0] != '{' || sourcejson.ValidateCanonicalFields(report, &result.Report) != nil {
+	if len(report) == 0 || report[0] != '{' || sourcejson.ValidateCanonicalFields(report, &result.Report) != nil ||
+		validateReportShape(report, reflect.TypeFor[R]()) != nil {
 		return zero, fmt.Errorf("invalid capture report fields")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(report))

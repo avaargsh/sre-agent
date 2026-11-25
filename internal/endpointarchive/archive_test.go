@@ -120,3 +120,73 @@ func TestDecodeSourceSizeBoundary(t *testing.T) {
 		t.Fatal("valid maximum size source rejected")
 	}
 }
+
+type requiredReport struct {
+	Ready  int               `json:"ready"`
+	Auth   bool              `json:"auth"`
+	Target requiredTarget    `json:"target"`
+	Reads  []requiredTarget  `json:"reads"`
+	Labels map[string]string `json:"labels"`
+}
+
+type requiredTarget struct {
+	UID   string `json:"uid"`
+	Extra string `json:"extra,omitempty"`
+}
+
+func TestDecodeRejectsMissingOrNullReportFields(t *testing.T) {
+	good := func() map[string]any {
+		return map[string]any{"ready": 0, "auth": false, "target": map[string]any{"uid": "u"}, "reads": []any{map[string]any{"uid": "u"}}, "labels": map[string]any{"app": "x"}}
+	}
+	for _, key := range []string{"ready", "auth", "target", "reads", "labels"} {
+		for _, missing := range []bool{true, false} {
+			name := key + "/null"
+			if missing {
+				name = key + "/missing"
+			}
+			t.Run(name, func(t *testing.T) {
+				fields := good()
+				if missing {
+					delete(fields, key)
+				} else {
+					fields[key] = nil
+				}
+				if _, err := Decode[requiredReport](archive(t, map[string]any{"report": fields})); err == nil {
+					t.Fatal("missing or null report field accepted")
+				}
+			})
+		}
+	}
+	for name, changes := range map[string]any{
+		"missing nested uid":  map[string]any{},
+		"null nested uid":     map[string]any{"uid": nil},
+		"null optional field": map[string]any{"uid": "u", "extra": nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fields := good()
+			fields["target"] = changes
+			if _, err := Decode[requiredReport](archive(t, map[string]any{"report": fields})); err == nil {
+				t.Fatal("invalid nested field accepted")
+			}
+		})
+	}
+	for name, changes := range map[string]any{"null item": []any{nil}, "missing item uid": []any{map[string]any{}}} {
+		t.Run(name, func(t *testing.T) {
+			fields := good()
+			fields["reads"] = changes
+			if _, err := Decode[requiredReport](archive(t, map[string]any{"report": fields})); err == nil {
+				t.Fatal("invalid array item accepted")
+			}
+		})
+	}
+	t.Run("null map value", func(t *testing.T) {
+		fields := good()
+		fields["labels"] = map[string]any{"app": nil}
+		if _, err := Decode[requiredReport](archive(t, map[string]any{"report": fields})); err == nil {
+			t.Fatal("null map value accepted")
+		}
+	})
+	if got, err := Decode[requiredReport](archive(t, map[string]any{"report": good()})); err != nil || got.Report.Ready != 0 || got.Report.Auth {
+		t.Fatalf("explicit zero and false must remain valid: %v", err)
+	}
+}
