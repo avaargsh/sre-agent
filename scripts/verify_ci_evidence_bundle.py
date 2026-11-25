@@ -27,7 +27,7 @@ SCOPES = (
     ("go", "go", "3.12", "go"),
 )
 GO_NAMES = ["go-race", "go-vet", "go-build", "go-bundle-contract"]
-GO_RUN = ["go", "run", "./cmd/sre-agent", "verify-bundle", "--scenario", "--file", "benchmarks/scenarios/checkout-latency.json"]
+GO_SCENARIO = ("benchmarks", "scenarios", "checkout-latency.json")
 
 
 def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -84,7 +84,12 @@ def valid_command(scope: str, name: str, argv: Any) -> bool:
     if name == "go-build":
         return len(argv) == 5 and argv[:3] == ["go", "build", "-o"] and argv[4] == "./cmd/sre-agent" and Path(argv[3]).is_absolute() and Path(argv[3]).name == "sre-agent"
     if name == "go-bundle-contract":
-        return argv == GO_RUN
+        return (len(argv) == 5 and Path(argv[0]).is_absolute()
+                and Path(argv[0]).name == "sre-agent"
+                and argv[1:4] == ["verify-bundle", "--scenario", "--file"]
+                and Path(argv[4]).is_absolute()
+                and Path(argv[4]).parts[-3:] == GO_SCENARIO
+                and ".." not in Path(argv[4]).parts)
     return False
 
 
@@ -119,10 +124,14 @@ def check_scope(folder: Path, label: str, scope: str, python_version: str,
                f"{label}: wrong step order/name")
         ensure(type(step.get("return_code")) is int and step["return_code"] == 0,
                f"{label}: {name} did not exit successfully")
+        ensure("error" not in step, f"{label}: {name} contains an error")
         ensure(type(step.get("duration_ms")) is int and step["duration_ms"] >= 0,
                f"{label}: invalid duration for {name}")
         ensure(valid_command(scope, name, step.get("argv")),
                f"{label}: expected command not executed for {name}")
+        if name == "go-bundle-contract":
+            ensure(step["argv"][0] == checks[2]["argv"][3],
+                   f"{label}: smoke did not execute the recorded build output")
         digest = step.get("log_sha256")
         ensure(type(digest) is str and DIGEST.fullmatch(digest) is not None,
                f"{label}: invalid {name} log digest")
