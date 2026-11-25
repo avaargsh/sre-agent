@@ -75,8 +75,13 @@ agentic-aiops render-endpoint-capture /secure/path/service-endpoints-capture.jso
 The JSON `endpoint-observation-summary/v1` includes the reported Service
 identity, classification, ready endpoint count, timestamps and SHA-256
 bindings. It checks the three archived source byte digests against the
-supplied report and requires identical before/after Service bytes. Raw
-source bodies are not printed. Invalid inputs produce exit 2 without a
+supplied report and requires identical before/after Service bytes. It also
+parses archived Service and EndpointSliceList JSON without duplicate keys,
+checks Service kind and exact namespace/name/UID against the reported target,
+and requires an EndpointSliceList with an items array. The
+`source_service_identity_matches_report` flag means internal identity agreement,
+not authenticated provenance or verified endpoint readiness. Raw source bodies
+are not printed. Invalid inputs produce exit 2 without a
 partial summary. Use an operator-selected regular file.
 
 This is a display of reported observations, not a Go Oracle replay or
