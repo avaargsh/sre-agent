@@ -196,3 +196,37 @@ func TestNativeServiceEndpointReplayCLI(t *testing.T) {
 	}
 }
 
+
+// Replay the two checked-in captures exported by the Python demo generator.
+// These are synthetic fixtures, not authenticated Kubernetes observations.
+func TestNativeServiceEndpointReplaySyntheticFixtures(t *testing.T) {
+	for _, name := range []string{"scale-zero", "readiness"} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join("testdata", "synthetic-endpoint-replay", name+".json")
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pin := fmt.Sprintf("%x", sha256.Sum256(raw))
+			args := []string{"replay-service-endpoints", "--capture", path, "--namespace", "demo", "--service", "checkout", "--uid", "demo-service", "--expected-target-port", "8080", "--expected-selector", "app=checkout", "--sha256", pin}
+			var stdout, stderr bytes.Buffer
+			if code := run(args, &stdout, &stderr); code != 0 {
+				t.Fatalf("synthetic replay exit=%d stderr=%s", code, stderr.String())
+			}
+			var receipt map[string]any
+			if err := json.Unmarshal(stdout.Bytes(), &receipt); err != nil {
+				t.Fatal(err)
+			}
+			if receipt["schema_version"] != "sre.service-endpoints-replay/v1" ||
+				receipt["status"] != "REPLAYED" ||
+				receipt["archive_sha256"] != pin ||
+				receipt["classification"] != "NO_READY_ENDPOINTS_OBSERVED" ||
+				receipt["ready_endpoints"] != float64(0) ||
+				receipt["source_authenticated"] != false ||
+				receipt["causality_verified"] != false ||
+				receipt["execution_authorized"] != false {
+				t.Fatalf("unexpected synthetic replay receipt: %s", stdout.String())
+			}
+		})
+	}
+}
