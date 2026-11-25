@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 import time
@@ -59,6 +60,23 @@ def file_sha256(path: Path) -> str:
 # Pinned synthetic checkout fixture digest, also tested in
 # internal/evidence/bundle_test.go. Rotate together with that fixture.
 CHECKOUT_BUNDLE_SHA256 = "0e252e0f661ee568ddb02a27db3785c225a1b0386e0d697930c03e10298d5ad3"
+
+
+def check_before_go_build(out_dir: Path) -> None:
+    """Refuse all pre-existing output paths, including dangling symlinks."""
+    try:
+        os.lstat(out_dir / "sre-agent")
+    except FileNotFoundError:
+        return
+    raise ValueError("Go binary output path already exists; refusing stale build")
+
+
+def check_after_go_build(path: Path) -> None:
+    """Only a newly emitted, nonempty, executable regular file may be tested."""
+    info = os.lstat(path)
+    if (not stat.S_ISREG(info.st_mode) or info.st_size == 0
+            or not (info.st_mode & 0o111)):
+        raise ValueError("Go build output must be a nonempty executable regular file")
 
 
 def validate_go_bundle_log(path: Path) -> None:
@@ -176,6 +194,7 @@ def verify(args: argparse.Namespace) -> int:
         if args.scope == "python":
             commands = [("python-pytest", [sys.executable, "-m", "pytest", "-q"])]
         else:
+            check_before_go_build(out_dir)
             commands = [
                 ("go-race", ["go", "test", "-race", "./..."]),
                 ("go-vet", ["go", "vet", "./..."]),
@@ -185,6 +204,11 @@ def verify(args: argparse.Namespace) -> int:
         for name, argv in commands:
             receipt = record_command(name, argv, repo, out_dir, args.timeout_seconds,
                                      cwd=out_dir if name == "go-bundle-contract" else repo)
+            if name == "go-build" and receipt["return_code"] == 0:
+                try:
+                    check_after_go_build(out_dir / "sre-agent")
+                except (OSError, ValueError) as exc:
+                    receipt["error"] = f"invalid Go build output: {exc}"
             if name == "go-bundle-contract" and receipt["return_code"] == 0:
                 try:
                     validate_go_bundle_log(out_dir / "go-bundle-contract.log")
