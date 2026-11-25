@@ -6,6 +6,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .bundle import EvidenceBundle
+from .endpoint_report import summarize_endpoint_capture
 from .evaluation import evaluate_aiops
 from .release_metrics import evaluation_metric_map
 from .report import render_rca_json, render_rca_markdown
@@ -40,7 +41,20 @@ def main() -> None:
     rca.add_argument("--format", choices=("markdown", "json"), default="markdown")
     rca.add_argument("--scenario", action="store_true", help="read the bundle field of a scenario")
 
+    endpoint = subparsers.add_parser(
+        "render-endpoint-capture", help="display an archived Go Endpoint observation"
+    )
+    endpoint.add_argument("path")
+
     args = parser.parse_args()
+
+    if args.command == "render-endpoint-capture":
+        try:
+            summary = summarize_endpoint_capture(args.path)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError):
+            endpoint.error(f"{args.path!r}: invalid endpoint capture")
+        print(json.dumps(summary, indent=2, allow_nan=False))
+        return
 
     if args.command == "render-rca":
         try:
