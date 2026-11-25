@@ -6,6 +6,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from .endpoint_input import read_bounded_input
+
 MAX_SNAPSHOT_BYTES = 8 << 20
 
 
@@ -166,7 +168,11 @@ def build_topology(snapshot: dict) -> dict:
     for field, kind in (("pods", "Pod"), ("replica_sets", "ReplicaSet"), ("deployments", "Deployment")):
         listing = _object(snapshot.get(field))
         list_kind = listing.get("kind")
-        if list_kind not in (kind + "List", "List") or _object(listing.get("metadata", {})).get("continue", "") != "":
+        metadata = _object(listing.get("metadata", {}))
+        remaining = metadata.get("remainingItemCount", 0)
+        if (list_kind not in (kind + "List", "List")
+                or metadata.get("continue", "") != ""
+                or type(remaining) is not int or remaining != 0):
             raise ValueError("invalid or paginated inventory")
         items = listing.get("items")
         if not isinstance(items, list):
@@ -265,10 +271,7 @@ def _unique_object(pairs):
 
 def load_topology_snapshot(path: str | Path) -> dict:
     """Read one bounded local snapshot and bind the graph to its exact bytes."""
-    with Path(path).open("rb") as stream:
-        raw = stream.read(MAX_SNAPSHOT_BYTES + 1)
-    if len(raw) > MAX_SNAPSHOT_BYTES:
-        raise ValueError("oversized snapshot")
+    raw = read_bounded_input(path, MAX_SNAPSHOT_BYTES)
     result = build_topology(json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object))
     result["snapshot_sha256"] = hashlib.sha256(raw).hexdigest()
     return result

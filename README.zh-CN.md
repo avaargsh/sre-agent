@@ -20,6 +20,42 @@
 
 核心边界刻意设定为：**模型提出；确定性策略授权；Temporal 拥有持久生命周期；执行器执行有界写入；可观测性验证事件是否真的恢复。**
 
+## 五分钟离线 Endpoint RCA 演示
+
+这是独立的只读离线体验，无需 Kubernetes、Docker、模型 API、凭据或其他仓库。
+在 Linux/macOS（或 WSL）中准备 Python 3.11 及以上版本，从仓库根目录安装：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install .
+agentic-aiops demo-endpoint --case scale-zero
+agentic-aiops demo-endpoint --case readiness
+```
+
+两个示例均使用合成数据：前者演示副本数为零，后者演示 Pod 未就绪。
+报告中的三个 RCA 假设仍需独立证据，不能作为实际根因或执行授权。
+
+在新建的工作目录中导出并回放：
+
+```bash
+agentic-aiops demo-endpoint --case readiness --format fixture > demo-fixture.json
+agentic-aiops render-endpoint-fixture demo-fixture.json
+```
+
+回放输出包含 `fixture_sha256`、`synthetic: true` 和 RCA 报告。
+从仓库根目录可检查已安装的命令：
+
+```bash
+python scripts/verify_installed_endpoint.py --cli "$(command -v agentic-aiops)"
+```
+
+离线文件入口（fixture、capture、topology）只接受有界普通文件，
+拒绝最终路径为符号链接、FIFO、目录或超限文件的输入。请使用可信父目录
+和真实文件路径；平台不支持安全的 no-follow/nonblocking 打开时拒绝读取。
+这不是来源认证或不可变保管证明。完整英文说明见 [README](README.md)，
+原生 Go 回放见 [Endpoint Oracle](docs/go-endpoint-oracle.md)。
+
 ## Golden Incident v0.1
 
 首个可运行的垂直切片演示 `checkout-api` 服务延迟超 SLO 的完整处置流程：

@@ -6,6 +6,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from .endpoint_input import read_bounded_input
+
 MAX_CAPTURE_BYTES = 10 << 20
 MAX_SOURCE_BYTES = 2 << 20
 _SOURCE_FIELDS = ("service_before", "endpoint_slices", "service_after")
@@ -68,10 +70,7 @@ def _slice_membership(slices: dict, target: dict) -> dict:
 
 def summarize_endpoint_capture(path: str | Path) -> dict:
     """Check byte/digest binding and display explicitly unverified claims."""
-    with Path(path).open("rb") as stream:
-        raw = stream.read(MAX_CAPTURE_BYTES + 1)
-    if len(raw) > MAX_CAPTURE_BYTES:
-        raise ValueError("oversized capture")
+    raw = read_bounded_input(path, MAX_CAPTURE_BYTES)
     capture = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object)
     report = capture["report"]
     if (capture["schema_version"] != "sre.service-endpoints-capture/v1"
