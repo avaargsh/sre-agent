@@ -44,3 +44,13 @@ jobs:
           name: sre-exact-python-${{ matrix.python-version }}-${{ github.sha }}
           path: ${{ runner.temp }}/sre-exact-python-${{ matrix.python-version }}/
           if-no-files-found: warn
+      - name: Build and smoke-test a non-editable wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d "$RUNNER_TEMP/endpoint-wheel.XXXXXX")"
+          trap 'rm -rf "$work"' EXIT
+          python -m pip wheel --no-deps --wheel-dir "$work/dist" .
+          python -m venv "$work/venv"
+          "$work/venv/bin/python" -m pip install --no-deps --no-index "$work"/dist/*.whl
+          python scripts/verify_installed_endpoint.py --cli "$work/venv/bin/agentic-aiops"
