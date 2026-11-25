@@ -17,7 +17,16 @@ class Investigation:
     def add_hypothesis(self, hypothesis: Hypothesis) -> None:
         if hypothesis.hypothesis_id in self.hypotheses:
             raise ValueError(f"duplicate hypothesis id: {hypothesis.hypothesis_id}")
+        if hypothesis.status == VerificationStatus.SUPPORTED:
+            self._validate_evidence(hypothesis.status, hypothesis.evidence_ids)
         self.hypotheses[hypothesis.hypothesis_id] = hypothesis
+
+    def _validate_evidence(self, status: VerificationStatus, evidence_ids: list[str]) -> None:
+        if status == VerificationStatus.SUPPORTED and not evidence_ids:
+            raise ValueError("supported hypothesis requires evidence")
+        missing = [eid for eid in evidence_ids if eid not in self.evidence]
+        if missing:
+            raise ValueError(f"unknown evidence ids: {missing}")
 
     def verify(
         self,
@@ -26,9 +35,7 @@ class Investigation:
         status: VerificationStatus,
         evidence_ids: list[str],
     ) -> Hypothesis:
-        missing = [eid for eid in evidence_ids if eid not in self.evidence]
-        if missing:
-            raise ValueError(f"unknown evidence ids: {missing}")
+        self._validate_evidence(status, evidence_ids)
 
         hypothesis = self.hypotheses[hypothesis_id]
         hypothesis.status = status
