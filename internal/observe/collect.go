@@ -204,6 +204,7 @@ func getRawJSON(ctx context.Context,hc *http.Client,endpoint *url.URL,path,token
 func getJSON(ctx context.Context,hc *http.Client,endpoint *url.URL,path,token string,out any)error{
  payload,err:=getRawJSON(ctx,hc,endpoint,path,token)
  if err!=nil{return err}
+ if err:=sourcejson.ValidateCanonicalFields(payload,out);err!=nil{return unknownf("noncanonical native source field name")}
  decoder:=json.NewDecoder(bytes.NewReader(payload))
  if err:=decoder.Decode(out);err!=nil{return unknownf("malformed source JSON")}
  var extra any
@@ -257,6 +258,7 @@ func readPrometheus(ctx context.Context,hc *http.Client,u *url.URL,c Config,now 
  path:="/api/v1/query?query="+url.QueryEscape(query)
  raw,err:=getRawJSON(ctx,hc,u,path,"")
  if err!=nil{return nil,err}
+ if err:=sourcejson.ValidateCanonicalFields(raw,&p);err!=nil{return nil,unknownf("noncanonical Prometheus source field name")}
  if sourcejson.CheckPrometheusCompleteness(raw)!=nil{return nil,unknownf("warned, partial or invalid Prometheus response")}
  if json.Unmarshal(raw,&p)!=nil{return nil,unknownf("malformed source JSON")}
  if p.Status!="success"||p.Data.ResultType!="vector"||len(p.Data.Result)==0||len(p.Data.Result)>maxSeries{return nil,unknownf("missing or invalid Prometheus instant-vector result")}

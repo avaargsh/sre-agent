@@ -1,8 +1,8 @@
 # Agentic AIOps
 
-> **Go experimental development baseline (2026-11-23, main@6b8898d):** Beyond the initial Go G0/G1 slices, the Go CLI now supports scoped Alertmanager `plan-alert`, **read-only** Kubernetes/Prometheus `investigate-alert`, offline `verify-alert-evidence`, SLI and fault Oracles, RCA human-review policy verification, and laboratory-only signed evidence controls. These features are independently integrated in development, not an end-to-end production-approved Go SRE Agent. The legacy Python Golden Incident is a separate historical demo, **not proof the Go CLI has a production remediation workflow**. See [Go rewrite plan](docs/go-rewrite-plan.md) and [SRE Golden Incident P0 acceptance plan](docs/sre-p0-golden-path.md).
+> **Go experimental development baseline (2026-11-24, main@4a336e0):** The Go CLI supports scoped Alertmanager `plan-alert`, **read-only** Kubernetes/Prometheus `investigate-alert`, offline `verify-alert-evidence`, SLI and fault Oracles, RCA human-review policy verification, and laboratory-only signed evidence controls. PRs #104–#106 hardened native JSON field admission across Observer, SLI and Service/EndpointSlice Oracles; case-insensitive aliases are checked against typed schemas while case-sensitive map keys and opaque `json.RawMessage` remain data. These are independently integrated development features, not an end-to-end production-approved Go SRE Agent. The legacy Python Golden Incident is a separate historical demo, **not proof the Go CLI has a production remediation workflow**. See [Go rewrite plan](docs/go-rewrite-plan.md) and [SRE Golden Incident P0 acceptance plan](docs/sre-p0-golden-path.md).
 >
-> These are **development features**, not authenticated alert provenance, independent RCA truth, verified production recovery, or permission to modify a real cluster. #11 SFT/GRPO remains Draft and CPU-only validation does not prove GPU training. The latest merged `main` has **not** yet received a fresh fully integrated Actions run; pre-merge checks from older HEADs must not be called final-`main` certification.
+> These are **development features**, not authenticated alert provenance, independent RCA truth, verified production recovery, or permission to modify a real cluster. #11 SFT/GRPO remains Draft and CPU-only validation does not prove GPU training. The code baseline `4a336e0` has **not** yet received full-repository Go race/vet/build and live Kind proof; pre-merge or isolated-package checks must not be called final-`main` certification.
 >
 > Read-only example: `go run ./cmd/sre-agent verify-bundle --scenario --file benchmarks/scenarios/checkout-latency.json`. `STRUCTURALLY_VALID` and `STRUCTURALLY_LINKED` attest only internal consistency, **not source authentication**.
 
@@ -11,6 +11,23 @@ Evidence-first Agentic incident investigation and safe remediation, with a runna
 ## Go read-only investigation baseline
 
 The current Go entrypoints accept original Alertmanager bytes, an operator-pinned cluster/namespace/deployment, and explicit read-only Kubernetes/Prometheus credentials. `plan-alert` produces an untrusted scoped candidate; `investigate-alert` collects a bounded v1 Evidence Bundle; `verify-alert-evidence` independently replays its structural linkage and returns `UNKNOWN` on mismatches. No part of this path approves an execution Permit or makes a production write.
+
+## Offline evaluation quickstart
+
+From the repository root, use Python 3.11 or later:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install .
+agentic-aiops evaluate-scenarios benchmarks/scenarios/checkout-latency.json --metrics-only
+```
+
+This prints five metrics for one bundled, frozen scenario. Running the
+evaluator needs no cluster, model endpoint, Temporal service, or credentials.
+The scenario is a source-tree fixture, not part of the wheel; when running
+from another directory, pass its absolute path. The scores describe that
+fixture only, not live detection accuracy or permission to remediate.
 
 ## Golden Incident v0.1
 
@@ -470,10 +487,12 @@ pytest -q
 
 For cross-repository integration, [four-repo-acceptance](.github/workflows/four-repo-acceptance.yml) verifies pinned public Control Plane, Runtime and Decision commits from this repository's main push CI on disposable kind + Temporal infrastructure.
 
-The dependency revisions are owned by the machine-readable [stack.lock.json](stack.lock.json), not duplicated inside workflow YAML. Validate the lock locally with:
+The machine-readable [stack.lock.json](stack.lock.json) pins the dependency revisions used by CI. The local check uses Python 3.11 or later and can run before package installation.
 
 ```bash
 make stack-lock-check
+# or select a specific interpreter
+make stack-lock-check PYTHON=python3.12
 # or, after installation
 agent-stack-lock stack.lock.json
 ```

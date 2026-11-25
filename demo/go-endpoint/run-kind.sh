@@ -3,7 +3,7 @@
 # injection. SRE Agent owns only GET Service / LIST EndpointSlice in this lab.
 set -euo pipefail
 ROOT=/tmp/go-endpoint-proof
-mkdir -p "$ROOT/control" "$ROOT/no-ready"
+(umask 077; mkdir -p "$ROOT/control" "$ROOT/no-ready")
 chmod 0700 "$ROOT"
 kubectl apply -f demo/k8s/golden-stack.yaml
 kubectl apply -f demo/go-endpoint/reader-role.yaml
@@ -80,24 +80,7 @@ capture_observer() {
   uid="$(kubectl -n golden-demo get svc checkout-api -o jsonpath='{.metadata.uid}')"
   capture="$dir/observer-capture.json"
   /tmp/sre-agent-g2g capture-service-endpoints --namespace golden-demo --service checkout-api --uid "$uid" --kube-api http://127.0.0.1:18001 --expected-target-port 8080 --expected-selector app=checkout-api --timeout 15s > "$capture"
-  python3 - "$capture" "$dir" <<'PY'
-import base64,json,pathlib,sys
-capture=json.loads(pathlib.Path(sys.argv[1]).read_text())
-assert capture.get("schema_version")=="sre.service-endpoints-capture/v1"
-report=capture["report"]
-assert report["source_authenticated"] is False
-assert report["classification"] in ("READY_ENDPOINTS_OBSERVED","NO_READY_ENDPOINTS_OBSERVED","UNKNOWN")
-for field,name in (
-  ("service_before_raw","observed-service.json"),
-  ("endpoint_slices_raw","observed-endpointslices.json"),
-  ("service_after_raw","observed-service-after.json"),
-):
-  raw=base64.b64decode(capture[field],validate=True)
-  assert 0<len(raw)<=2*1024*1024
-  pathlib.Path(sys.argv[2],name).write_bytes(raw)
-pathlib.Path(sys.argv[2],"observer-report.json").write_text(json.dumps(report,sort_keys=True,indent=2)+"\n")
-print("PASS: live Service/EndpointSlice collector",report["classification"],"ready endpoints",report["ready_endpoints"])
-PY
+  python3 demo/go-endpoint/verify_capture.py "$capture" "$dir" "$uid"
 }
 
 ready_count() {
@@ -146,12 +129,45 @@ wait_ready() {
 wait_zero_pods() {
   local file="$1" i
   for i in $(seq 1 75); do
-    kubectl -n golden-demo get pods -l app=checkout-api -o json > "$file"
+    kubectl get --raw '/api/v1/namespaces/golden-demo/pods?labelSelector=app%3Dcheckout-api&limit=1' > "$file" || return 1
     if python3 - "$file" <<'PY'
 import json,sys
-p=json.load(open(sys.argv[1]))
-assert p.get("kind") in ("List","PodList")
-sys.exit(0 if len(p.get("items",[]))==0 else 1)
+def unique(pairs):
+    result={}
+    for key,value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON field")
+        result[key]=value
+    return result
+
+def canonical(obj,fields):
+    names={key.casefold():key for key in fields}
+    return all(key.casefold() not in names or names[key.casefold()]==key for key in obj)
+
+try:
+    with open(sys.argv[1],"rb") as stream:
+        raw=stream.read((2<<20)+1)
+    if len(raw)>2<<20:
+        sys.exit(1)
+    p=json.loads(raw.decode("utf-8"),object_pairs_hook=unique)
+except (ValueError,OSError,RecursionError):
+    sys.exit(1)
+if not isinstance(p,dict) or p.get("kind")!="PodList" or p.get("apiVersion")!="v1":
+    sys.exit(1)
+if not canonical(p,("apiVersion","kind","metadata","items")):
+    sys.exit(1)
+m=p.get("metadata")
+if not isinstance(m,dict) or not canonical(m,("resourceVersion","continue","remainingItemCount")):
+    sys.exit(1)
+rv=m.get("resourceVersion")
+remaining=m.get("remainingItemCount",0)
+try:
+    valid_rv=isinstance(rv,str) and rv not in ("","0") and len(rv.encode("utf-8"))<=256
+except UnicodeError:
+    valid_rv=False
+complete=(valid_rv and
+          m.get("continue","")=="" and type(remaining) is int and remaining==0)
+sys.exit(0 if complete and p.get("items")==[] else 1)
 PY
     then
       echo "PASS: test-admin observed zero checkout Pods"
@@ -165,18 +181,25 @@ PY
 # Keep *all* warm-up probes as evidence; begin official fault samples only
 # after three consecutive real client failures (no quiet cherry-picking).
 probe_one() {
-  local status
-  status="$(kubectl -n golden-demo exec deploy/load-generator -c load -- \
-    curl --noproxy '*' -sS --connect-timeout 1 --max-time 3 -o /dev/null \
-      -w '%{http_code}' http://checkout-api:8080/healthz 2>/dev/null || true)"
-  [[ "$status" =~ ^[0-9]{3}$ ]] || { echo "invalid curl status: $status" >&2; return 1; }
-  printf '%d\n' "$((10#$status))"
+  local result
+  # Separate kubectl exec transport from the completed remote curl process.
+  result="$(kubectl -n golden-demo exec deploy/load-generator -c load -- sh -c '
+    rc=0
+    status=$(curl --noproxy "*" -sS --connect-timeout 1 --max-time 3 -o /dev/null \
+      -w "%{http_code}" http://checkout-api:8080/healthz) || rc=$?
+    printf "%s:%s\n" "$rc" "$status"
+  ')" || { echo "probe exec failed" >&2; return 1; }
+  case "$result" in
+    0:[1-5][0-9][0-9]) printf '%s\n' "${result#*:}" ;;
+    7:000|28:000) printf '0\n' ;;
+    *) echo "probe did not return admissible HTTP evidence" >&2; return 1 ;;
+  esac
 }
 wait_http_failure() {
   local file="$1" i code consecutive=0
   : > "$file"
   for i in $(seq 1 45); do
-    code="$(probe_one)"
+    code="$(probe_one)" || return 1
     printf '%s\n' "$code" >> "$file"
     if (( code<200 || code>=300 )); then
       consecutive=$((consecutive+1))
@@ -216,11 +239,8 @@ probe() {
   local dir="$1" phase="$2" n code
   : > "$dir/$phase-probes.txt"
   for n in 1 2 3; do
-    code="$(kubectl -n golden-demo exec deploy/load-generator -c load -- \
-      curl --noproxy '*' -sS --connect-timeout 1 --max-time 3 -o /dev/null \
-      -w '%{http_code}' http://checkout-api:8080/healthz 2>/dev/null || true)"
-    [[ "$code" =~ ^[0-9]{3}$ ]] || { echo "invalid curl status: $code" >&2; return 1; }
-    printf '%d\n' "$((10#$code))" >> "$dir/$phase-probes.txt"
+    code="$(probe_one)" || return 1
+    printf '%s\n' "$code" >> "$dir/$phase-probes.txt"
     sleep 0.25
   done
 }

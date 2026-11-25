@@ -12,13 +12,9 @@ on:
     - cron: '43 4 * * *'
   pull_request:
     paths:
-      - "internal/endpointoracle/**"
-      - "internal/observe/service_endpoints.go"
-      - "internal/observe/service_endpoints_test.go"
-      - "cmd/sre-agent/endpoint_oracle.go"
-      - "cmd/sre-agent/service_endpoints_cli.go"
-      - "cmd/sre-agent/service_endpoints_cli_test.go"
-      - "cmd/sre-agent/main.go"
+      - "internal/**"
+      - "cmd/sre-agent/**"
+      - "go.mod"
       - "demo/go-endpoint/**"
       - ".github/workflows/go-endpoint-kind.yml"
 

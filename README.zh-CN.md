@@ -193,10 +193,12 @@ gate=PROMOTE
 
 ## 依赖锁
 
-跨仓库依赖修订版由机器可读的 [`stack.lock.json`](stack.lock.json) 拥有，不重复在工作流 YAML 中。本地验证：
+CI 从机器可读的 [`stack.lock.json`](stack.lock.json) 读取跨仓库依赖版本。本地检查需要 Python 3.11 或更高版本，安装项目之前即可运行。
 
 ```bash
 make stack-lock-check
+# 或指定 Python 解释器
+make stack-lock-check PYTHON=python3.12
 # 或安装后
 agent-stack-lock stack.lock.json
 ```

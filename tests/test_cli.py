@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from agentic_aiops.cli import main
 
 
@@ -43,3 +45,33 @@ def test_cli_outputs_gate_metric_map(
     assert payload[
         "recovery_success_rate"
     ] == 1.0
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        (None, "cannot read scenario file"),
+        (b"invalid JSON", "expected UTF-8 JSON"),
+        (b"\xff", "expected UTF-8 JSON"),
+    ],
+)
+def test_cli_rejects_unreadable_or_malformed_input_without_partial_metrics(
+    tmp_path, monkeypatch, capsys, content, message
+) -> None:
+    valid = ROOT / "benchmarks/scenarios/checkout-latency.json"
+    invalid = tmp_path / "bad-scenario.json"
+    if content is not None:
+        invalid.write_bytes(content)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["agentic-aiops", "evaluate-scenarios", str(valid), str(invalid), "--metrics-only"],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main()
+
+    output = capsys.readouterr()
+    assert exc.value.code == 2
+    assert not output.out
+    assert f"{str(invalid)!r}: {message}" in output.err
+    assert "Traceback" not in output.err

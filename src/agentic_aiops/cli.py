@@ -32,10 +32,14 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    scenarios = [
-        load_evaluation_scenario(path)
-        for path in args.scenarios
-    ]
+    scenarios = []
+    for path in args.scenarios:
+        try:
+            scenarios.append(load_evaluation_scenario(path))
+        except OSError:
+            evaluate.error(f"{path!r}: cannot read scenario file")
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            evaluate.error(f"{path!r}: expected UTF-8 JSON")
     result = evaluate_aiops(
         [
             item.bundle

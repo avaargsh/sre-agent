@@ -5,6 +5,7 @@ import (
  "crypto/sha256"
  "encoding/hex"
  "encoding/json"
+ "fmt"
  "strings"
  "testing"
  "time"
@@ -51,6 +52,7 @@ func TestOfflineReviewRejectsRehashedDuplicateInstantVector(t *testing.T){
   if err!=nil{t.Fatal(err)}
   attrs["samples_json"]=string(updated)
   attrs["series_count"]="2"
+  item["observation"] = fmt.Sprintf("PromQL %s: 2 fresh finite series", attrs["promql"])
   encoded,err:=json.Marshal(attrs)
   if err!=nil{t.Fatal(err)}
   digest:=sha256.Sum256(append([]byte("prometheus:"),encoded...))

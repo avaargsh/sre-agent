@@ -1,7 +1,9 @@
 .PHONY: stack-lock-check acceptance-build acceptance acceptance-clean
 
+PYTHON ?= python3
+
 stack-lock-check:
-	PYTHONPATH=src python -m agentic_aiops.stack_lock stack.lock.json
+	PYTHONPATH=src "$(PYTHON)" -m agentic_aiops.stack_lock stack.lock.json
 
 acceptance-build: stack-lock-check
 	docker build -t agent-control-plane:acceptance ../agent-control-plane

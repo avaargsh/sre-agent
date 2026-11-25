@@ -1,8 +1,9 @@
 package endpointoracle
 
 import (
-	"reflect"
 	"testing"
+
+	"github.com/avaargsh/sre-agent/internal/sourcejson"
 )
 
 type canonicalSelectorEnvelope struct {
@@ -30,7 +31,7 @@ func TestCanonicalJSONFieldValidationRejectsCaseFoldedStructAliases(t *testing.T
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := validateCanonicalJSONFields([]byte(tc.raw), reflect.TypeOf(canonicalSelectorEnvelope{})); err == nil {
+			if err := sourcejson.ValidateCanonicalFields([]byte(tc.raw), &canonicalSelectorEnvelope{}); err == nil {
 				t.Fatal("case-folded alias accepted as a canonical struct field")
 			}
 		})
@@ -43,7 +44,25 @@ func TestCanonicalJSONFieldValidationLeavesMapKeysAsData(t *testing.T) {
 		"phase":{"probes":[200,200,200]},
 		"selector":{"SCHEMA_VERSION":"application-label"}
 	}`)
-	if err := validateCanonicalJSONFields(raw, reflect.TypeOf(canonicalSelectorEnvelope{})); err != nil {
+	if err := sourcejson.ValidateCanonicalFields(raw, &canonicalSelectorEnvelope{}); err != nil {
 		t.Fatalf("selector map key was treated as an envelope field: %v", err)
 	}
 }
+
+type canonicalEndpointSliceEnvelope struct {
+	Items []struct {
+		Metadata struct {
+			OwnerReferences []struct {
+				UID string `json:"uid"`
+			} `json:"ownerReferences"`
+		} `json:"metadata"`
+	} `json:"items"`
+}
+
+func TestCanonicalJSONFieldValidationRejectsNestedOwnerReferenceAlias(t *testing.T) {
+	raw := []byte(`{"items":[{"metadata":{"ownerReferences":[{"UID":"service-uid"}]}}]}`)
+	if err := sourcejson.ValidateCanonicalFields(raw, &canonicalEndpointSliceEnvelope{}); err == nil {
+		t.Fatal("case-folded owner reference UID alias accepted")
+	}
+}
+

@@ -2,12 +2,21 @@ name: go-sli-kind
 
 on:
   workflow_dispatch:
+  # Validate the exact merged main tree, not only PR merge refs.
+  push:
+    branches: [main]
+  # GitHub App/API-created commits may not emit workflow-triggering push events.
+  # This fallback always checks out the latest default-branch commit.
+  schedule:
+    - cron: '7 5 * * *'
   pull_request:
     paths:
       - "cmd/sre-agent/**"
-      - "internal/verifier/**"
-      - "internal/sourcejson/**"
+      - "internal/**"
+      - "go.mod"
       - "demo/k8s/golden-stack.yaml"
+      - "scripts/verify_sli_kind_evidence.py"
+      - "tests/test_verify_sli_kind_evidence.py"
       - ".github/workflows/go-sli-kind.yml"
 
 permissions:
@@ -19,6 +28,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Confirm exact event commit before live proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "${{ github.sha }}"
+          test -z "$(git status --porcelain --untracked-files=normal)"
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -45,40 +61,34 @@ jobs:
             if curl -fsS http://127.0.0.1:19090/-/ready >/dev/null 2>&1; then break; fi
             sleep 2
           done
+          curl -fsS http://127.0.0.1:19090/-/ready >/dev/null
           COMMON=(
             --prometheus http://127.0.0.1:19090
             --latency-query 'max(checkout_request_latency_seconds)'
             --traffic-query 'sum(rate(checkout_requests_total[20s]))'
             --age-query 'max(time() - timestamp(checkout_request_latency_seconds))'
             --max-sample-age-seconds 10
-            --max-latency-seconds 10
             --window 20s --step 5s
           )
           # Very lenient demo latency threshold: proves live range contract, not SLO.
-          /tmp/sre-agent verify-sli "${COMMON[@]}" --min-traffic-rps 0.001 --out /tmp/go-sli-healthy.json
-          set +e
-          /tmp/sre-agent verify-sli "${COMMON[@]}" --min-traffic-rps 1000000 --out /tmp/go-sli-unknown.json
-          STATUS=$?
-          set -e
+          /tmp/sre-agent verify-sli "${COMMON[@]}" --max-latency-seconds 10 --min-traffic-rps 0.001 --out /tmp/go-sli-healthy.json
+          # The demo handles real requests taking at least 90ms; a 1ms
+          # threshold exercises the unhealthy verdict without altering the source.
+          STATUS=0
+          /tmp/sre-agent verify-sli "${COMMON[@]}" --max-latency-seconds 0.001 --min-traffic-rps 0.001 --out /tmp/go-sli-unhealthy.json || STATUS=$?
+          test "$STATUS" -eq 4
+          STATUS=0
+          /tmp/sre-agent verify-sli "${COMMON[@]}" --max-latency-seconds 10 --min-traffic-rps 1000000 --out /tmp/go-sli-unknown.json || STATUS=$?
           test "$STATUS" -eq 3
-          python - <<'PY'
-          import base64, hashlib, json
-          for path, want in [('/tmp/go-sli-healthy.json', 'HEALTHY'), ('/tmp/go-sli-unknown.json', 'UNKNOWN')]:
-              report = json.load(open(path, encoding='utf-8'))
-              assert report['status'] == want, report
-              assert len(report['evidence']) == 3, report
-              for entry in report['evidence']:
-                  original = base64.b64decode(entry['raw_response_base64'], validate=True)
-                  assert hashlib.sha256(original).hexdigest() == entry['response_sha256']
-                  assert entry['series'] >= 1 and entry['samples'] >= 5
-              print('independently_validated', path, report['status'])
-          PY
+          python scripts/verify_sli_kind_evidence.py
       - name: Upload exact-head live SLI evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: go-sli-kind-proof
+          name: go-sli-kind-proof-${{ github.sha }}
           path: |
             /tmp/go-sli-healthy.json
+            /tmp/go-sli-unhealthy.json
             /tmp/go-sli-unknown.json
             /tmp/go-sli-prometheus-pf.log
+          if-no-files-found: warn

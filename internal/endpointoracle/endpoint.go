@@ -21,6 +21,8 @@ import (
 )
 
 const maxRaw=2<<20
+const maxServiceResourceVersionBytes=256
+const maxEndpointSliceResourceVersionBytes=256
 type Phase struct{
  Service oracle.Snapshot `json:"service"`
  EndpointSlices oracle.Snapshot `json:"endpoint_slices"`
@@ -83,10 +85,10 @@ func EvaluateRaw(episodeRaw,predictionRaw []byte)(Result,error){
  if sourcejson.Validate(episodeRaw)!=nil||sourcejson.Validate(predictionRaw)!=nil{
   return Result{},errors.New("malformed or ambiguous Episode/Prediction JSON")
  }
- if err:=validateCanonicalJSONFields(episodeRaw,reflect.TypeOf(Episode{}));err!=nil{
+ if err:=sourcejson.ValidateCanonicalFields(episodeRaw,&Episode{});err!=nil{
   return Result{},errors.New("non-canonical Episode field name")
  }
- if err:=validateCanonicalJSONFields(predictionRaw,reflect.TypeOf(Prediction{}));err!=nil{
+ if err:=sourcejson.ValidateCanonicalFields(predictionRaw,&Prediction{});err!=nil{
   return Result{},errors.New("non-canonical Prediction field name")
  }
  var e Episode
@@ -133,7 +135,31 @@ type sliceList struct {
   } `json:"endpoints"`
  } `json:"items"`
 }
+type serviceSource struct {
+	Metadata struct {
+		UID string `json:"uid"`
+		Name string `json:"name"`
+		Namespace string `json:"namespace"`
+		ResourceVersion string `json:"resourceVersion"`
+	} `json:"metadata"`
+	Spec struct {
+		Selector map[string]string `json:"selector"`
+		Ports []struct {
+			Port int `json:"port"`
+			TargetPort json.RawMessage `json:"targetPort"`
+		} `json:"ports"`
+		PublishNotReadyAddresses json.RawMessage `json:"publishNotReadyAddresses"`
+	} `json:"spec"`
+}
+
 type observation struct{ready int;version string}
+
+func validateServiceResourceVersion(version string) error {
+	if version == "" || version == "0" || len(version) > maxServiceResourceVersionBytes {
+		return errors.New("invalid or oversized opaque Service resourceVersion")
+	}
+	return nil
+}
 
 func checkedRaw(s oracle.Snapshot)([]byte,error){
  if len(s.ResponseSHA256)!=64||strings.ToLower(s.ResponseSHA256)!=s.ResponseSHA256{
@@ -154,12 +180,13 @@ func snap(raw []byte)oracle.Snapshot{
 func inspect(raw []byte,namespace,service,serviceUID string)(observation,error){
  if len(raw)==0||len(raw)>maxRaw{return observation{},errors.New("EndpointSlice response size invalid")}
  if err:=sourcejson.Validate(raw);err!=nil{return observation{},errors.New("ambiguous or malformed EndpointSlice JSON")}
+ if err:=sourcejson.ValidateCanonicalFields(raw,&sliceList{});err!=nil{return observation{},errors.New("non-canonical EndpointSlice field name")}
  dec:=json.NewDecoder(bytes.NewReader(raw))
  var list sliceList
  if err:=dec.Decode(&list);err!=nil{return observation{},errors.New("invalid EndpointSlice JSON")}
  var extra any
  if !errors.Is(dec.Decode(&extra),io.EOF){return observation{},errors.New("trailing EndpointSlice JSON")}
- if list.Kind!="EndpointSliceList"||list.Metadata.ResourceVersion==""||(len(list.Metadata.Continue)!=0&&string(list.Metadata.Continue)!=`""`)||
+ if list.Kind!="EndpointSliceList"||list.Metadata.ResourceVersion==""||list.Metadata.ResourceVersion=="0"||len(list.Metadata.ResourceVersion)>maxEndpointSliceResourceVersionBytes||(len(list.Metadata.Continue)!=0&&string(list.Metadata.Continue)!=`""`)||
   (len(list.Metadata.RemainingItemCount)!=0&&string(list.Metadata.RemainingItemCount)!="0")||list.Items==nil||len(list.Items)>128{
   return observation{},errors.New("EndpointSlice list is incomplete or wrong kind")
  }
@@ -209,9 +236,11 @@ func inspect(raw []byte,namespace,service,serviceUID string)(observation,error){
 // It never receives test-admin episode labels or client HTTP probe results.
 func Diagnose(serviceRaw,endpointRaw []byte,targetPort int,selector map[string]string)(Prediction,error){
  if len(serviceRaw)==0||len(serviceRaw)>maxRaw||sourcejson.Validate(serviceRaw)!=nil{return Prediction{},errors.New("invalid native Service JSON")}
+ if err:=sourcejson.ValidateCanonicalFields(serviceRaw,&serviceSource{});err!=nil{return Prediction{},errors.New("non-canonical Service field name")}
  if err:=validateServiceReadinessPolicy(serviceRaw);err!=nil{return Prediction{},err}
  service,err:=oracle.DiagnoseWithSelector(serviceRaw,targetPort,selector)
  if err!=nil{return Prediction{},err}
+ if err:=validateServiceResourceVersion(service.ResourceVersion);err!=nil{return Prediction{},err}
  obs,err:=inspect(endpointRaw,service.Namespace,service.Service,service.ServiceUID)
  if err!=nil{return Prediction{},err}
  classification:="UNKNOWN"
@@ -227,9 +256,11 @@ func phase(e Episode,p Phase)(oracle.Prediction,observation,error){
  serviceRaw,err:=checkedRaw(p.Service);if err!=nil{return oracle.Prediction{},observation{},err}
  endpointRaw,err:=checkedRaw(p.EndpointSlices);if err!=nil{return oracle.Prediction{},observation{},err}
  if sourcejson.Validate(serviceRaw)!=nil{return oracle.Prediction{},observation{},errors.New("invalid native Service JSON")}
+ if err:=sourcejson.ValidateCanonicalFields(serviceRaw,&serviceSource{});err!=nil{return oracle.Prediction{},observation{},errors.New("non-canonical Service field name")}
  if err:=validateServiceReadinessPolicy(serviceRaw);err!=nil{return oracle.Prediction{},observation{},err}
  got,err:=oracle.DiagnoseWithSelector(serviceRaw,e.ExpectedTargetPort,e.ExpectedSelector)
  if err!=nil{return oracle.Prediction{},observation{},err}
+ if err:=validateServiceResourceVersion(got.ResourceVersion);err!=nil{return oracle.Prediction{},observation{},err}
  obs,err:=inspect(endpointRaw,e.Namespace,e.Service,e.ServiceUID)
  if err!=nil{return oracle.Prediction{},observation{},err}
  if got.Namespace!=e.Namespace||got.Service!=e.Service||got.ServiceUID!=e.ServiceUID||
