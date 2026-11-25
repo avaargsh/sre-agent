@@ -46,7 +46,7 @@ func TestNativeServiceEndpointReplayCLI(t *testing.T) {
 		}
 	}
 	write(raw)
-	args := []string{"replay-service-endpoints", "--capture", path, "--namespace", "demo", "--service", "checkout-api", "--uid", "service-uid-1", "--expected-target-port", "8080", "--expected-selector", "app=checkout-api"}
+	args := []string{"replay-service-endpoints", "--capture", path, "--namespace", "demo", "--service", "checkout-api", "--uid", "service-uid-1", "--expected-target-port", "8080", "--expected-selector", "app=checkout-api", "--sha256", fmt.Sprintf("%x", sha256.Sum256(raw))}
 	replay := func(args []string) int {
 		stdout.Reset()
 		stderr.Reset()
@@ -77,6 +77,27 @@ func TestNativeServiceEndpointReplayCLI(t *testing.T) {
 	if code := replay(wrongUID); code != 3 || stdout.Len() != 0 {
 		t.Fatalf("mismatched target accepted: exit=%d", code)
 	}
+	// A parseable archive with changed bytes is not the independently pinned input.
+	write(append(append([]byte(nil), raw...), ' '))
+	if code := replay(args); code != 3 || stdout.Len() != 0 {
+		t.Fatalf("digest mismatch accepted: exit=%d", code)
+	}
+	write(raw)
+	if code := replay(args[:len(args)-2]); code != 2 || stdout.Len() != 0 {
+		t.Fatalf("missing pin accepted: exit=%d", code)
+	}
+	wrongDigest := append([]string(nil), args...)
+	wrongDigest[len(wrongDigest)-1] = strings.Repeat("0", 64)
+	if code := replay(wrongDigest); code != 3 || stdout.Len() != 0 {
+		t.Fatalf("wrong pin accepted: exit=%d", code)
+	}
+	// Re-pin adversarial cases so the native semantic validation, not the
+	// outer digest mismatch, must reject them.
+	repin := func(data []byte) []string {
+		out := append([]string(nil), args...)
+		out[len(out)-1] = fmt.Sprintf("%x", sha256.Sum256(data))
+		return out
+	}
 	for _, field := range []string{"ready_endpoints", "source_authenticated"} {
 		for _, missing := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s/missing=%t", field, missing), func(t *testing.T) {
@@ -95,7 +116,7 @@ func TestNativeServiceEndpointReplayCLI(t *testing.T) {
 					t.Fatal(err)
 				}
 				write(data)
-				if code := replay(args); code != 3 || stdout.Len() != 0 {
+				if code := replay(repin(data)); code != 3 || stdout.Len() != 0 {
 					t.Fatalf("invalid report accepted: exit=%d", code)
 				}
 			})
@@ -112,7 +133,8 @@ func TestNativeServiceEndpointReplayCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(data)
-	if code := replay(args); code != 3 || stdout.Len() != 0 {
+	if code := replay(repin(data)); code != 3 || stdout.Len() != 0 {
 		t.Fatalf("modified source accepted: exit=%d", code)
 	}
 }
+
