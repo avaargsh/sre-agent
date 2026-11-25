@@ -262,3 +262,27 @@ struct level. Go's standard JSON decoder accepts case-insensitive aliases
 `DisallowUnknownFields`; the evaluator rejects those aliases before typed
 decoding. Keys inside declared string maps, such as Kubernetes selectors,
 remain data and are not constrained by the envelope schema.
+
+
+## Offline pinned native archive replay
+
+The native `replay-service-endpoints` command reads the exact capture envelope
+from stdin (maximum 10 MiB), verifies its SHA-256 against a separately trusted
+record, strictly decodes it, and invokes the source-only observation replay.
+The expected Service UID, namespace, name, port and selector must come from an
+independent operator-controlled record, not from the archive itself.
+
+```bash
+sre-agent replay-service-endpoints \
+  --namespace golden-demo --service checkout-api --uid "$SERVICE_UID" \
+  --expected-target-port 8080 --expected-selector app=checkout-api \
+  --sha256 "$EXPECTED_ARCHIVE_SHA256" < /secure/path/service-endpoints-capture.json
+```
+
+The compact `sre.service-endpoints-replay/v1` receipt contains the exact archive
+SHA-256, recomputed classification and ready-address-group count, and
+`source_authenticated=false`. It does not emit raw source bytes, perform live
+reads, prove source authenticity, or authorize remediation. Invalid arguments
+exit 2; malformed, oversized, mismatched or semantically inconsistent archives
+exit 3 with no stdout receipt. A digest computed from an untrusted archive
+alone is not an independent provenance record.
