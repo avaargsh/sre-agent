@@ -62,7 +62,7 @@ def _optional_count(fields, key):
         return None
     value = fields[key]
     if type(value) is not int or value < 0:
-        raise ValueError("invalid deployment count or generation")
+        raise ValueError("invalid count or generation")
     return value
 
 
@@ -92,6 +92,64 @@ def _deployment_observation(item, uid):
     }
 
 
+def _named_items(fields, key, identity):
+    if key not in fields:
+        return None
+    items = fields[key]
+    if not isinstance(items, list):
+        raise ValueError("invalid Pod status or spec list")
+    result = {}
+    for item in items:
+        item = _object(item)
+        name = _text(item.get(identity))
+        if name in result:
+            raise ValueError("duplicate Pod condition or container identity")
+        result[name] = item
+    return result
+
+
+def _pod_observation(item, uid):
+    spec = _object(item.get("spec", {}))
+    status = _object(item.get("status", {}))
+    phase = status.get("phase")
+    if "phase" in status and phase not in ("Pending", "Running", "Succeeded", "Failed", "Unknown"):
+        raise ValueError("invalid Pod phase")
+    conditions = _named_items(status, "conditions", "type") or {}
+    for condition in conditions.values():
+        if condition.get("status") not in ("True", "False", "Unknown"):
+            raise ValueError("invalid Pod condition status")
+    statuses = _named_items(status, "containerStatuses", "name")
+    containers = None if statuses is None else []
+    for name, container in (statuses or {}).items():
+        ready = container.get("ready")
+        if "ready" in container and type(ready) is not bool:
+            raise ValueError("invalid container readiness")
+        state = _object(container.get("state", {}))
+        if len(state) > 1 or any(key not in ("waiting", "running", "terminated") for key in state):
+            raise ValueError("invalid container state")
+        state_name = next(iter(state), None)
+        detail = _object(state[state_name]) if state_name is not None else {}
+        reason = _text(detail["reason"]) if "reason" in detail else None
+        containers.append({"name": name, "ready": ready,
+                           "restart_count": _optional_count(container, "restartCount"),
+                           "state": state_name, "reason": reason})
+    declared = _named_items(spec, "containers", "name")
+    probes = None if declared is None else []
+    for name, container in (declared or {}).items():
+        configured = "readinessProbe" in container
+        if configured:
+            _object(container["readinessProbe"])
+        probes.append({"name": name, "configured": configured})
+    return {
+        "entity_id": uid,
+        "phase": phase,
+        "ready_condition": conditions.get("Ready", {}).get("status"),
+        "scheduled_condition": conditions.get("PodScheduled", {}).get("status"),
+        "container_statuses": containers,
+        "readiness_probe_presence": probes,
+    }
+
+
 def build_topology(snapshot: dict) -> dict:
     """Resolve selector matches and exact owner identities in supplied records."""
     snapshot = _object(snapshot)
@@ -103,6 +161,7 @@ def build_topology(snapshot: dict) -> dict:
     names = {("Service", root["name"])}
     controllers = {}
     pod_labels = {}
+    pod_records = {}
     deployment_records = {}
     for field, kind in (("pods", "Pod"), ("replica_sets", "ReplicaSet"), ("deployments", "Deployment")):
         listing = _object(snapshot.get(field))
@@ -126,6 +185,7 @@ def build_topology(snapshot: dict) -> dict:
                 controllers[uid] = _controller(item["metadata"])
             if kind == "Pod":
                 pod_labels[uid] = _string_map(item["metadata"].get("labels", {}))
+                pod_records[uid] = item
 
     included = {root["entity_id"]: root}
     edges = set()
@@ -166,6 +226,10 @@ def build_topology(snapshot: dict) -> dict:
         "deployment_observations": [
             _deployment_observation(deployment_records[uid], uid)
             for uid in sorted(included) if uid in deployment_records
+        ],
+        "pod_observations": [
+            _pod_observation(pod_records[uid], uid)
+            for uid in sorted(included) if uid in pod_records
         ],
         "source_authenticated": False,
         "independently_verified": False,
