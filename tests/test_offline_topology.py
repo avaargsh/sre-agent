@@ -162,3 +162,76 @@ def test_unlinked_deployment_does_not_supply_observation():
     data = snapshot()
     data["pods"]["items"] = []
     assert build_topology(data)["deployment_observations"] == []
+
+
+def test_pod_observation_preserves_reported_readiness_and_container_states():
+    data = snapshot()
+    pod = data["pods"]["items"][0]
+    pod["status"] = {
+        "phase": "Running",
+        "conditions": [{"type": "Ready", "status": "False"}, {"type": "PodScheduled", "status": "True"}],
+        "containerStatuses": [
+            {"name": "app", "ready": False, "restartCount": 3, "state": {"waiting": {"reason": "CrashLoopBackOff"}}},
+            {"name": "sidecar", "ready": True, "restartCount": 0, "state": {"running": {}}},
+        ],
+    }
+    pod["spec"] = {"containers": [{"name": "app", "readinessProbe": {"httpGet": {"path": "/ready", "port": 8080}}}, {"name": "sidecar"}]}
+    result = build_topology(data)
+    assert result["pod_observations"] == [{
+        "entity_id": "pod", "phase": "Running", "ready_condition": "False", "scheduled_condition": "True",
+        "container_statuses": [
+            {"name": "app", "ready": False, "restart_count": 3, "state": "waiting", "reason": "CrashLoopBackOff"},
+            {"name": "sidecar", "ready": True, "restart_count": 0, "state": "running", "reason": None},
+        ],
+        "readiness_probe_presence": [{"name": "app", "configured": True}, {"name": "sidecar", "configured": False}],
+    }]
+    assert result["independently_verified"] is False
+
+
+def test_missing_pod_status_is_unknown_not_unready():
+    item, = build_topology(snapshot())["pod_observations"]
+    assert item == {"entity_id": "pod", "phase": None, "ready_condition": None, "scheduled_condition": None,
+                    "container_statuses": None, "readiness_probe_presence": None}
+
+
+def test_explicit_empty_status_lists_and_unknown_condition_are_preserved():
+    data = snapshot()
+    data["pods"]["items"][0]["status"] = {"conditions": [{"type": "Ready", "status": "Unknown"}], "containerStatuses": []}
+    item, = build_topology(data)["pod_observations"]
+    assert item["ready_condition"] == "Unknown"
+    assert item["container_statuses"] == []
+
+
+@pytest.mark.parametrize("bad", ["duplicate_condition", "invalid_condition", "boolean_restart", "negative_restart", "bad_ready", "duplicate_container", "multiple_states", "invalid_phase", "invalid_probe"])
+def test_malformed_pod_observation_is_rejected(bad):
+    data = snapshot()
+    pod = data["pods"]["items"][0]
+    condition = {"type": "Ready", "status": "False"}
+    container = {"name": "app", "ready": False, "restartCount": 0, "state": {"waiting": {}}}
+    pod["status"] = {"phase": "Running", "conditions": [condition], "containerStatuses": [container]}
+    if bad == "duplicate_condition":
+        pod["status"]["conditions"].append(dict(condition))
+    elif bad == "invalid_condition":
+        condition["status"] = False
+    elif bad == "boolean_restart":
+        container["restartCount"] = True
+    elif bad == "negative_restart":
+        container["restartCount"] = -1
+    elif bad == "bad_ready":
+        container["ready"] = "false"
+    elif bad == "duplicate_container":
+        pod["status"]["containerStatuses"].append(dict(container))
+    elif bad == "multiple_states":
+        container["state"]["running"] = {}
+    elif bad == "invalid_phase":
+        pod["status"]["phase"] = "Healthy"
+    else:
+        pod["spec"] = {"containers": [{"name": "app", "readinessProbe": True}]}
+    with pytest.raises(ValueError):
+        build_topology(data)
+
+
+def test_unmatched_pod_observations_are_not_included():
+    data = snapshot()
+    data["service"]["spec"]["selector"] = {"app": "missing"}
+    assert build_topology(data)["pod_observations"] == []
