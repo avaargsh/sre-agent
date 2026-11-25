@@ -129,3 +129,51 @@ def test_endpoint_rca_rejects_digest_mismatch(tmp_path, monkeypatch, capsys):
     assert exc.value.code == 2
     assert not out.out
     assert "invalid endpoint capture" in out.err
+
+
+@pytest.mark.parametrize("classification,count,expected_ids", [
+    ("NO_READY_ENDPOINTS_OBSERVED", 0, ["endpoint-replicas", "endpoint-readiness", "endpoint-reconciliation"]),
+    ("READY_ENDPOINTS_OBSERVED", 1, []),
+    ("UNKNOWN", 0, []),
+    ("NO_READY_ENDPOINTS_OBSERVED", 1, []),
+    ("READY_ENDPOINTS_OBSERVED", 0, []),
+])
+def test_endpoint_rca_requests_evidence_without_authorizing_collection(tmp_path, monkeypatch, capsys, classification, count, expected_ids):
+    data = capture()
+    data["report"].update(classification=classification, ready_endpoints=count)
+    path = tmp_path / "capture.json"
+    raw = json.dumps(data).encode()
+    path.write_bytes(raw)
+    monkeypatch.setattr("sys.argv", ["agentic-aiops", "render-endpoint-capture", str(path), "--format", "rca-json"])
+    main()
+    report = json.loads(capsys.readouterr().out)
+    plan = report["investigation_plan"]
+    assert plan["schema_version"] == "endpoint-investigation-plan/v1"
+    assert plan["capture_sha256"] == hashlib.sha256(raw).hexdigest()
+    assert plan["reported_target"] == data["report"]["target"]
+    assert plan["target_verified"] is False
+    assert plan["collection_authorized"] is False
+    assert plan["execution_authorized"] is False
+    assert [item["hypothesis_id"] for item in plan["checks"]] == expected_ids
+    assert [item["hypothesis_id"] for item in report["hypotheses"]] == expected_ids
+    for check in plan["checks"]:
+        assert check["status"] == "pending_evidence"
+        assert check["read_only"] is True
+        assert check["evidence_ids"] == [report["evidence"][0]["evidence_id"]]
+        assert check["required_evidence"]
+        assert check["verification_question"]
+        assert not ({"command", "url", "arguments", "tool_call"} & check.keys())
+    assert path.read_bytes() == raw
+
+
+def test_endpoint_plan_distinguishes_required_evidence_for_each_candidate(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "capture.json"
+    path.write_text(json.dumps(capture()), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["agentic-aiops", "render-endpoint-capture", str(path), "--format", "rca-json"])
+    main()
+    checks = json.loads(capsys.readouterr().out)["investigation_plan"]["checks"]
+    assert [item["required_evidence"] for item in checks] == [
+        ["workload_owner_identity", "desired_and_available_replicas", "pod_phase_and_scheduling"],
+        ["pod_readiness_conditions", "container_status", "readiness_probe_configuration"],
+        ["service_selector", "pod_labels_and_identity", "endpointslice_owner_and_readiness"],
+    ]

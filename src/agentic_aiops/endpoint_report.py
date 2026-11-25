@@ -91,17 +91,39 @@ def render_endpoint_rca(summary: dict) -> dict:
     evidence_id = "endpoint-observation-" + digest
     observation = f"Capture reports {classification} and {count} ready endpoints; not independently verified."
     hypotheses = []
+    checks = []
     if classification == "NO_READY_ENDPOINTS_OBSERVED" and count == 0:
-        for key, statement in (
-            ("replicas", "Backend replica availability may be insufficient."),
-            ("readiness", "Backend readiness checks may not be passing."),
-            ("reconciliation", "Service selection or EndpointSlice reconciliation may need investigation."),
+        for key, statement, required_evidence, question in (
+            (
+                "replicas", "Backend replica availability may be insufficient.",
+                ["workload_owner_identity", "desired_and_available_replicas", "pod_phase_and_scheduling"],
+                "Does the independently identified backend have insufficient available replicas?",
+            ),
+            (
+                "readiness", "Backend readiness checks may not be passing.",
+                ["pod_readiness_conditions", "container_status", "readiness_probe_configuration"],
+                "Do backend readiness conditions explain the reported observation?",
+            ),
+            (
+                "reconciliation", "Service selection or EndpointSlice reconciliation may need investigation.",
+                ["service_selector", "pod_labels_and_identity", "endpointslice_owner_and_readiness"],
+                "Do independently collected Service, Pod and EndpointSlice records agree?",
+            ),
         ):
+            hypothesis_id = "endpoint-" + key
             hypotheses.append({
-                "hypothesis_id": "endpoint-" + key,
+                "hypothesis_id": hypothesis_id,
                 "statement": statement,
                 "evidence_ids": [evidence_id],
                 "status": "unverified",
+            })
+            checks.append({
+                "hypothesis_id": hypothesis_id,
+                "evidence_ids": [evidence_id],
+                "status": "pending_evidence",
+                "read_only": True,
+                "required_evidence": required_evidence,
+                "verification_question": question,
             })
     payload = {
         "incident": {
@@ -121,4 +143,13 @@ def render_endpoint_rca(summary: dict) -> dict:
     }
     result = json.loads(render_rca_json(payload))
     result["endpoint_observation"] = summary
+    result["investigation_plan"] = {
+        "schema_version": "endpoint-investigation-plan/v1",
+        "capture_sha256": digest,
+        "reported_target": dict(target),
+        "target_verified": False,
+        "collection_authorized": False,
+        "execution_authorized": False,
+        "checks": checks,
+    }
     return result

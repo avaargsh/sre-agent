@@ -101,6 +101,16 @@ no hypotheses. No new source authentication, independent verification,
 causality, or execution authority is asserted. The default summary output
 is unchanged.
 
+The Endpoint RCA report also includes an `endpoint-investigation-plan/v1`
+under `investigation_plan`. Each unverified hypothesis is linked to the
+observation and lists distinct pending evidence types and a verification
+question. These are descriptive, read-only investigation requirements,
+not executable tool calls. The reported target and capture SHA are context,
+not trusted scope or permission; `target_verified`, `collection_authorized`
+and `execution_authorized` remain false. An independent operator or policy
+must validate the target and authorize any actual collection. Reports that
+abstain from hypotheses have an empty `checks` list.
+
 ## Golden Incident v0.1
 
 ```text
