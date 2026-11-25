@@ -63,6 +63,16 @@ def summarize_endpoint_capture(path: str | Path) -> dict:
         digests[field] = digest
     if sources["service_before"] != sources["service_after"]:
         raise ValueError("Service snapshots differ")
+    service = json.loads(sources["service_before"].decode("utf-8"), object_pairs_hook=_unique_object)
+    slices = json.loads(sources["endpoint_slices"].decode("utf-8"), object_pairs_hook=_unique_object)
+    if not isinstance(service, dict) or service.get("kind") != "Service":
+        raise ValueError("invalid archived Service kind")
+    metadata = service.get("metadata")
+    if not isinstance(metadata, dict) or any(metadata.get(key) != value for key, value in target.items()):
+        raise ValueError("archived Service identity mismatch")
+    if (not isinstance(slices, dict) or slices.get("kind") != "EndpointSliceList"
+            or not isinstance(slices.get("items"), list)):
+        raise ValueError("invalid archived EndpointSliceList envelope")
     return {
         "schema_version": "endpoint-observation-summary/v1",
         "capture_sha256": _digest(raw),
@@ -73,6 +83,7 @@ def summarize_endpoint_capture(path: str | Path) -> dict:
         "reported_observed_at": timestamps["observed_at"],
         "source_sha256": digests,
         "source_bytes_match_report_digests": True,
+        "source_service_identity_matches_report": True,
         "source_authenticated": False,
         "independently_verified": False,
         "root_cause_verified": False,
