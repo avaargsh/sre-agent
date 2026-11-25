@@ -20,7 +20,7 @@ import time
 
 # Reuse the already-reviewed same-directory staged, fsynced, create-only
 # report publisher. Both entrypoints are executed from scripts/ by CI.
-from verify_ci_evidence_bundle import publish_report
+from verify_ci_evidence_bundle import publish_report, read_regular, validate_go_bundle_receipt
 
 
 def now_utc() -> str:
@@ -57,11 +57,6 @@ def file_sha256(path: Path) -> str:
 
 
 
-# Pinned synthetic checkout fixture digest, also tested in
-# internal/evidence/bundle_test.go. Rotate together with that fixture.
-CHECKOUT_BUNDLE_SHA256 = "0e252e0f661ee568ddb02a27db3785c225a1b0386e0d697930c03e10298d5ad3"
-
-
 def check_before_go_build(out_dir: Path) -> None:
     """Refuse all pre-existing output paths, including dangling symlinks."""
     try:
@@ -80,34 +75,8 @@ def check_after_go_build(path: Path) -> None:
 
 
 def validate_go_bundle_log(path: Path) -> None:
-    """Reject a successful Go process without its pinned JSON contract receipt."""
-    raw = path.read_bytes()
-    if not 0 < len(raw) <= 4096:
-        raise ValueError("missing or oversized Go bundle receipt")
-
-    def unique_object(pairs):
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError("duplicate Go bundle receipt field")
-            result[key] = value
-        return result
-
-    def reject_constant(_):
-        raise ValueError("nonfinite Go bundle receipt number")
-
-    result = json.loads(raw, object_pairs_hook=unique_object, parse_constant=reject_constant)
-    if (type(result) is not dict or set(result) != {
-            "status", "bundle_sha256", "evidence_count", "supported_hypotheses"}
-            or result["status"] != "STRUCTURALLY_VALID"
-            or type(result["bundle_sha256"]) is not str
-            or re.fullmatch(r"[0-9a-f]{64}", result["bundle_sha256"]) is None
-            or result["bundle_sha256"] != CHECKOUT_BUNDLE_SHA256
-            or type(result["evidence_count"]) is not int
-            or result["evidence_count"] != 2
-            or type(result["supported_hypotheses"]) is not int
-            or result["supported_hypotheses"] != 1):
-        raise ValueError("invalid Go bundle receipt shape or fixture results")
+    """Read bounded receipt bytes and reuse the offline consumer's contract."""
+    validate_go_bundle_receipt(read_regular(path, 4096, "Go bundle receipt"))
 
 
 def record_command(name: str, argv: list[str], repo: Path,

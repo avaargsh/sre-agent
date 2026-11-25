@@ -71,6 +71,44 @@ def ensure(condition: bool, reason: str) -> None:
         raise ValueError(reason)
 
 
+# Pinned synthetic checkout fixture digest, also tested in
+# internal/evidence/bundle_test.go. Rotate together with that fixture.
+CHECKOUT_BUNDLE_SHA256 = "0e252e0f661ee568ddb02a27db3785c225a1b0386e0d697930c03e10298d5ad3"
+
+
+def validate_go_bundle_receipt(raw: bytes) -> None:
+    """Reject a successful Go process without its pinned JSON contract receipt."""
+    if not 0 < len(raw) <= 4096:
+        raise ValueError("missing or oversized Go bundle receipt")
+
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate Go bundle receipt field")
+            result[key] = value
+        return result
+
+    def reject_constant(_):
+        raise ValueError("nonfinite Go bundle receipt number")
+
+    try:
+        result = json.loads(raw, object_pairs_hook=unique_object, parse_constant=reject_constant)
+    except RecursionError as exc:
+        raise ValueError("Go bundle receipt nesting exceeds decoder limit") from exc
+    if (type(result) is not dict or set(result) != {
+            "status", "bundle_sha256", "evidence_count", "supported_hypotheses"}
+            or result["status"] != "STRUCTURALLY_VALID"
+            or type(result["bundle_sha256"]) is not str
+            or re.fullmatch(r"[0-9a-f]{64}", result["bundle_sha256"]) is None
+            or result["bundle_sha256"] != CHECKOUT_BUNDLE_SHA256
+            or type(result["evidence_count"]) is not int
+            or result["evidence_count"] != 2
+            or type(result["supported_hypotheses"]) is not int
+            or result["supported_hypotheses"] != 1):
+        raise ValueError("invalid Go bundle receipt shape or fixture results")
+
+
 def valid_command(scope: str, name: str, argv: Any) -> bool:
     if type(argv) is not list or not all(type(x) is str for x in argv):
         return False
@@ -138,9 +176,12 @@ def check_scope(folder: Path, label: str, scope: str, python_version: str,
         filename = step.get("log_path")
         ensure(type(filename) is str and filename == name + ".log",
                f"{label}: unexpected log path {filename!r}")
-        log = read_regular(folder / filename, MAX_LOG, f"{label} {name} log")
+        limit = 4096 if name == "go-bundle-contract" else MAX_LOG
+        log = read_regular(folder / filename, limit, f"{label} {name} log")
         actual = hashlib.sha256(log).hexdigest()
         ensure(actual == digest, f"{label}: {name} log content does not match SHA256")
+        if name == "go-bundle-contract":
+            validate_go_bundle_receipt(log)
         logs.append({"name": name, "sha256": actual, "bytes": len(log)})
     return {"scope_label": label, "scope": scope, "python_version": python_version,
             "manifest_sha256": hashlib.sha256(raw).hexdigest(), "steps": logs}
