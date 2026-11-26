@@ -28,6 +28,7 @@ def main() -> None:
     evaluate.add_argument(
         "scenarios",
         nargs="+",
+        help="scenario JSON files with distinct case IDs",
     )
     evaluate.add_argument(
         "--metrics-only",
@@ -124,9 +125,10 @@ def main() -> None:
         return
 
     scenarios = []
+    case_ids: set[str] = set()
     for path in args.scenarios:
         try:
-            scenarios.append(load_evaluation_scenario(path))
+            scenario = load_evaluation_scenario(path)
         except OSError:
             evaluate.error(f"{path!r}: cannot read scenario file")
         except (UnicodeDecodeError, json.JSONDecodeError):
@@ -135,6 +137,10 @@ def main() -> None:
             evaluate.error(f"{path!r}: {exc}")
         except (KeyError, TypeError, ValueError, AttributeError):
             evaluate.error(f"{path!r}: invalid scenario structure")
+        if scenario.case_id in case_ids:
+            evaluate.error(f"{path!r}: duplicate scenario case ID")
+        case_ids.add(scenario.case_id)
+        scenarios.append(scenario)
     result = evaluate_aiops(
         [
             item.bundle
