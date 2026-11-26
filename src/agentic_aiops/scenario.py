@@ -15,7 +15,11 @@ class EvaluationScenario:
     outcome: AutomationOutcome
 
 
-class ScenarioOutcomeError(ValueError):
+class ScenarioFieldError(ValueError):
+    """A scenario field failed validation with a safe, fixed diagnostic."""
+
+
+class ScenarioOutcomeError(ScenarioFieldError):
     """An outcome field is missing or has the wrong JSON type."""
 
 
@@ -35,7 +39,9 @@ def load_evaluation_scenario(
         )
     )
 
-    case_id = str(payload["case_id"])
+    case_id = payload["case_id"]
+    if not isinstance(case_id, str) or not case_id or case_id != case_id.strip():
+        raise ScenarioFieldError("case_id must be a nonempty JSON string without surrounding whitespace")
     outcome_data = dict(payload["outcome"])
     for field in ("automation_eligible", "executed_without_approval", "recovery_required"):
         if not isinstance(outcome_data.get(field), bool):

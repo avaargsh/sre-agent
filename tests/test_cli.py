@@ -105,3 +105,25 @@ def test_cli_evaluation_batch_requires_distinct_case_ids(
         output = capsys.readouterr()
         assert not output.out
         assert f"{str(second)!r}: duplicate scenario case ID" in output.err
+
+
+@pytest.mark.parametrize("invalid_case_id", [False, 12, None, "", " ", " checkout "])
+def test_cli_rejects_case_ids_that_would_be_normalized(
+    tmp_path, monkeypatch, capsys, invalid_case_id
+) -> None:
+    fixture = ROOT / "benchmarks/scenarios/checkout-latency.json"
+    invalid = tmp_path / "invalid-case.json"
+    data = json.loads(fixture.read_text(encoding="utf-8"))
+    data["case_id"] = invalid_case_id
+    invalid.write_text(json.dumps(data), encoding="utf-8")
+    monkeypatch.setattr(
+        "sys.argv", ["agentic-aiops", "evaluate-scenarios", str(fixture), str(invalid)]
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main()
+
+    assert exc.value.code == 2
+    output = capsys.readouterr()
+    assert not output.out
+    assert f"{str(invalid)!r}: case_id must be a nonempty JSON string" in output.err
