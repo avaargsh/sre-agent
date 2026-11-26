@@ -126,10 +126,10 @@ def test_missing_or_symlinked_artifact_fails_closed(tmp_path):
     dataset, prompts, manifest, _, pins = fixtures(tmp_path)
     link = tmp_path / "prompts-link.jsonl"
     link.symlink_to(prompts)
-    with pytest.raises(ValueError, match="non-symlink"):
+    with pytest.raises(ValueError, match="holdout prompts symlink rejected"):
         verify_holdout_projection(dataset, link, manifest, **pins)
     manifest.unlink()
-    with pytest.raises(ValueError, match="non-symlink"):
+    with pytest.raises(FileNotFoundError):
         verify_holdout_projection(dataset, prompts, manifest, **pins)
 
 
@@ -158,7 +158,7 @@ def test_oversized_dataset_rejected_without_read_all(tmp_path, monkeypatch):
     def forbidden(_path):
         raise AssertionError("unbounded Path.read_bytes called")
     monkeypatch.setattr(Path, "read_bytes", forbidden)
-    with pytest.raises(ValueError, match="oversized"):
+    with pytest.raises(ValueError, match="holdout dataset must be a bounded regular file"):
         project_holdout_prompts(
             dataset, expected_dataset_sha256="0" * 64,
             output=tmp_path / "prompts.jsonl",
@@ -232,9 +232,52 @@ def test_symlinked_source_is_rejected_before_projection(tmp_path):
     alias.symlink_to(dataset)
     prompts = tmp_path / "prompts.jsonl"
     manifest = tmp_path / "projection.json"
-    with pytest.raises(ValueError, match="non-symlink"):
+    with pytest.raises(ValueError, match="holdout dataset symlink rejected"):
         project_holdout_prompts(
             alias, expected_dataset_sha256=sha(dataset),
             output=prompts, manifest=manifest,
         )
     assert not prompts.exists() and not manifest.exists()
+
+
+def test_projection_rejects_symlinked_parent_component_before_read(tmp_path):
+    real_parent = tmp_path / "real"
+    real_parent.mkdir()
+    dataset = real_parent / "episodes.jsonl"
+    dataset.write_bytes(SAMPLE.read_bytes())
+    alias_parent = tmp_path / "alias"
+    alias_parent.symlink_to(real_parent, target_is_directory=True)
+    prompts = tmp_path / "prompts.jsonl"
+    manifest = tmp_path / "projection.json"
+
+    with pytest.raises(ValueError, match="symlink|component"):
+        project_holdout_prompts(
+            alias_parent / dataset.name,
+            expected_dataset_sha256=sha(dataset),
+            output=prompts, manifest=manifest,
+        )
+    assert not prompts.exists() and not manifest.exists()
+
+
+def test_projection_replay_rejects_parent_symlink_and_hardlink_alias(tmp_path):
+    dataset, prompts, manifest, _, pins = fixtures(tmp_path)
+    real_parent = tmp_path / "real"
+    real_parent.mkdir()
+    moved_dataset = real_parent / dataset.name
+    dataset.replace(moved_dataset)
+    alias_parent = tmp_path / "alias"
+    alias_parent.symlink_to(real_parent, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink|component"):
+        verify_holdout_projection(
+            alias_parent / dataset.name, prompts, manifest, **pins,
+        )
+
+    # Even different path names are not independent artifacts if they share
+    # one inode. The verifier must detect that before checking the second pin.
+    hardlink = tmp_path / "dataset-hardlink.jsonl"
+    os.link(moved_dataset, hardlink)
+    with pytest.raises(ValueError, match="distinct"):
+        verify_holdout_projection(
+            moved_dataset, hardlink, manifest, **pins,
+        )
