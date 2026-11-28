@@ -139,14 +139,22 @@ From the repository root, use Python 3.11 or later:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install .
-agentic-aiops evaluate-scenarios benchmarks/scenarios/checkout-latency.json --metrics-only
+agentic-aiops evaluate-scenarios benchmarks/scenarios/checkout-latency.json
 ```
 
-This prints five metrics for one bundled, frozen scenario. Running the
-evaluator needs no cluster, model endpoint, Temporal service, or credentials.
-The scenario is a source-tree fixture, not part of the wheel; when running
-from another directory, pass its absolute path. The scores describe that
-fixture only, not live detection accuracy or permission to remediate.
+The full report shows counts alongside metrics for one frozen checkout-latency
+case. It reports one hypothesis marked supported, with no missing or invalid
+evidence references. The check does not establish that the referenced
+observation supports the claim. Read `unsupported_claim_rate`
+with `supported_claims`: a zero rate with zero claims means none were checked.
+The fixture declares `recovered: true`; this replay does not perform or verify
+a recovery. Use `--metrics-only` for consumers that already track the case
+and counts.
+
+Running the evaluator needs no cluster, model endpoint, Temporal service, or
+credentials. The case is a source-tree fixture, not part of the wheel; when
+running from another directory, pass its absolute path. These scores are not
+live detection accuracy or permission to remediate.
 
 To render its Python evidence bundle as a local Markdown RCA report:
 

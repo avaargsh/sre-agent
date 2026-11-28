@@ -10,7 +10,7 @@ from .endpoint_report import attach_topology_context, render_endpoint_rca, summa
 from .evaluation import evaluate_aiops
 from .release_metrics import evaluation_metric_map
 from .report import render_rca_json, render_rca_markdown
-from .scenario import ScenarioOutcomeError, load_evaluation_scenario
+from .scenario import ScenarioFieldError, load_evaluation_scenario
 
 
 def main() -> None:
@@ -28,6 +28,7 @@ def main() -> None:
     evaluate.add_argument(
         "scenarios",
         nargs="+",
+        help="scenario JSON files with distinct case IDs",
     )
     evaluate.add_argument(
         "--metrics-only",
@@ -124,17 +125,22 @@ def main() -> None:
         return
 
     scenarios = []
+    case_ids: set[str] = set()
     for path in args.scenarios:
         try:
-            scenarios.append(load_evaluation_scenario(path))
+            scenario = load_evaluation_scenario(path)
         except OSError:
             evaluate.error(f"{path!r}: cannot read scenario file")
         except (UnicodeDecodeError, json.JSONDecodeError):
             evaluate.error(f"{path!r}: expected UTF-8 JSON")
-        except ScenarioOutcomeError as exc:
+        except ScenarioFieldError as exc:
             evaluate.error(f"{path!r}: {exc}")
         except (KeyError, TypeError, ValueError, AttributeError):
             evaluate.error(f"{path!r}: invalid scenario structure")
+        if scenario.case_id in case_ids:
+            evaluate.error(f"{path!r}: duplicate scenario case ID")
+        case_ids.add(scenario.case_id)
+        scenarios.append(scenario)
     result = evaluate_aiops(
         [
             item.bundle
