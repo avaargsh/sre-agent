@@ -56,6 +56,12 @@ python scripts/verify_installed_endpoint.py --cli "$(command -v agentic-aiops)"
 这不是来源认证或不可变保管证明。完整英文说明见 [README](README.md)，
 原生 Go 回放见 [Endpoint Oracle](docs/go-endpoint-oracle.md)。
 
+如需查看 Python 离线评估的样本数，在同一个安装环境中运行
+`agentic-aiops evaluate-scenarios benchmarks/scenarios/checkout-latency.json`。
+这个固定样例只有一个被标记为已支持的假设，评估只检查引用能否在证据包中找到，
+不判断观察能否支撑结论。没有标记为已支持的假设时，不受支持的假设比例也可能是 0，须同时看
+`supported_claims`。恢复成功是样例预设的结果。机器消费可加 `--metrics-only`。
+
 ## Golden Incident v0.1
 
 首个可运行的垂直切片演示 `checkout-api` 服务延迟超 SLO 的完整处置流程：
